@@ -140,3 +140,12 @@ def test_delete_track(client: TestClient) -> None:
     track = make_track(client, make_release_group(client, nina), make_recording(client, nina))
     assert client.delete(f"/tracks/{track['id']}").status_code == 204
     assert client.delete(f"/tracks/{track['id']}").status_code == 404
+
+
+def test_unknown_track_reference_is_a_validation_error(client: TestClient) -> None:
+    nina = make_artist(client)
+    track = make_track(client, make_release_group(client, nina), make_recording(client, nina))
+    missing = str(uuid.uuid4())
+    response = client.patch(f"/tracks/{track['id']}", json={"recording_id": missing})
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["loc"] == ["body", "recording_id"]

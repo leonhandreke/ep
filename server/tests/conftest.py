@@ -63,7 +63,15 @@ def session(engine: Engine) -> Iterator[Session]:
 
 @pytest.fixture
 def client(session: Session) -> Iterator[TestClient]:
-    app.dependency_overrides[get_session] = lambda: session
+    def request_session() -> Iterator[Session]:
+        # Like a per-request session: a failed request leaves nothing pending behind.
+        try:
+            yield session
+        except Exception:
+            session.rollback()
+            raise
+
+    app.dependency_overrides[get_session] = request_session
     with TestClient(app) as client:
         yield client
     app.dependency_overrides.clear()

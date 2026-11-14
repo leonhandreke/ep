@@ -56,7 +56,11 @@ uv run alembic revision --autogenerate -m "add catalogue"
   generated Swift client. Keep endpoint function names unique.
 - `PATCH` bodies default every field to `pydantic.MISSING`: omitted fields are left
   alone; only nullable columns accept `null`.
-- Constraint violations on commit (`ep.api.deps.commit`) become `409`.
+- Constraint violations (`IntegrityError` on flush or commit) become `409` through an app
+  exception handler (`ep.api.errors`); endpoints just call `session.commit()`. Document
+  expected errors per route with `responses=NOT_FOUND | CONFLICT` (body `ErrorRead`).
+- A body that references a missing row is a `422` in FastAPI's `HTTPValidationError`
+  shape (`ep.api.deps.get_or_422`), never a bare string detail.
 - Artist credits are shared and never edited in place; use `ep.credits`
   (`get_or_create_artist_credit`, `delete_artist_credit_if_unused`).
 - `external_id` has no foreign key: deleting an entity must call

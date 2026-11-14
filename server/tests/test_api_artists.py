@@ -106,3 +106,29 @@ def test_list_artist_release_groups(client: TestClient) -> None:
     page = client.get(f"/artists/{nina['id']}/release-groups", params={"limit": 2, "offset": 1})
     assert [rg["title"] for rg in page.json()] == ["Pastel Blues", "Duets"]
     assert client.get(f"/artists/{uuid.uuid4()}/release-groups").status_code == 404
+
+
+def test_list_artist_recordings(client: TestClient) -> None:
+    nina = make_artist(client, "Nina Simone")
+    other = make_artist(client, "Someone Else")
+    release_group = make_release_group(client, nina)
+    on_album = make_recording(client, nina, "Sinnerman")
+    post(
+        client,
+        "/tracks",
+        {"release_group_id": release_group["id"], "recording_id": on_album["id"], "position": 1},
+    )
+    make_recording(client, nina, "Loose Track")
+    post(client, "/recordings", {"title": "Duet", "artist_credit": credit(other, nina)})
+    make_recording(client, other, "Not Nina's")
+
+    def titles(**params: int) -> list[str]:
+        response = client.get(f"/artists/{nina['id']}/recordings", params=params)
+        assert response.status_code == 200, response.text
+        return [recording["title"] for recording in response.json()]
+
+    assert titles() == ["Duet", "Loose Track", "Sinnerman"]
+    assert titles(standalone=True) == ["Duet", "Loose Track"]
+    assert titles(standalone=False) == ["Sinnerman"]
+    assert titles(standalone=True, limit=1, offset=1) == ["Loose Track"]
+    assert client.get(f"/artists/{uuid.uuid4()}/recordings").status_code == 404

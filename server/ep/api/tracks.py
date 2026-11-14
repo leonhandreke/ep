@@ -1,49 +1,42 @@
 import uuid
 
-from fastapi import APIRouter, HTTPException, status
-from sqlmodel import Session
+from fastapi import APIRouter, status
 
-from ep.api.deps import SessionDep, commit, get_or_404
+from ep.api.deps import SessionDep, get_or_404, get_or_422
+from ep.api.errors import CONFLICT, NOT_FOUND
 from ep.api.schemas import TrackCreate, TrackRead, TrackUpdate
 from ep.models import Recording, ReleaseGroup, Track
 
 router = APIRouter(prefix="/tracks", tags=["tracks"])
 
 
-def _require(session: Session, model: type[Recording | ReleaseGroup], id: uuid.UUID) -> None:
-    if session.get(model, id) is None:
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_CONTENT, f"{model.__tablename__} {id} not found"
-        )
-
-
-@router.post("", status_code=status.HTTP_201_CREATED)
+@router.post("", status_code=status.HTTP_201_CREATED, responses=CONFLICT)
 def create_track(body: TrackCreate, session: SessionDep) -> TrackRead:
-    _require(session, ReleaseGroup, body.release_group_id)
-    _require(session, Recording, body.recording_id)
+    get_or_422(session, ReleaseGroup, body.release_group_id, ("release_group_id",))
+    get_or_422(session, Recording, body.recording_id, ("recording_id",))
     track = Track.model_validate(body)
     session.add(track)
-    commit(session)
+    session.commit()
     return TrackRead.model_validate(track)
 
 
-@router.get("/{id}")
+@router.get("/{id}", responses=NOT_FOUND)
 def get_track(id: uuid.UUID, session: SessionDep) -> TrackRead:
     return TrackRead.model_validate(get_or_404(session, Track, id))
 
 
-@router.patch("/{id}")
+@router.patch("/{id}", responses=NOT_FOUND | CONFLICT)
 def update_track(id: uuid.UUID, body: TrackUpdate, session: SessionDep) -> TrackRead:
     track = get_or_404(session, Track, id)
     data = body.model_dump()
     if "recording_id" in data:
-        _require(session, Recording, data["recording_id"])
+        get_or_422(session, Recording, data["recording_id"], ("recording_id",))
     track.sqlmodel_update(data)
-    commit(session)
+    session.commit()
     return TrackRead.model_validate(track)
 
 
-@router.delete("/{id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{id}", status_code=status.HTTP_204_NO_CONTENT, responses=NOT_FOUND)
 def delete_track(id: uuid.UUID, session: SessionDep) -> None:
     session.delete(get_or_404(session, Track, id))
-    commit(session)
+    session.commit()

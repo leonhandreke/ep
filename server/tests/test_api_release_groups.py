@@ -141,3 +141,32 @@ def test_list_tracks_in_disc_and_position_order(client: TestClient) -> None:
     page = client.get(f"/release-groups/{release_group['id']}/tracks", params={"offset": 3})
     assert [t["recording"]["title"] for t in page.json()] == ["Duet"]
     assert client.get(f"/release-groups/{uuid.uuid4()}/tracks").status_code == 404
+
+
+def test_conflict_while_changing_credit_is_409(client: TestClient, session: Session) -> None:
+    # The new credit is looked up with the conflicting MBID already pending, so the
+    # violation surfaces on autoflush, not on commit.
+    nina = make_artist(client)
+    other = make_artist(client, "Other")
+    mbid = str(uuid.uuid4())
+    make_release_group(client, nina, "One", mbid=mbid)
+    two = make_release_group(client, nina, "Two")
+    response = client.patch(
+        f"/release-groups/{two['id']}", json={"mbid": mbid, "artist_credit": credit(other)}
+    )
+    assert response.status_code == 409
+    assert "uq_release_group_mbid" in response.json()["detail"]
+    unchanged = client.get(f"/release-groups/{two['id']}").json()
+    assert (unchanged["mbid"], unchanged["artist_credit"]["name"]) == (None, "Nina Simone")
+    assert [c.name for c in session.exec(select(ArtistCredit))] == ["Nina Simone"]
+
+
+def test_unknown_credited_artist_is_a_validation_error(client: TestClient) -> None:
+    nina = make_artist(client)
+    missing = str(uuid.uuid4())
+    body = {"title": "X", "artist_credit": [{"artist_id": nina["id"]}, {"artist_id": missing}]}
+    response = client.post("/release-groups", json=body)
+    assert response.status_code == 422
+    [error] = response.json()["detail"]
+    assert error["loc"] == ["body", "artist_credit", 1, "artist_id"]
+    assert error["input"] == missing

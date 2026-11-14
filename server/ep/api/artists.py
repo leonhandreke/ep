@@ -3,13 +3,25 @@ import uuid
 from fastapi import APIRouter, HTTPException, status
 from sqlmodel import col, select
 
-from ep.api.deps import PageDep, SessionDep, commit, get_or_404
+from ep.api.deps import PageDep, SessionDep, get_or_404
+from ep.api.errors import CONFLICT, NOT_FOUND
 from ep.api.external_ids import add_external_id_routes, delete_external_ids
 from ep.api.release_groups import release_group_order
-from ep.api.schemas import ArtistCreate, ArtistRead, ArtistUpdate, ReleaseGroupRead
-from ep.models import Artist, ArtistCreditName, EntityType, ReleaseGroup
+from ep.api.schemas import (
+    ArtistCreate,
+    ArtistRead,
+    ArtistUpdate,
+    RecordingRead,
+    ReleaseGroupRead,
+)
+from ep.models import Artist, ArtistCreditName, EntityType, Recording, ReleaseGroup, Track
 
 router = APIRouter(prefix="/artists", tags=["artists"])
+
+
+def _credit_ids(artist_id: uuid.UUID):
+    """Subquery: the artist credits that include this artist."""
+    return select(ArtistCreditName.artist_credit_id).where(ArtistCreditName.artist_id == artist_id)
 
 
 @router.get("")
@@ -23,28 +35,28 @@ def list_artists(session: SessionDep, page: PageDep) -> list[ArtistRead]:
     return [ArtistRead.model_validate(artist) for artist in artists]
 
 
-@router.post("", status_code=status.HTTP_201_CREATED)
+@router.post("", status_code=status.HTTP_201_CREATED, responses=CONFLICT)
 def create_artist(body: ArtistCreate, session: SessionDep) -> ArtistRead:
     artist = Artist.model_validate(body, update={"sort_name": body.sort_name or body.name})
     session.add(artist)
-    commit(session)
+    session.commit()
     return ArtistRead.model_validate(artist)
 
 
-@router.get("/{id}")
+@router.get("/{id}", responses=NOT_FOUND)
 def get_artist(id: uuid.UUID, session: SessionDep) -> ArtistRead:
     return ArtistRead.model_validate(get_or_404(session, Artist, id))
 
 
-@router.patch("/{id}")
+@router.patch("/{id}", responses=NOT_FOUND | CONFLICT)
 def update_artist(id: uuid.UUID, body: ArtistUpdate, session: SessionDep) -> ArtistRead:
     artist = get_or_404(session, Artist, id)
     artist.sqlmodel_update(body.model_dump())
-    commit(session)
+    session.commit()
     return ArtistRead.model_validate(artist)
 
 
-@router.delete("/{id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{id}", status_code=status.HTTP_204_NO_CONTENT, responses=NOT_FOUND | CONFLICT)
 def delete_artist(id: uuid.UUID, session: SessionDep) -> None:
     """Delete an artist that is not credited on anything."""
     artist = get_or_404(session, Artist, id)
@@ -52,24 +64,45 @@ def delete_artist(id: uuid.UUID, session: SessionDep) -> None:
         raise HTTPException(status.HTTP_409_CONFLICT, "artist is still credited")
     delete_external_ids(session, EntityType.artist, id)
     session.delete(artist)
-    commit(session)
+    session.commit()
 
 
-@router.get("/{id}/release-groups")
+@router.get("/{id}/release-groups", responses=NOT_FOUND)
 def list_artist_release_groups(
     id: uuid.UUID, session: SessionDep, page: PageDep
 ) -> list[ReleaseGroupRead]:
     """Release groups whose artist credit includes this artist, oldest first."""
     get_or_404(session, Artist, id)
-    credit_ids = select(ArtistCreditName.artist_credit_id).where(ArtistCreditName.artist_id == id)
     release_groups = session.exec(
         select(ReleaseGroup)
-        .where(col(ReleaseGroup.artist_credit_id).in_(credit_ids))
+        .where(col(ReleaseGroup.artist_credit_id).in_(_credit_ids(id)))
         .order_by(*release_group_order)
         .limit(page.limit)
         .offset(page.offset)
     )
     return [ReleaseGroupRead.model_validate(rg) for rg in release_groups]
+
+
+@router.get("/{id}/recordings", responses=NOT_FOUND)
+def list_artist_recordings(
+    id: uuid.UUID, session: SessionDep, page: PageDep, standalone: bool | None = None
+) -> list[RecordingRead]:
+    """Recordings whose artist credit includes this artist, by title.
+
+    ``standalone=true``: only recordings that are not a track of any release group
+    (loose tracks); ``false``: only those that are; omitted: all.
+    """
+    get_or_404(session, Artist, id)
+    query = select(Recording).where(col(Recording.artist_credit_id).in_(_credit_ids(id)))
+    if standalone is not None:
+        has_track = select(Track.id).where(Track.recording_id == Recording.id).exists()
+        query = query.where(~has_track if standalone else has_track)
+    recordings = session.exec(
+        query.order_by(col(Recording.title), col(Recording.id))
+        .limit(page.limit)
+        .offset(page.offset)
+    )
+    return [RecordingRead.model_validate(recording) for recording in recordings]
 
 
 add_external_id_routes(router, Artist, EntityType.artist, "")
