@@ -24,15 +24,21 @@ def test_create_and_get_recording(client: TestClient) -> None:
 def test_recording_lists_its_tracks(client: TestClient) -> None:
     nina = make_artist(client)
     recording = make_recording(client, nina)
-    first = make_release_group(client, nina, "Pastel Blues")
-    second = make_release_group(client, nina, "Best Of", type="compilation")
-    make_track(client, first, recording, 10)
-    make_track(client, second, recording, 3, title="Sinnerman (Edit)")
+    undated = make_release_group(client, nina, "Bootleg")
+    best_of = make_release_group(client, nina, "Best Of", type="compilation", date="1990")
+    pastel = make_release_group(client, nina, "Pastel Blues", date="1965-10")
+    make_track(client, best_of, recording, 3, title="Sinnerman (Edit)")
+    make_track(client, undated, recording, 2, disc=2)
+    make_track(client, undated, recording, 1, disc=2)
+    make_track(client, pastel, recording, 10)
 
+    # By release group, oldest first and undated last, then disc and position.
     tracks = client.get(f"/recordings/{recording['id']}").json()["tracks"]
-    assert sorted((t["release_group"]["title"], t["position"], t["title"]) for t in tracks) == [
-        ("Best Of", 3, "Sinnerman (Edit)"),
+    assert [(t["release_group"]["title"], t["position"], t["title"]) for t in tracks] == [
         ("Pastel Blues", 10, None),
+        ("Best Of", 3, "Sinnerman (Edit)"),
+        ("Bootleg", 1, None),
+        ("Bootleg", 2, None),
     ]
 
 

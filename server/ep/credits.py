@@ -9,9 +9,12 @@ which is never edited in place: changing an entity's credit points it at another
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from sqlmodel import Session, select
+from sqlalchemy import exists
+from sqlalchemy.orm import joinedload
+from sqlalchemy.orm.interfaces import ORMOption
+from sqlmodel import Session, col, select
 
-from ep.models import Artist, ArtistCredit, ArtistCreditName, Recording, ReleaseGroup
+from ep.models import Artist, ArtistCredit, ArtistCreditName, Recording, ReleaseGroup, rel
 
 
 @dataclass(frozen=True)
@@ -49,10 +52,21 @@ def get_or_create_artist_credit(session: Session, parts: Sequence[CreditPart]) -
     return credit
 
 
+def with_credit(*path: object) -> ORMOption:
+    """Load option: the many-to-one relationships ``path`` (ending in an artist credit)
+    joined in, and the credit's names, for listing entities with their credits."""
+    first, *rest = path
+    option = joinedload(rel(first))
+    for attribute in rest:
+        option = option.joinedload(rel(attribute))
+    return option.selectinload(rel(ArtistCredit.names))
+
+
 def delete_artist_credit_if_unused(session: Session, credit: ArtistCredit) -> None:
     """Delete a credit that no release group or recording uses any more."""
     session.flush()
-    for model in (ReleaseGroup, Recording):
-        if session.exec(select(model.id).where(model.artist_credit_id == credit.id)).first():
-            return
-    session.delete(credit)
+    used = exists().where(col(ReleaseGroup.artist_credit_id) == credit.id) | exists().where(
+        col(Recording.artist_credit_id) == credit.id
+    )
+    if not session.scalar(select(used)):
+        session.delete(credit)

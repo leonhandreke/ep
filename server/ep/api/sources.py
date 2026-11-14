@@ -13,7 +13,7 @@ from ep.api.errors import CONFLICT, NOT_FOUND, ErrorRead, unprocessable
 from ep.api.schemas import PlaybackRead, SourceCreate, SourceRead, SourceUpdate
 from ep.media_roots import is_within_media_roots
 from ep.models import Recording, Source, SourceKind
-from ep.playback import NotPlayable, resolve
+from ep.playback import NotPlayable, Playback, resolve, try_resolve
 from ep.probe import ProbeError, probe
 
 router = APIRouter(prefix="/sources", tags=["sources"])
@@ -54,12 +54,11 @@ def audio_media_type(path: Path) -> str:
     )
 
 
-def source_read(source: Source) -> SourceRead:
-    try:
-        playback = PlaybackRead.model_validate(resolve(source))
-    except NotPlayable:
-        playback = None
-    return SourceRead.model_validate(source).model_copy(update={"playback": playback})
+def source_read(source: Source, playback: Playback | None) -> SourceRead:
+    """A source with how to play it (``try_resolve``, or ``resolve_where`` for lists)."""
+    return SourceRead.model_validate(source).model_copy(
+        update={"playback": playback and PlaybackRead.model_validate(playback)}
+    )
 
 
 def _check_source(session: Session, source: Source, media_roots: Sequence[Path]) -> None:
@@ -123,12 +122,13 @@ def create_source(body: SourceCreate, session: SessionDep, settings: SettingsDep
         _fill_file_facts(source)
     session.add(source)
     session.commit()
-    return source_read(source)
+    return source_read(source, try_resolve(source))
 
 
 @router.get("/{id}", responses=NOT_FOUND)
 def get_source(id: uuid.UUID, session: SessionDep) -> SourceRead:
-    return source_read(get_or_404(session, Source, id))
+    source = get_or_404(session, Source, id)
+    return source_read(source, try_resolve(source))
 
 
 @router.patch("/{id}", responses=NOT_FOUND | CONFLICT)
@@ -140,7 +140,7 @@ def update_source(
         source.sqlmodel_update(body.model_dump())
         _check_source(session, source, settings.media_roots)
     session.commit()
-    return source_read(source)
+    return source_read(source, try_resolve(source))
 
 
 @router.delete("/{id}", status_code=status.HTTP_204_NO_CONTENT, responses=NOT_FOUND | CONFLICT)

@@ -37,13 +37,14 @@ class Source(Base, table=True):
     # Absolute path (as seen by the server) for ``file``; URL or URI for remote kinds;
     # null for ``slice``.
     uri: str | None = None
-    # The source this one was obtained from.
-    parent_id: uuid.UUID | None = Field(default=None, foreign_key="source.id")
+    # The source this one was obtained from. Indexed: derived sources of a source.
+    parent_id: uuid.UUID | None = Field(default=None, foreign_key="source.id", index=True)
     # Time range within the parent (``slice`` only). No end: to the end of the parent.
     start_ms: int | None = None
     end_ms: int | None = None
     # The recording this source plays; null for containers (whole-album or episode file).
-    recording_id: uuid.UUID | None = Field(default=None, foreign_key="recording.id")
+    # Indexed: a recording's sources (playback).
+    recording_id: uuid.UUID | None = Field(default=None, foreign_key="recording.id", index=True)
     # True if EP downloaded it into the managed library; false for files indexed in place.
     managed: bool = False
     codec: str | None = None

@@ -1,9 +1,11 @@
 """Playback resolution: which file plays a source, and which part of it."""
 
 import uuid
+from collections.abc import Collection
 from dataclasses import dataclass
 from pathlib import Path
 
+from sqlalchemy import ColumnElement
 from sqlmodel import Session, col, select
 
 from ep.models import Source, SourceKind
@@ -26,7 +28,8 @@ class Playback:
 def resolve(source: Source) -> Playback:
     """Walk ``parent_id`` up to the nearest ``file`` source, summing slice offsets.
 
-    Nested slices are relative to their parent and cannot extend beyond it.
+    Nested slices are relative to their parent and cannot extend beyond it. Loads each
+    parent that is not in the session yet (``resolve_where`` loads them up front).
     """
     slices: list[Source] = []
     seen: set[uuid.UUID] = set()
@@ -56,16 +59,49 @@ def resolve(source: Source) -> Playback:
     return Playback(source.id, node.id, Path(node.uri), start, end)
 
 
-def recording_playback(session: Session, recording_id: uuid.UUID) -> Playback | None:
-    """How to play a recording: its oldest source that resolves to a file, if any."""
-    sources = session.exec(
-        select(Source)
-        .where(Source.recording_id == recording_id)
-        .order_by(col(Source.created_at), col(Source.id))
+def resolve_where(
+    session: Session, where: ColumnElement[bool]
+) -> list[tuple[Source, Playback | None]]:
+    """The sources matching ``where``, oldest first, each resolved (None if not playable).
+
+    Loads the sources and all their ancestors in one query (a recursive CTE over
+    ``parent_id``; ``UNION`` stops at cycles), so that ``resolve`` finds every parent in
+    the session instead of loading them one at a time. The ancestors are held until all
+    are resolved: the session only keeps weak references.
+    """
+    chain = select(col(Source.id), col(Source.parent_id)).where(where).cte(recursive=True)
+    chain = chain.union(
+        select(col(Source.id), col(Source.parent_id)).join(
+            chain, col(Source.id) == chain.c.parent_id
+        )
     )
-    for source in sources:
-        try:
-            return resolve(source)
-        except NotPlayable:
-            continue
-    return None
+    rows = session.exec(
+        select(Source, where)
+        .where(col(Source.id).in_(select(chain.c.id)))
+        .order_by(col(Source.created_at), col(Source.id))
+    ).all()
+    return [(source, try_resolve(source)) for source, matches in rows if matches]
+
+
+def try_resolve(source: Source) -> Playback | None:
+    """``resolve``, or None if the source is not playable."""
+    try:
+        return resolve(source)
+    except NotPlayable:
+        return None
+
+
+def recording_playbacks(
+    session: Session, recording_ids: Collection[uuid.UUID]
+) -> dict[uuid.UUID, Playback]:
+    """How to play each recording: its oldest source that resolves to a file.
+
+    Recordings without a playable source are left out.
+    """
+    if not recording_ids:
+        return {}
+    playbacks: dict[uuid.UUID, Playback] = {}
+    for source, playback in resolve_where(session, col(Source.recording_id).in_(recording_ids)):
+        if playback is not None and source.recording_id is not None:
+            playbacks.setdefault(source.recording_id, playback)
+    return playbacks

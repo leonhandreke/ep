@@ -4,11 +4,11 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlmodel import Session
+from sqlmodel import Session, col
 
 from ep.media_roots import is_within_media_roots
 from ep.models import Source, SourceKind
-from ep.playback import NotPlayable, resolve
+from ep.playback import NotPlayable, resolve, resolve_where
 from ep.settings import Settings
 from tests.helpers import make_artist, make_recording, make_release_group, make_track, post
 
@@ -131,6 +131,8 @@ def test_resolve_guards_against_cycles(session: Session) -> None:
     session.expire_all()
     with pytest.raises(NotPlayable, match="cycle"):
         resolve(a)
+    # The recursive query that loads ancestors for lists stops at the cycle too.
+    assert resolve_where(session, col(Source.id) == a.id) == [(a, None)]
 
 
 def test_update_source(client: TestClient, audio_dir: Path) -> None:

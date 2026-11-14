@@ -1,7 +1,9 @@
 import uuid
 from datetime import UTC, datetime
+from typing import Any, cast
 
 from sqlalchemy import DateTime
+from sqlalchemy.orm import QueryableAttribute
 from sqlmodel import Field, SQLModel
 
 # Deterministic constraint names, so Alembic can refer to them in migrations.
@@ -12,6 +14,11 @@ SQLModel.metadata.naming_convention = {
     "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
     "pk": "pk_%(table_name)s",
 }
+
+
+def rel(attribute: object) -> QueryableAttribute[Any]:
+    """A relationship attribute, for load options: SQLModel types them as their targets."""
+    return cast(QueryableAttribute[Any], attribute)
 
 
 def utcnow() -> datetime:

@@ -4,7 +4,7 @@ Import every table module here so that ``SQLModel.metadata`` (used by Alembic
 autogenerate) sees all tables.
 """
 
-from ep.models.base import Base
+from ep.models.base import Base, rel
 from ep.models.catalogue import (
     Artist,
     ArtistCredit,
@@ -33,4 +33,5 @@ __all__ = [
     "Source",
     "SourceKind",
     "Track",
+    "rel",
 ]

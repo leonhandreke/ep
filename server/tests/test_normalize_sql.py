@@ -18,7 +18,7 @@ EXAMPLES = [
     "Jóga",
     "Hyperballad!",
     "Here Comes the Sun (Remastered 2009)",
-    "Hey Jude – Remastered 2015",
+    "Hey Jude – Remastered 2015",  # noqa: RUF001 (an en dash on purpose)
     "Sinnerman [ft. Someone] (Remastered)",
     "Don't Stop Me Now",
     "Rock & Roll",

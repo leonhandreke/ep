@@ -53,6 +53,13 @@ uv run alembic revision --autogenerate -m "add catalogue"
 
 ## API conventions
 
+- List endpoints load what they render in a fixed number of queries, however many rows:
+  eager-load relationships (`ep.credits.with_credit` for artist credits, `joinedload`/
+  `selectinload`/`contains_eager`), never a lazy load per row.
+  `tests/test_query_counts.py` counts the statements. Index a column a query filters or
+  joins on (Postgres does not index foreign keys) unless a unique constraint starts
+  with it.
+
 - OpenAPI operation IDs are the endpoint function names (`list_artists`, ...), for the
   generated Swift client. Keep endpoint function names unique.
 - `PATCH` bodies default every field to `pydantic.MISSING`: omitted fields are left
@@ -81,6 +88,8 @@ uv run alembic revision --autogenerate -m "add catalogue"
   (nested slices are clipped to their parent). `playback` on `SourceRead` and `TrackRead`
   is the result: stream `GET /sources/{id}/stream` (whole file, HTTP Range) and play
   `start_ms`..`end_ms`. Remote-only sources have `playback: null` and stream as a 409.
+  For lists, `ep.playback.resolve_where` / `recording_playbacks` load the sources and
+  all their ancestors in one recursive-CTE query and resolve them in memory.
 - `ep.probe.probe(path)` reads codec/duration (`ffprobe`, in the image) and tags plus the
   embedded cover (`mutagen`). It never writes. `POST /sources` uses it to fill in a new
   file source's codec, duration and size.
@@ -118,8 +127,7 @@ uv run alembic revision --autogenerate -m "add catalogue"
   several words also matches "artist title" of recordings and release groups ("nina
   simone sinnerman"). `GET /resolve/{type}/{uuid}` finds an entity by internal ID or
   MBID (or a release group by its release MBID).
-- Matching and search run in Postgres on indexes (the one exception to the plain
-  schema): `artist.name`, `artist.sort_name`, `artist_credit.name`,
+- Matching and search run in Postgres on indexes: `artist.name`, `artist.sort_name`, `artist_credit.name`,
   `release_group.title` and `recording.title` each have a stored generated
   `*_normalized` column (`ep_normalize(<column>)`, never set by code) with a GIN
   `gin_trgm_ops` index. `ep_normalize` (migration 0004) is the SQL twin of

@@ -13,7 +13,7 @@ from ep.api.schemas import (
     ReleaseGroupUpdate,
     TrackRead,
 )
-from ep.api.tracks import track_read
+from ep.api.tracks import track_reads, with_recording
 from ep.covers import remove_cover_file
 from ep.credits import delete_artist_credit_if_unused
 from ep.models import EntityType, ReleaseGroup, Track
@@ -81,8 +81,9 @@ def list_release_group_tracks(id: uuid.UUID, session: SessionDep, page: PageDep)
         .order_by(col(Track.disc), col(Track.position))
         .limit(page.limit)
         .offset(page.offset)
-    )
-    return [track_read(session, track) for track in tracks]
+        .options(with_recording)
+    ).all()
+    return track_reads(session, tracks)
 
 
 add_external_id_routes(router, ReleaseGroup, EntityType.release_group, "")

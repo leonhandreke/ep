@@ -33,11 +33,10 @@ import uuid
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any, cast
 
 from rapidfuzz import fuzz
 from sqlalchemy import ColumnElement, and_, func, or_, true
-from sqlalchemy.orm import Mapped, QueryableAttribute, selectinload
+from sqlalchemy.orm import Mapped, selectinload
 from sqlalchemy.orm.interfaces import ORMOption
 from sqlmodel import Session, col, select
 
@@ -53,6 +52,7 @@ from ep.models import (
     ExternalId,
     Recording,
     ReleaseGroup,
+    rel,
 )
 
 # Scores are 0-100.
@@ -228,17 +228,12 @@ def _candidate(query: str, column: Mapped[str]) -> ColumnElement[bool]:
     return word_similar(query, column)
 
 
-def _relationship(attribute: object) -> QueryableAttribute[Any]:
-    # SQLModel types relationship attributes as their targets.
-    return cast(QueryableAttribute[Any], attribute)
-
-
 def _with_credit(relationship: ArtistCredit) -> ORMOption:
     """Load option: the artist credit with its artists, for ``credit_score``."""
     return (
-        selectinload(_relationship(relationship))
-        .selectinload(_relationship(ArtistCredit.names))
-        .selectinload(_relationship(ArtistCreditName.artist))
+        selectinload(rel(relationship))
+        .selectinload(rel(ArtistCredit.names))
+        .selectinload(rel(ArtistCreditName.artist))
     )
 
 

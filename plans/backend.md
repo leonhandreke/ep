@@ -235,6 +235,15 @@ the job). Jobs leave the queue only by being completed or explicitly dismissed.
    above: add indexes for obvious lookup paths, replace awkward multi-query code with
    a join or custom SQL where that is clearly better, and leave ORM code alone where
    it is fine.
+   Outcome: list endpoints eager-load what they render (artist credits with their
+   names, a track's recording, a recording's tracks in release-group order), with
+   statement counts asserted in tests; playback for lists loads sources and all their
+   ancestors in one recursive CTE (cycle-safe through `UNION`) instead of a lazy load
+   per parent; "is this credit still used" is one `EXISTS` statement; btree indexes on
+   `source.recording_id`, `source.parent_id`, `artist_credit_name.artist_id` and
+   `artist_credit.name`. Left as they are: single-row parent walks (stream, source
+   validation), delete checks whose loaded collection the delete reuses, the
+   per-entity lookups of the MusicBrainz import.
 5. **Jobs and folder import**: Procrastinate, `import_job`, proposal/review flow, folder
    importer, watcher.
 6. **Bandcamp and YouTube**: `bandcamp.py`, `ytdlp.py`, downloads, chapter slices.

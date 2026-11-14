@@ -14,6 +14,7 @@ from ep.api.schemas import (
     RecordingRead,
     ReleaseGroupRead,
 )
+from ep.credits import with_credit
 from ep.models import Artist, ArtistCreditName, EntityType, Recording, ReleaseGroup, Track
 
 router = APIRouter(prefix="/artists", tags=["artists"])
@@ -79,6 +80,7 @@ def list_artist_release_groups(
         .order_by(*release_group_order)
         .limit(page.limit)
         .offset(page.offset)
+        .options(with_credit(ReleaseGroup.artist_credit))
     )
     return [ReleaseGroupRead.model_validate(rg) for rg in release_groups]
 
@@ -101,6 +103,7 @@ def list_artist_recordings(
         query.order_by(col(Recording.title), col(Recording.id))
         .limit(page.limit)
         .offset(page.offset)
+        .options(with_credit(Recording.artist_credit))
     )
     return [RecordingRead.model_validate(recording) for recording in recordings]
 
