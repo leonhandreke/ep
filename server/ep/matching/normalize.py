@@ -8,11 +8,14 @@ artists and a leading or trailing "The".
 ``normalize`` has a twin in the database, the SQL function ``ep_normalize`` (migration
 0004), which the trigram indexes are built on. Both do the same steps with the same
 Unicode operations (Postgres 18 ``casefold`` and ``normalize``), and
-``tests/test_normalize_sql.py`` checks that they agree character by character. Change
-them together. The title and artist rules (featured artists, editions, "The") exist
-only here: they apply to the query and to the rapidfuzz scores, while the database
-compares the plainly normalised stored text by word similarity, which finds a query in
-a longer value anyway ("here comes the sun" in "Here Comes the Sun (Remastered 2009)").
+``tests/test_normalize_sql.py`` checks that they agree character by character, except
+for combining marks that are not "Alphabetic" (viramas, ...), which Postgres turns into
+spaces and Python keeps (queries are normalised by ``ep_normalize`` too, see
+``ep.matching.sql``, so this does not affect matching). Change them together. The
+title and artist rules (featured artists, editions, "The") exist only here: they apply
+to the query and to the rapidfuzz scores, while the database compares the plainly
+normalised stored text by word similarity, which finds a query in a longer value anyway
+("here comes the sun" in "Here Comes the Sun (Remastered 2009)").
 """
 
 import re

@@ -132,9 +132,11 @@ uv run alembic revision --autogenerate -m "add catalogue"
   `*_normalized` column (`ep_normalize(<column>)`, never set by code) with a GIN
   `gin_trgm_ops` index. `ep_normalize` (migration 0004) is the SQL twin of
   `ep.matching.normalize.normalize`; change both together, `tests/test_normalize_sql.py`
-  checks that they agree on every character. Queries use the pg_trgm operator `<%`
-  and `LIKE` (index-backed), with the threshold set per transaction
-  (`ep.matching.sql.set_word_similarity_threshold`), never the bare `word_similarity()`
+  checks that they agree on every character (except non-"Alphabetic" combining marks
+  such as viramas: separators in Postgres, kept by Python). Queries are normalised by
+  `ep_normalize` as well, in the statement that sets the threshold for the transaction
+  (`ep.matching.sql.trigram_queries`), and use the pg_trgm operator `<%` (word
+  similarity at least the threshold) and `LIKE` (index-backed), never the bare `word_similarity()`
   function as a filter; `tests/test_matching_indexes.py` checks that the plans can use
   the indexes. rapidfuzz still makes the decision: featured-artist/edition stripping,
   word order, number guard and per-artist credit scores are Python only.

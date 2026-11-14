@@ -206,9 +206,30 @@ def test_match_recording_main_artist_of_a_credit(session: Session) -> None:
 
 def test_match_recording_without_artist_needs_review(session: Session) -> None:
     song = recording(session, "Sinnerman", artist(session, "Nina Simone"))
-    result = match_recording(session, "Sinnerman")
-    assert result.decision is Decision.needs_review
-    assert result.candidates[0].entity is song
+    for artist_text in (None, ""):
+        result = match_recording(session, "Sinnerman", artist=artist_text)
+        assert result.decision is Decision.needs_review
+        assert result.candidates[0].entity is song
+
+
+@pytest.mark.parametrize(
+    ("name", "title"),
+    [
+        # Viramas, Thai and Myanmar signs: separators for Postgres, letters for Python.
+        ("லதா மங்கேஷ்கர்", "தமிழ் பாடல்"),
+        ("कुमार सानू", "हिन्दी गीत"),
+        ("เบิร์ด ธงไชย", "คู่กัด"),
+        ("Пётр Чайковский", "Лебединое озеро"),
+        ("Βαγγέλης Παπαθανασίου", "Χορός"),
+        ("坂本龍一", "戦場のメリークリスマス"),
+        ("فيروز", "زهرة المدائن"),
+        ("שלום חנוך", "מאמי"),
+    ],
+)
+def test_match_recording_in_other_scripts(session: Session, name: str, title: str) -> None:
+    song = recording(session, title, artist(session, name))
+    assert match_artist(session, name).match is song.artist_credit.names[0].artist
+    assert match_recording(session, title, artist=name).match is song
 
 
 def test_match_recording_duplicates_need_review(session: Session) -> None:

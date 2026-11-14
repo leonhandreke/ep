@@ -60,8 +60,11 @@ def _compared(char: str) -> bool:
     if unicodedata.category(char) in ("Cs", "Co", "Cn"):
         return False
     # Postgres counts only marks with the Unicode "Alphabetic" property (Indic vowel
-    # signs, but not Hebrew points or the Devanagari nukta) as word characters; Python
-    # cannot tell them apart and keeps all. Accents (U+0300-U+036F) are removed by both.
+    # signs, Hebrew points, Arabic harakat; not viramas, nuktas or the Thai thanthakhat)
+    # as word characters; Python cannot tell them apart and keeps all. This does not
+    # affect matching: queries are normalised by ep_normalize as well
+    # (ep.matching.sql.trigram_queries), and rapidfuzz compares Python-normalised text
+    # on both sides. Accents (U+0300-U+036F) are removed by both.
     decomposed = unicodedata.normalize("NFKD", char)
     if any(unicodedata.category(c)[0] == "M" and not "̀" <= c <= "ͯ" for c in decomposed):
         return False

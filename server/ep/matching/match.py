@@ -41,7 +41,7 @@ from sqlalchemy.orm.interfaces import ORMOption
 from sqlmodel import Session, col, select
 
 from ep.matching.normalize import normalize_artist, normalize_title
-from ep.matching.sql import set_word_similarity_threshold, word_similar
+from ep.matching.sql import trigram_queries, word_similar
 from ep.metadata.musicbrainz import normalize_isrc
 from ep.models import (
     Artist,
@@ -67,7 +67,7 @@ MIN_CANDIDATE_SCORE = 40.0
 MAX_CANDIDATES = 10
 # Two known durations further apart than this are different recordings.
 DURATION_TOLERANCE_MS = 10_000
-# Rows fetched by trigram word similarity (0-1, above this) before re-scoring with
+# Rows fetched by trigram word similarity (0-1, at least this) before re-scoring with
 # rapidfuzz.
 CANDIDATE_MIN_SIMILARITY = 0.3
 CANDIDATE_LIMIT = 50
@@ -223,8 +223,8 @@ def _similarity(query: str, column: Mapped[str]) -> ColumnElement[float]:
 
 def _candidate(query: str, column: Mapped[str]) -> ColumnElement[bool]:
     """SQL, index-backed: the query is within the normalised column's value (word
-    similarity above ``CANDIDATE_MIN_SIMILARITY``; call ``set_word_similarity_threshold``
-    first)."""
+    similarity at least ``CANDIDATE_MIN_SIMILARITY``; prepare the query with
+    ``trigram_queries`` first)."""
     return word_similar(query, column)
 
 
@@ -252,16 +252,16 @@ def match_artist(
         return result
     if not name or not (query := normalize_artist(name)):
         return MatchResult(Decision.new, [])
+    [sql_query] = trigram_queries(session, CANDIDATE_MIN_SIMILARITY, query)
     similarity = func.greatest(
-        _similarity(query, col(Artist.name_normalized)),
-        _similarity(query, col(Artist.sort_name_normalized)),
+        _similarity(sql_query, col(Artist.name_normalized)),
+        _similarity(sql_query, col(Artist.sort_name_normalized)),
     )
-    set_word_similarity_threshold(session, CANDIDATE_MIN_SIMILARITY)
     artists = session.exec(
         select(Artist)
         .where(
-            _candidate(query, col(Artist.name_normalized))
-            | _candidate(query, col(Artist.sort_name_normalized)),
+            _candidate(sql_query, col(Artist.name_normalized))
+            | _candidate(sql_query, col(Artist.sort_name_normalized)),
             compatible,
         )
         .order_by(similarity.desc())
@@ -330,7 +330,7 @@ def match_release_group(
             (rg, _title_artist_score(query, rg.title, artist, artist_names, rg.artist_credit))
             for rg in rows
         ),
-        allow_auto=artist is not None,
+        allow_auto=bool(artist),
     )
 
 
@@ -379,7 +379,7 @@ def match_recording(
             for recording in rows
             if not _durations_differ(length_ms, recording.length_ms)
         ),
-        allow_auto=artist is not None,
+        allow_auto=bool(artist),
     )
 
 
@@ -398,15 +398,16 @@ def _fuzzy_candidates[T: Base](
     Ties (a common title within many longer ones) go to the closest whole title, so that
     "Love" is among the candidates for "love" however many "Love Song"s there are.
     """
-    rank = _similarity(query, title_column)
-    set_word_similarity_threshold(session, CANDIDATE_MIN_SIMILARITY)
+    artist_query = normalize_artist(artist) if artist else ""
+    sql_query, sql_artist = trigram_queries(session, CANDIDATE_MIN_SIMILARITY, query, artist_query)
+    rank = _similarity(sql_query, title_column)
     statement = (
-        select(model).where(_candidate(query, title_column), compatible).options(load_credit)
+        select(model).where(_candidate(sql_query, title_column), compatible).options(load_credit)
     )
-    if artist and (artist_query := normalize_artist(artist)):
+    if sql_artist:
         statement = statement.join(ArtistCredit, credit_column == ArtistCredit.id)
-        rank = rank + _similarity(artist_query, col(ArtistCredit.name_normalized))
-    statement = statement.order_by(rank.desc(), func.similarity(query, title_column).desc())
+        rank = rank + _similarity(sql_artist, col(ArtistCredit.name_normalized))
+    statement = statement.order_by(rank.desc(), func.similarity(sql_query, title_column).desc())
     return session.exec(statement.limit(CANDIDATE_LIMIT)).all()
 
 

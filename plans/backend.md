@@ -220,11 +220,12 @@ the job). Jobs leave the queue only by being completed or explicitly dismissed.
    GIN/GiST indexes, `unaccent`, `fuzzystrmatch`, full-text search, ICU collations,
    generated columns), and change the implementation where that is a real improvement.
    This is the one place where indexes and Postgres-specific SQL are welcome.
-   Outcome: an IMMUTABLE SQL function `ep_normalize`, the exact twin of Python's
+   Outcome: an IMMUTABLE SQL function `ep_normalize`, the twin of Python's
    `normalize` (Postgres 18 `casefold` with the builtin `pg_unicode_fast` collation and
    `normalize()`, replacing `unaccent`, whose rules Python cannot reproduce), stored
-   generated `*_normalized` columns with GIN trigram indexes, queries on the `<%` and
-   `LIKE` operators with per-transaction thresholds, "artist title" search as one
+   generated `*_normalized` columns with GIN trigram indexes, queries (also normalised
+   by `ep_normalize`, so that retrieval does not depend on the twins agreeing on rare
+   combining marks) on the `<%` and `LIKE` operators with per-transaction thresholds, "artist title" search as one
    index-backed select per split of the query, and btree indexes for external IDs,
    barcodes, artist credits and tracks by recording. Rejected: GiST/KNN (the rank is
    not a single trigram distance), full-text search (no typo tolerance, cannot span the

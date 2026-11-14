@@ -132,3 +132,16 @@ def test_search_artist_and_title_together(client: TestClient) -> None:
     assert search(client, "nina simone pastel")[0]["id"] == pastel["id"]
     # One word: titles and names only, the artist first.
     assert [h["title"] for h in search(client, "nina")] == ["Nina Simone"]
+
+
+def test_search_other_scripts_by_prefix(client: TestClient) -> None:
+    # Postgres treats viramas and some Thai signs as separators (Python's normalize keeps
+    # them); queries are normalised in Postgres like the stored names.
+    for name, prefix in (
+        ("ஸ்ரீநிவாஸ்", "ஸ்"),
+        ("क्षितिज", "क्"),
+        ("เบิร์ด ธงไชย", "เบิร์"),
+        ("Пётр Чайковский", "пет"),
+    ):
+        make_artist(client, name)
+        assert titles(search(client, prefix, types="artist")) == [name], name
