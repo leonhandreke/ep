@@ -5,5 +5,29 @@ autogenerate) sees all tables.
 """
 
 from ep.models.base import Base
+from ep.models.catalogue import (
+    Artist,
+    ArtistCredit,
+    ArtistCreditName,
+    ArtistType,
+    EntityType,
+    ExternalId,
+    Recording,
+    ReleaseGroup,
+    ReleaseGroupType,
+    Track,
+)
 
-__all__ = ["Base"]
+__all__ = [
+    "Artist",
+    "ArtistCredit",
+    "ArtistCreditName",
+    "ArtistType",
+    "Base",
+    "EntityType",
+    "ExternalId",
+    "Recording",
+    "ReleaseGroup",
+    "ReleaseGroupType",
+    "Track",
+]

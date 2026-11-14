@@ -50,6 +50,18 @@ New migration after changing models (models must be imported in `ep/models/__ini
 uv run alembic revision --autogenerate -m "add catalogue"
 ```
 
+## API conventions
+
+- OpenAPI operation IDs are the endpoint function names (`list_artists`, ...), for the
+  generated Swift client. Keep endpoint function names unique.
+- `PATCH` bodies default every field to `pydantic.MISSING`: omitted fields are left
+  alone; only nullable columns accept `null`.
+- Constraint violations on commit (`ep.api.deps.commit`) become `409`.
+- Artist credits are shared and never edited in place; use `ep.credits`
+  (`get_or_create_artist_credit`, `delete_artist_credit_if_unused`).
+- `external_id` has no foreign key: deleting an entity must call
+  `ep.api.external_ids.delete_external_ids`.
+
 ## Tests
 
 Tests run against a real Postgres: the `db` service must be up. The test session drops

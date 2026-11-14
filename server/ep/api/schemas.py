@@ -1,0 +1,224 @@
+"""Request and response schemas for the catalogue endpoints.
+
+Create schemas list required fields without defaults. Update (PATCH) schemas default
+every field to ``MISSING``: omitted fields are left alone, and only nullable columns
+accept an explicit ``null``.
+"""
+
+import uuid
+from datetime import date, datetime
+from typing import Annotated
+
+from pydantic import (
+    MISSING,
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    NonNegativeInt,
+    PositiveInt,
+    StringConstraints,
+)
+
+from ep.models import ArtistType, EntityType, ReleaseGroupType
+
+NonEmptyStr = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+
+
+def _check_partial_date(value: str) -> str:
+    year, month, day = (int(part) for part in (*value.split("-"), "1", "1")[:3])
+    date(year, month, day)  # raises ValueError for an impossible month or day
+    return value
+
+
+PartialDate = Annotated[
+    str,
+    StringConstraints(pattern=r"^\d{4}(-\d{2}(-\d{2})?)?$"),
+    AfterValidator(_check_partial_date),
+]
+"""A date as ``YYYY``, ``YYYY-MM`` or ``YYYY-MM-DD``."""
+
+
+class Page(BaseModel):
+    """Limit/offset pagination for list endpoints."""
+
+    limit: int = Field(100, ge=1, le=1000)
+    offset: int = Field(0, ge=0)
+
+
+class Read(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    created_at: datetime
+    updated_at: datetime
+
+
+# Artist credits
+
+
+class ArtistCreditNameIn(BaseModel):
+    artist_id: uuid.UUID
+    # Defaults to the artist's name.
+    credited_name: NonEmptyStr | None = None
+    join_phrase: str = ""
+
+
+ArtistCreditIn = Annotated[list[ArtistCreditNameIn], Field(min_length=1)]
+
+
+class ArtistCreditNameRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    artist_id: uuid.UUID
+    credited_name: str
+    join_phrase: str
+
+
+class ArtistCreditRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    names: list[ArtistCreditNameRead]
+
+
+# Artists
+
+
+class ArtistCreate(BaseModel):
+    mbid: uuid.UUID | None = None
+    name: NonEmptyStr
+    # Defaults to the name.
+    sort_name: NonEmptyStr | None = None
+    disambiguation: str = ""
+    type: ArtistType | None = None
+
+
+class ArtistUpdate(BaseModel):
+    mbid: uuid.UUID | MISSING | None = MISSING
+    name: NonEmptyStr | MISSING = MISSING
+    sort_name: NonEmptyStr | MISSING = MISSING
+    disambiguation: str | MISSING = MISSING
+    type: ArtistType | MISSING | None = MISSING
+
+
+class ArtistRead(Read):
+    mbid: uuid.UUID | None
+    name: str
+    sort_name: str
+    disambiguation: str
+    type: ArtistType | None
+
+
+# Release groups
+
+
+class ReleaseGroupCreate(BaseModel):
+    mbid: uuid.UUID | None = None
+    release_mbid: uuid.UUID | None = None
+    title: NonEmptyStr
+    artist_credit: ArtistCreditIn
+    type: ReleaseGroupType = ReleaseGroupType.album
+    date: PartialDate | None = None
+    barcode: NonEmptyStr | None = None
+
+
+class ReleaseGroupUpdate(BaseModel):
+    mbid: uuid.UUID | MISSING | None = MISSING
+    release_mbid: uuid.UUID | MISSING | None = MISSING
+    title: NonEmptyStr | MISSING = MISSING
+    artist_credit: ArtistCreditIn | MISSING = MISSING
+    type: ReleaseGroupType | MISSING = MISSING
+    date: PartialDate | MISSING | None = MISSING
+    barcode: NonEmptyStr | MISSING | None = MISSING
+
+
+class ReleaseGroupRead(Read):
+    mbid: uuid.UUID | None
+    release_mbid: uuid.UUID | None
+    title: str
+    artist_credit: ArtistCreditRead
+    type: ReleaseGroupType
+    date: str | None
+    barcode: str | None
+
+
+# Recordings
+
+
+class RecordingCreate(BaseModel):
+    mbid: uuid.UUID | None = None
+    title: NonEmptyStr
+    artist_credit: ArtistCreditIn
+    length_ms: NonNegativeInt | None = None
+
+
+class RecordingUpdate(BaseModel):
+    mbid: uuid.UUID | MISSING | None = MISSING
+    title: NonEmptyStr | MISSING = MISSING
+    artist_credit: ArtistCreditIn | MISSING = MISSING
+    length_ms: NonNegativeInt | MISSING | None = MISSING
+
+
+class RecordingRead(Read):
+    mbid: uuid.UUID | None
+    title: str
+    artist_credit: ArtistCreditRead
+    length_ms: int | None
+
+
+class RecordingTrackRead(Read):
+    """A track of a recording, seen from the recording: with its release group."""
+
+    disc: int
+    position: int
+    title: str | None
+    release_group: ReleaseGroupRead
+
+
+class RecordingDetail(RecordingRead):
+    tracks: list[RecordingTrackRead]
+
+
+# Tracks
+
+
+class TrackCreate(BaseModel):
+    release_group_id: uuid.UUID
+    recording_id: uuid.UUID
+    disc: PositiveInt = 1
+    position: NonNegativeInt
+    # Overrides the recording title on this release group.
+    title: NonEmptyStr | None = None
+
+
+class TrackUpdate(BaseModel):
+    recording_id: uuid.UUID | MISSING = MISSING
+    disc: PositiveInt | MISSING = MISSING
+    position: NonNegativeInt | MISSING = MISSING
+    title: NonEmptyStr | MISSING | None = MISSING
+
+
+class TrackRead(Read):
+    release_group_id: uuid.UUID
+    disc: int
+    position: int
+    title: str | None
+    recording: RecordingRead
+
+
+# External IDs
+
+
+class ExternalIdCreate(BaseModel):
+    # e.g. isrc, deezer, spotify, bandcamp, youtube, nts, acr
+    scheme: Annotated[str, StringConstraints(pattern=r"^[a-z0-9][a-z0-9_-]*$")]
+    value: NonEmptyStr
+
+
+class ExternalIdRead(Read):
+    entity_type: EntityType
+    entity_id: uuid.UUID
+    scheme: str
+    value: str
