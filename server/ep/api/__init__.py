@@ -1,6 +1,16 @@
 from fastapi import APIRouter
 
-from ep.api import artists, covers, health, recordings, release_groups, sources, tracks
+from ep.api import (
+    artists,
+    covers,
+    health,
+    musicbrainz,
+    recordings,
+    release_groups,
+    search,
+    sources,
+    tracks,
+)
 
 router = APIRouter()
 router.include_router(health.router)
@@ -10,3 +20,5 @@ router.include_router(recordings.router)
 router.include_router(tracks.router)
 router.include_router(sources.router)
 router.include_router(covers.router)
+router.include_router(search.router)
+router.include_router(musicbrainz.router)

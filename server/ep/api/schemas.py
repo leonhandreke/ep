@@ -7,6 +7,7 @@ accept an explicit ``null``.
 
 import uuid
 from datetime import date, datetime
+from enum import StrEnum
 from typing import Annotated, Any
 
 from pydantic import (
@@ -306,3 +307,54 @@ class SourceRead(Read):
     meta: dict[str, Any]
     # Null if the source does not resolve to a file (e.g. a remote-only link).
     playback: PlaybackRead | None = None
+
+
+# Search and resolve
+
+
+class SearchHitRead(BaseModel):
+    """A search hit: an artist, release group or recording."""
+
+    type: EntityType
+    id: uuid.UUID
+    mbid: uuid.UUID | None
+    # Artist name, or release group / recording title.
+    title: str
+    # Artist disambiguation, or the artist credit of a release group / recording.
+    subtitle: str | None
+    # A release group's cover; for a recording, the cover of a release group it is on.
+    cover_url: str | None
+    # Higher is better; only comparable within one response.
+    score: float
+
+
+class ResolvedRead(BaseModel):
+    type: EntityType
+    id: uuid.UUID
+
+
+# MusicBrainz
+
+
+class MusicBrainzSearchType(StrEnum):
+    artist = "artist"
+    release = "release"
+    recording = "recording"
+
+
+class MusicBrainzHitRead(BaseModel):
+    type: MusicBrainzSearchType
+    mbid: uuid.UUID
+    # Artist name, or release / recording title.
+    title: str
+    # The artist credit of a release or recording; null for artists.
+    artist_credit: str | None
+    disambiguation: str
+    # Release date, or a recording's first release date.
+    date: str | None
+    # MusicBrainz relevance, 0-100.
+    score: int | None
+
+
+class MusicBrainzImport(BaseModel):
+    release_mbid: uuid.UUID

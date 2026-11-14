@@ -12,6 +12,10 @@ def test_operation_ids_are_endpoint_names(client: TestClient) -> None:
         "list_recording_sources",
         "stream_source",
         "set_release_group_cover",
+        "search_library",
+        "resolve",
+        "search_musicbrainz",
+        "import_musicbrainz_release",
     } <= set(operation_ids)
 
 

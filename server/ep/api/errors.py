@@ -23,6 +23,9 @@ NOT_FOUND: dict[int | str, dict[str, Any]] = {
 CONFLICT: dict[int | str, dict[str, Any]] = {
     status.HTTP_409_CONFLICT: {"model": ErrorRead, "description": "Conflicts with existing data"}
 }
+BAD_GATEWAY: dict[int | str, dict[str, Any]] = {
+    status.HTTP_502_BAD_GATEWAY: {"model": ErrorRead, "description": "Upstream service failed"}
+}
 
 
 def integrity_error_handler(request: Request, exc: Exception) -> JSONResponse:

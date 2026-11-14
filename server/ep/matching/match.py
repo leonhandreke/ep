@@ -1,0 +1,322 @@
+"""Matching artists, release groups and recordings against the local library.
+
+Each entry point takes whatever the caller knows (names, MBIDs, external IDs, a
+duration) and tries, in order:
+
+1. MBID: a local row with that MBID is an automatic match.
+2. External IDs (ISRC, barcode, Deezer, ...): one row with any of them is an automatic
+   match; several need review.
+3. Fuzzy: candidates by Postgres trigram similarity of the folded (lowercase,
+   unaccented) title or name, re-scored with rapidfuzz on normalised strings
+   (``ep.matching.normalize``). A recording or release group scores
+   ``title score * artist score / 100``, so the same title by another artist scores
+   low. Recordings whose duration differs by more than ``DURATION_TOLERANCE_MS`` are
+   dropped when both durations are known.
+
+The result lists candidates, best first, and a decision: ``auto_match`` (use
+``result.match``), ``needs_review`` (ask the user) or ``new`` (create an entity).
+"""
+
+import uuid
+from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
+from enum import StrEnum
+
+from rapidfuzz import fuzz
+from sqlalchemy import ColumnElement, and_, func, or_
+from sqlalchemy.orm import Mapped
+from sqlmodel import Session, col, select
+
+from ep.matching.normalize import normalize_artist, normalize_title
+from ep.metadata.musicbrainz import normalize_isrc
+from ep.models import Artist, ArtistCredit, Base, EntityType, ExternalId, Recording, ReleaseGroup
+
+# Scores are 0-100.
+# At least this, and AUTO_MATCH_MARGIN ahead of the runner-up: match without asking.
+AUTO_MATCH_SCORE = 90.0
+AUTO_MATCH_MARGIN = 5.0
+# At least this: ask the user. Below: treat as new.
+REVIEW_SCORE = 60.0
+# Candidates scoring lower are not returned at all.
+MIN_CANDIDATE_SCORE = 40.0
+# Candidates returned, best first.
+MAX_CANDIDATES = 10
+# Two known durations further apart than this are different recordings.
+DURATION_TOLERANCE_MS = 10_000
+# Rows fetched by trigram similarity (0-1) before re-scoring with rapidfuzz.
+CANDIDATE_MIN_SIMILARITY = 0.3
+CANDIDATE_LIMIT = 50
+
+
+class Decision(StrEnum):
+    auto_match = "auto_match"
+    needs_review = "needs_review"
+    new = "new"
+
+
+class MatchMethod(StrEnum):
+    mbid = "mbid"
+    external_id = "external_id"
+    fuzzy = "fuzzy"
+
+
+@dataclass(frozen=True)
+class Candidate[T: Base]:
+    entity: T
+    score: float
+    method: MatchMethod
+
+
+@dataclass(frozen=True)
+class MatchResult[T: Base]:
+    decision: Decision
+    # Best first.
+    candidates: list[Candidate[T]]
+
+    @property
+    def match(self) -> T | None:
+        """The matched entity if the decision is ``auto_match``."""
+        if self.decision is Decision.auto_match:
+            return self.candidates[0].entity
+        return None
+
+
+ExternalIds = Iterable[tuple[str, str]]
+"""(scheme, value) pairs, e.g. ``[("isrc", "USPR36500123"), ("deezer", "3135556")]``."""
+
+
+def folded(column: Mapped[str] | ColumnElement[str] | str) -> ColumnElement[str]:
+    """SQL: lowercase and unaccented, for trigram comparison."""
+    return func.unaccent(func.lower(column))
+
+
+def text_score(a: str, b: str) -> float:
+    """Similarity of two normalised strings, 0-100; word order does not matter."""
+    return max(fuzz.ratio(a, b), fuzz.token_sort_ratio(a, b))
+
+
+def credit_score(artist: str, credit: ArtistCredit) -> float:
+    """How well artist text matches a credit: the whole credit or any one artist in it.
+
+    "Floating Points" matches "Floating Points, Pharoah Sanders & The London Symphony
+    Orchestra" fully: radio tracklists and file tags often name only the main artist.
+    """
+    query = normalize_artist(artist)
+    names = [credit.name]
+    for part in credit.names:
+        names += [part.credited_name, part.artist.name]
+    return max(text_score(query, normalize_artist(name)) for name in names)
+
+
+def decide[T: Base](candidates: list[Candidate[T]], *, allow_auto: bool = True) -> Decision:
+    if not candidates or candidates[0].score < REVIEW_SCORE:
+        return Decision.new
+    best = candidates[0].score
+    runner_up = candidates[1].score if len(candidates) > 1 else 0.0
+    if allow_auto and best >= AUTO_MATCH_SCORE and best - runner_up >= AUTO_MATCH_MARGIN:
+        return Decision.auto_match
+    return Decision.needs_review
+
+
+def _result[T: Base](
+    scored: Iterable[tuple[T, float]], *, allow_auto: bool = True
+) -> MatchResult[T]:
+    candidates = sorted(
+        (
+            Candidate(entity, score, MatchMethod.fuzzy)
+            for entity, score in scored
+            if score >= MIN_CANDIDATE_SCORE
+        ),
+        key=lambda candidate: candidate.score,
+        reverse=True,
+    )[:MAX_CANDIDATES]
+    return MatchResult(decide(candidates, allow_auto=allow_auto), candidates)
+
+
+def _exact[T: Base](rows: Sequence[T], method: MatchMethod) -> MatchResult[T] | None:
+    if not rows:
+        return None
+    decision = Decision.auto_match if len(rows) == 1 else Decision.needs_review
+    return MatchResult(decision, [Candidate(row, 100.0, method) for row in rows])
+
+
+def _by_mbid[T: Base](
+    session: Session, model: type[T], column: Mapped[uuid.UUID | None], mbid: uuid.UUID
+) -> MatchResult[T] | None:
+    rows = session.exec(select(model).where(column == mbid)).all()
+    return _exact(rows, MatchMethod.mbid)
+
+
+def _by_external_ids[T: Base](
+    session: Session, model: type[T], entity_type: EntityType, external_ids: ExternalIds
+) -> MatchResult[T] | None:
+    pairs = [
+        (scheme, normalize_isrc(value) if scheme == "isrc" else value.strip())
+        for scheme, value in external_ids
+    ]
+    if not pairs:
+        return None
+    entity_ids = select(ExternalId.entity_id).where(
+        ExternalId.entity_type == entity_type,
+        or_(*(and_(col(ExternalId.scheme) == s, col(ExternalId.value) == v) for s, v in pairs)),
+    )
+    rows = session.exec(select(model).where(col(model.id).in_(entity_ids))).all()
+    return _exact(rows, MatchMethod.external_id)
+
+
+def _similarity(query: str, column: Mapped[str]) -> ColumnElement[float]:
+    """Trigram similarity of a normalised query and a column, 0-1, either way round.
+
+    ``word_similarity`` finds a query within a longer value ("here comes the sun" in
+    "Here Comes the Sun (Remastered 2009)") and the other way round.
+    """
+    target = folded(column)
+    return func.greatest(func.word_similarity(query, target), func.word_similarity(target, query))
+
+
+def match_artist(
+    session: Session,
+    name: str | None = None,
+    *,
+    mbid: uuid.UUID | None = None,
+    external_ids: ExternalIds = (),
+) -> MatchResult[Artist]:
+    """Match an artist by MBID, external IDs, then name (or sort name)."""
+    if mbid and (result := _by_mbid(session, Artist, col(Artist.mbid), mbid)):
+        return result
+    if result := _by_external_ids(session, Artist, EntityType.artist, external_ids):
+        return result
+    if not name or not (query := normalize_artist(name)):
+        return MatchResult(Decision.new, [])
+    similarity = func.greatest(
+        _similarity(query, col(Artist.name)), _similarity(query, col(Artist.sort_name))
+    )
+    artists = session.exec(
+        select(Artist)
+        .where(similarity >= CANDIDATE_MIN_SIMILARITY)
+        .order_by(similarity.desc())
+        .limit(CANDIDATE_LIMIT)
+    )
+    return _result(
+        (
+            artist,
+            max(
+                text_score(query, normalize_artist(artist.name)),
+                text_score(query, normalize_artist(artist.sort_name)),
+            ),
+        )
+        for artist in artists
+    )
+
+
+def match_release_group(
+    session: Session,
+    title: str | None = None,
+    *,
+    artist: str | None = None,
+    mbid: uuid.UUID | None = None,
+    release_mbid: uuid.UUID | None = None,
+    barcode: str | None = None,
+    external_ids: ExternalIds = (),
+) -> MatchResult[ReleaseGroup]:
+    """Match a release group by MBID (its own or its release's), barcode and external IDs,
+    then title and artist credit text. Without artist text, fuzzy matches need review.
+    """
+    if mbid and (result := _by_mbid(session, ReleaseGroup, col(ReleaseGroup.mbid), mbid)):
+        return result
+    if release_mbid and (
+        result := _by_mbid(session, ReleaseGroup, col(ReleaseGroup.release_mbid), release_mbid)
+    ):
+        return result
+    if barcode and (digits := barcode.strip().lstrip("0")):
+        # A UPC-A is the same barcode as the EAN-13 with a leading zero.
+        rows = session.exec(
+            select(ReleaseGroup).where(func.ltrim(ReleaseGroup.barcode, "0") == digits)
+        ).all()
+        if result := _exact(rows, MatchMethod.external_id):
+            return result
+    if result := _by_external_ids(session, ReleaseGroup, EntityType.release_group, external_ids):
+        return result
+    if not title:
+        return MatchResult(Decision.new, [])
+    query = normalize_title(title)
+    rows = _fuzzy_candidates(
+        session,
+        ReleaseGroup,
+        col(ReleaseGroup.title),
+        col(ReleaseGroup.artist_credit_id),
+        query,
+        artist,
+    )
+    return _result(
+        ((rg, _title_artist_score(query, rg.title, artist, rg.artist_credit)) for rg in rows),
+        allow_auto=artist is not None,
+    )
+
+
+def match_recording(
+    session: Session,
+    title: str | None = None,
+    *,
+    artist: str | None = None,
+    length_ms: int | None = None,
+    mbid: uuid.UUID | None = None,
+    isrc: str | None = None,
+    external_ids: ExternalIds = (),
+) -> MatchResult[Recording]:
+    """Match a recording by MBID, ISRC and external IDs, then title, artist credit text and
+    duration. Without artist text, fuzzy matches need review.
+    """
+    if mbid and (result := _by_mbid(session, Recording, col(Recording.mbid), mbid)):
+        return result
+    ids = [*external_ids, *([("isrc", isrc)] if isrc else [])]
+    if result := _by_external_ids(session, Recording, EntityType.recording, ids):
+        return result
+    if not title:
+        return MatchResult(Decision.new, [])
+    query = normalize_title(title)
+    rows = _fuzzy_candidates(
+        session, Recording, col(Recording.title), col(Recording.artist_credit_id), query, artist
+    )
+    return _result(
+        (
+            (
+                recording,
+                _title_artist_score(query, recording.title, artist, recording.artist_credit),
+            )
+            for recording in rows
+            if not _durations_differ(length_ms, recording.length_ms)
+        ),
+        allow_auto=artist is not None,
+    )
+
+
+def _fuzzy_candidates[T: Base](
+    session: Session,
+    model: type[T],
+    title_column: Mapped[str],
+    credit_column: Mapped[uuid.UUID],
+    query: str,
+    artist: str | None,
+) -> Sequence[T]:
+    """Rows with a similar title, ranked by title and (if given) artist credit similarity."""
+    title_similarity = _similarity(query, title_column)
+    statement = select(model).where(title_similarity >= CANDIDATE_MIN_SIMILARITY)
+    if artist and (artist_query := normalize_artist(artist)):
+        statement = statement.join(ArtistCredit, credit_column == ArtistCredit.id).order_by(
+            (title_similarity + _similarity(artist_query, col(ArtistCredit.name))).desc()
+        )
+    else:
+        statement = statement.order_by(title_similarity.desc())
+    return session.exec(statement.limit(CANDIDATE_LIMIT)).all()
+
+
+def _title_artist_score(query: str, title: str, artist: str | None, credit: ArtistCredit) -> float:
+    score = text_score(query, normalize_title(title))
+    if artist:
+        score = score * credit_score(artist, credit) / 100
+    return score
+
+
+def _durations_differ(a: int | None, b: int | None) -> bool:
+    return a is not None and b is not None and abs(a - b) > DURATION_TOLERANCE_MS

@@ -87,6 +87,30 @@ uv run alembic revision --autogenerate -m "add catalogue"
 - Covers are uploaded with `PUT /covers/release-group/{id}` and stored in
   `EP_LIBRARY_DIR/_covers/` (`ep.covers`), never next to files in watched directories.
 
+## MusicBrainz, matching, search
+
+- `ep.metadata.musicbrainz.MusicBrainz`: lookups by MBID, URL (a Bandcamp page resolves
+  to its release), barcode and ISRC, searches (Lucene syntax, `lucene_query` builds
+  one), and Cover Art Archive front covers. Typed Pydantic results. One request per
+  second per process (`LIMITER`), User-Agent `EP/<version>`, retries on 503.
+- `ep.importers.musicbrainz.import_release(session, release)` adds a release fetched
+  with `get_release` to the catalogue (artists, credits, release group with
+  `release_mbid`, recordings, tracks with `disc`, ISRCs), reusing rows by MBID and never
+  overwriting them. A release group already imported from another release raises
+  `ReleaseConflict`. `POST /musicbrainz/import` wraps it (metadata only, no cover);
+  `GET /musicbrainz/search` searches MusicBrainz.
+- `ep.matching`: `match_artist`, `match_release_group`, `match_recording` take what the
+  caller knows (text, MBID, ISRC/barcode/other external IDs, duration) and return
+  candidates, best first, with a decision (`auto_match`, `needs_review`, `new`). Order:
+  MBID, external IDs, then fuzzy (trigram candidates, rapidfuzz scores on normalised
+  text, duration tolerance). Thresholds are constants in `ep.matching.match`.
+- `GET /search?q=` (autocomplete) ranks by trigram word similarity of the
+  lowercase/unaccented text plus a prefix bonus, so short prefixes work ("bjo" finds
+  "Björk"). `GET /resolve/{type}/{uuid}` finds an entity by internal ID or MBID (or a
+  release group by its release MBID).
+- MusicBrainz test fixtures are real responses in `tests/fixtures/musicbrainz/`, served
+  by `tests/mock_musicbrainz.py`.
+
 ## Tests
 
 Tests run against a real Postgres: the `db` service must be up. The test session drops
