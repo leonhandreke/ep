@@ -1,7 +1,7 @@
 # Git hooks, run by prek (https://prek.j178.dev). Install with:
 #   uv run --project server prek install
-# Workspace mode: server/prek.toml holds the server's own hooks. prek runs each
-# file only through the nearest config, so both configs list the builtins.
+# Workspace mode: server/prek.toml adds the server's own hooks. Hooks here run
+# on every file in the repository, including those in server/.
 #:schema https://www.schemastore.org/prek.json
 
 [[repos]]

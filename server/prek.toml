@@ -1,21 +1,7 @@
 # Server hooks (prek workspace project; see ../prek.toml). Hooks run with
 # server/ as the working directory. Tool settings live in pyproject.toml.
+# The root config's builtin hooks already cover files in server/.
 #:schema https://www.schemastore.org/prek.json
-
-[[repos]]
-repo = "builtin"
-hooks = [
-    { id = "trailing-whitespace", args = ["--markdown-linebreak-ext=md"] },
-    { id = "end-of-file-fixer" },
-    { id = "mixed-line-ending", args = ["--fix=lf"] },
-    { id = "check-added-large-files" },
-    { id = "check-merge-conflict" },
-    { id = "check-case-conflict" },
-    { id = "check-yaml" },
-    { id = "check-toml" },
-    { id = "check-json" },
-    { id = "detect-private-key" },
-]
 
 [[repos]]
 repo = "local"

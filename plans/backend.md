@@ -22,7 +22,7 @@ own directory and is planned separately.
 
 ## Tech stack
 
-- Python 3.13, uv, FastAPI, SQLModel, Alembic, Postgres 17 (`pg_trgm`, `unaccent`
+- Python 3.15, uv, FastAPI, SQLModel, Alembic, Postgres 18 (`pg_trgm`, `unaccent`
   extensions for fuzzy search, used via ORM `func.similarity`, no extra indexes yet).
 - Procrastinate (Postgres-backed job queue) for import jobs; no Redis.
 - `httpx` (MusicBrainz at 1 req/s with a descriptive User-Agent, NTS, Bandcamp pages),
