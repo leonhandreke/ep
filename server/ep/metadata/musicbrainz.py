@@ -126,6 +126,8 @@ class MBMedium(MBModel):
     format: str | None = None
     title: str = ""
     track_count: int = 0
+    # Lookups only: the index of the first track in ``tracks`` (0: all of them).
+    track_offset: int = 0
     tracks: list[MBTrack] = Field(default_factory=list)
 
 
@@ -271,7 +273,7 @@ class MusicBrainz:
                 raise MusicBrainzNotFound(f"not found in MusicBrainz: {path}")
             if response.status_code != 200:
                 raise MusicBrainzError(
-                    f"MusicBrainz returned {response.status_code} for {path}: {response.text}"
+                    f"MusicBrainz returned {response.status_code} for {path}: {response.text[:200]}"
                 )
             return response.content
         raise AssertionError("unreachable")
@@ -288,9 +290,20 @@ class MusicBrainz:
         return MBArtist.model_validate_json(self._get(f"artist/{mbid}"))
 
     def get_release(self, mbid: uuid.UUID) -> MBRelease:
-        """A release with its release group, media, tracks, recordings, credits and ISRCs."""
+        """A release with its release group, media, tracks, recordings, credits and ISRCs.
+
+        A lookup returns every track (checked with a 2551-track release, 2026-11); should
+        MusicBrainz ever page them, this fails rather than import a partial release.
+        """
         content = self._get(f"release/{mbid}", inc="+".join(RELEASE_INCLUDES))
-        return MBRelease.model_validate_json(content)
+        release = MBRelease.model_validate_json(content)
+        for medium in release.media:
+            if medium.track_offset or len(medium.tracks) != medium.track_count:
+                raise MusicBrainzError(
+                    f"release {mbid}: medium {medium.position} has {medium.track_count} tracks, "
+                    f"got {len(medium.tracks)} from offset {medium.track_offset}"
+                )
+        return release
 
     def get_release_group(self, mbid: uuid.UUID) -> MBReleaseGroup:
         content = self._get(f"release-group/{mbid}", inc="artist-credits")

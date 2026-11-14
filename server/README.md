@@ -92,22 +92,32 @@ uv run alembic revision --autogenerate -m "add catalogue"
 - `ep.metadata.musicbrainz.MusicBrainz`: lookups by MBID, URL (a Bandcamp page resolves
   to its release), barcode and ISRC, searches (Lucene syntax, `lucene_query` builds
   one), and Cover Art Archive front covers. Typed Pydantic results. One request per
-  second per process (`LIMITER`), User-Agent `EP/<version>`, retries on 503.
-- `ep.importers.musicbrainz.import_release(session, release)` adds a release fetched
-  with `get_release` to the catalogue (artists, credits, release group with
-  `release_mbid`, recordings, tracks with `disc`, ISRCs), reusing rows by MBID and never
-  overwriting them. A release group already imported from another release raises
-  `ReleaseConflict`. `POST /musicbrainz/import` wraps it (metadata only, no cover);
+  second per process (`LIMITER`; the `api` and `worker` processes each have one),
+  User-Agent `EP/<version>` (no contact data), retries on 503. `get_release` fails
+  rather than return a partial track list.
+- `ep.importers.musicbrainz.import_release(session, release, recordings=None)` adds a
+  release fetched with `get_release` to the catalogue (artists, credits, release group
+  with `release_mbid`, recordings, tracks with `disc`, ISRCs), reusing rows by MBID and
+  never overwriting them. A release group already imported from another release raises
+  `ReleaseConflict`. `recordings` maps track MBIDs to existing recordings (e.g. a loose
+  YouTube track) to attach instead of creating duplicates: they gain the MBID and a
+  track and keep their sources and external IDs (`RecordingConflict` if one has another
+  MBID). `propose_recordings(session, release)` proposes that mapping with the matcher.
+  `POST /musicbrainz/import` wraps the import (metadata only, no cover);
   `GET /musicbrainz/search` searches MusicBrainz.
 - `ep.matching`: `match_artist`, `match_release_group`, `match_recording` take what the
-  caller knows (text, MBID, ISRC/barcode/other external IDs, duration) and return
-  candidates, best first, with a decision (`auto_match`, `needs_review`, `new`). Order:
-  MBID, external IDs, then fuzzy (trigram candidates, rapidfuzz scores on normalised
-  text, duration tolerance). Thresholds are constants in `ep.matching.match`.
+  caller knows (text, MBID, ISRC/barcode/other external IDs, duration, the credit's
+  individual artist names) and return candidates, best first, with a decision
+  (`auto_match`, `needs_review`, `new`). Order: MBID, external IDs, then fuzzy (trigram
+  candidates, rapidfuzz scores on normalised text, duration tolerance). Rows with a
+  different MBID than the caller's are never candidates; titles whose numbers differ
+  ("Movement 1"/"Movement 2") never auto-match. Thresholds are constants in
+  `ep.matching.match`.
 - `GET /search?q=` (autocomplete) ranks by trigram word similarity of the
   lowercase/unaccented text plus a prefix bonus, so short prefixes work ("bjo" finds
-  "Björk"). `GET /resolve/{type}/{uuid}` finds an entity by internal ID or MBID (or a
-  release group by its release MBID).
+  "Björk"); a query of several words also matches "artist title" of recordings and
+  release groups ("nina simone sinnerman"). `GET /resolve/{type}/{uuid}` finds an
+  entity by internal ID or MBID (or a release group by its release MBID).
 - MusicBrainz test fixtures are real responses in `tests/fixtures/musicbrainz/`, served
   by `tests/mock_musicbrainz.py`.
 

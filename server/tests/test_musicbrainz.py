@@ -1,3 +1,4 @@
+import json
 import time
 import uuid
 
@@ -24,6 +25,7 @@ from tests.mock_musicbrainz import (
     PROMISES_RELEASE,
     PROMISES_RELEASE_GROUP,
     MockMusicBrainz,
+    fixture,
 )
 
 
@@ -156,6 +158,21 @@ def test_rate_limiter_spaces_requests() -> None:
     for _ in range(3):
         limiter.wait()
     assert time.monotonic() - start >= 0.1
+
+
+def test_partial_release_fails() -> None:
+    release = json.loads(fixture("release_promises"))
+    release["media"][0]["tracks"] = release["media"][0]["tracks"][:5]
+    client, _ = _client(httpx2.Response(200, json=release))
+    with pytest.raises(MusicBrainzError, match="has 9 tracks, got 5"):
+        client.get_release(uuid.UUID(PROMISES_RELEASE))
+
+
+def test_error_body_is_truncated() -> None:
+    client, _ = _client(httpx2.Response(500, text="<html>" + "x" * 10_000))
+    with pytest.raises(MusicBrainzError) as error:
+        client.get_artist(uuid.uuid4())
+    assert len(str(error.value)) < 300
 
 
 def test_front_cover() -> None:

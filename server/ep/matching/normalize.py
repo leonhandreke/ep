@@ -25,10 +25,19 @@ _EDITION = (
     r"\b(?:\d{4}\s+)?(?:re-?master(?:ed)?|deluxe|expanded|anniversary|edition|bonus\s+track"
     r"|explicit|clean|mono|stereo)\b"
 )
+# Words that mark a different recording: a part containing one is never stripped, even
+# with an edition word in it ("(Live, 2011 Remaster)", " - Radio Edit / Mono").
+_DIFFERENT = (
+    r"\b(?:live|remix(?:ed)?|mix|edit|demo|acoustic|instrumental|unplugged|session|take"
+    r"|rehearsal|karaoke|a\s?cappella|reprise|dub)\b"
+)
+_KEEP = rf"(?![^)\]]*{_DIFFERENT})"
 # "(Remastered 2011)", "[Deluxe Edition]"
-_EDITION_BRACKETED = re.compile(rf"[(\[][^)\]]*{_EDITION}[^)\]]*[)\]]", re.IGNORECASE)
+_EDITION_BRACKETED = re.compile(rf"[(\[]{_KEEP}[^)\]]*{_EDITION}[^)\]]*[)\]]", re.IGNORECASE)
 # " - Remastered 2011", " - 2009 Remaster", " - Mono" up to the end (hyphen, en or em dash).
-_EDITION_DASHED = re.compile(rf"\s[-\u2013\u2014]\s[^-\u2013\u2014]*{_EDITION}.*$", re.IGNORECASE)
+_EDITION_DASHED = re.compile(
+    rf"\s[-\u2013\u2014]\s(?!.*{_DIFFERENT})[^-\u2013\u2014]*{_EDITION}.*$", re.IGNORECASE
+)
 
 # After normalize: "The Beatles" -> "the beatles", "Beatles, The" -> "beatles the".
 _THE = re.compile(r"^the | the$")

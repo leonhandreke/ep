@@ -9,7 +9,7 @@ from sqlmodel import col, or_, select
 from ep.api.deps import SessionDep
 from ep.api.errors import NOT_FOUND
 from ep.api.schemas import ResolvedRead, SearchHitRead
-from ep.matching.search import SearchHit, search
+from ep.matching.search import SEARCH_TYPES, SearchHit, search
 from ep.models import Artist, EntityType, Recording, ReleaseGroup, Track
 
 router = APIRouter(tags=["search"])
@@ -23,15 +23,16 @@ def _cover_url(release_group_id: UUID) -> str:
 def search_library(
     session: SessionDep,
     q: Annotated[str, Query(min_length=1)],
-    types: Annotated[list[EntityType] | None, Query()] = None,
+    types: Annotated[list[EntityType], Query(default_factory=list)],
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
 ) -> list[SearchHitRead]:
     """Artists, release groups and recordings matching ``q``, best first.
 
-    Accent- and case-insensitive; finds prefixes ("bjo" finds "Björk") and tolerates
-    small typos. ``types`` (repeatable) limits the entity types; default all.
+    Accent- and case-insensitive; finds prefixes ("bjo" finds "Björk"), tolerates small
+    typos, and matches artist and title together ("nina simone sinnerman"). ``types``
+    (repeatable) limits the entity types; default all.
     """
-    hits = search(session, q, types or list(EntityType), limit)
+    hits = search(session, q, types or SEARCH_TYPES, limit)
     recording_ids = [hit.entity.id for hit in hits if hit.type is EntityType.recording]
     covers: dict[UUID, UUID] = {}
     if recording_ids:

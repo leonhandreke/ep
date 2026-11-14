@@ -113,3 +113,22 @@ def test_resolve_by_internal_id_or_mbid(client: TestClient) -> None:
     assert resolve("artist", str(uuid.uuid4())).status_code == 404
     assert resolve("track", nina["id"]).status_code == 422
     assert resolve("artist", "not-a-uuid").status_code == 422
+
+
+def test_search_artist_and_title_together(client: TestClient) -> None:
+    nina = make_artist(client, "Nina Simone")
+    sinnerman = make_recording(client, nina, "Sinnerman")
+    make_recording(client, nina, "Feeling Good")
+    make_recording(client, make_artist(client, "Hozier"), "Sinnerman")
+    pastel = make_release_group(client, nina, "Pastel Blues")
+    for q in (
+        "nina simone sinnerman",
+        "sinnerman nina simone",
+        "nina simone sinner",
+        "simone sinnerman",
+    ):
+        hits = search(client, q)
+        assert hits[0]["id"] == sinnerman["id"], q
+    assert search(client, "nina simone pastel")[0]["id"] == pastel["id"]
+    # One word: titles and names only, the artist first.
+    assert [h["title"] for h in search(client, "nina")] == ["Nina Simone"]

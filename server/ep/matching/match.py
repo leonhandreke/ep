@@ -11,19 +11,24 @@ duration) and tries, in order:
    (``ep.matching.normalize``). A recording or release group scores
    ``title score * artist score / 100``, so the same title by another artist scores
    low. Recordings whose duration differs by more than ``DURATION_TOLERANCE_MS`` are
-   dropped when both durations are known.
+   dropped when both durations are known. Titles with different numbers ("Movement 1"
+   and "Movement 2", "Part II" and "Part III") are never matched automatically.
+
+When the caller knows an MBID, rows with a *different* MBID are never candidates in
+steps 2 and 3: they are known to be other entities.
 
 The result lists candidates, best first, and a decision: ``auto_match`` (use
 ``result.match``), ``needs_review`` (ask the user) or ``new`` (create an entity).
 """
 
+import re
 import uuid
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 
 from rapidfuzz import fuzz
-from sqlalchemy import ColumnElement, and_, func, or_
+from sqlalchemy import ColumnElement, and_, func, or_, true
 from sqlalchemy.orm import Mapped
 from sqlmodel import Session, col, select
 
@@ -95,17 +100,31 @@ def text_score(a: str, b: str) -> float:
     return max(fuzz.ratio(a, b), fuzz.token_sort_ratio(a, b))
 
 
-def credit_score(artist: str, credit: ArtistCredit) -> float:
-    """How well artist text matches a credit: the whole credit or any one artist in it.
+# Arabic numbers and Roman numerals up to 39 (after normalisation: lowercase words).
+_NUMBER = re.compile(r"^(?:\d+|(?=[ivx])x{0,3}(?:ix|iv|v?i{0,3}))$")
+
+
+def numbers(normalized: str) -> list[str]:
+    """The numbers in a normalised title, in order: "part ii 2" -> ["ii", "2"]."""
+    return [word for word in normalized.split() if _NUMBER.match(word)]
+
+
+def credit_score(artist: str, credit: ArtistCredit, artist_names: Sequence[str] = ()) -> float:
+    """How well artist text matches a credit: whole, or any one artist on either side.
 
     "Floating Points" matches "Floating Points, Pharoah Sanders & The London Symphony
     Orchestra" fully: radio tracklists and file tags often name only the main artist.
+    The other way round, the query's own ``artist_names`` (the artists of the credit,
+    when the caller knows them) are compared too: credit text is not split, since
+    "Earth, Wind & Fire" is one artist.
     """
-    query = normalize_artist(artist)
+    queries = {normalize_artist(name) for name in (artist, *artist_names)} - {""}
     names = [credit.name]
     for part in credit.names:
         names += [part.credited_name, part.artist.name]
-    return max(text_score(query, normalize_artist(name)) for name in names)
+    return max(
+        text_score(query, normalize_artist(name)) for query in queries or {""} for name in names
+    )
 
 
 def decide[T: Base](candidates: list[Candidate[T]], *, allow_auto: bool = True) -> Decision:
@@ -147,8 +166,21 @@ def _by_mbid[T: Base](
     return _exact(rows, MatchMethod.mbid)
 
 
+def _mbid_compatible(
+    column: Mapped[uuid.UUID | None], mbid: uuid.UUID | None
+) -> ColumnElement[bool]:
+    """SQL: the row has no MBID or the given one (true if no MBID is given)."""
+    if mbid is None:
+        return true()
+    return or_(col(column).is_(None), col(column) == mbid)
+
+
 def _by_external_ids[T: Base](
-    session: Session, model: type[T], entity_type: EntityType, external_ids: ExternalIds
+    session: Session,
+    model: type[T],
+    entity_type: EntityType,
+    external_ids: ExternalIds,
+    compatible: ColumnElement[bool],
 ) -> MatchResult[T] | None:
     pairs = [
         (scheme, normalize_isrc(value) if scheme == "isrc" else value.strip())
@@ -160,7 +192,7 @@ def _by_external_ids[T: Base](
         ExternalId.entity_type == entity_type,
         or_(*(and_(col(ExternalId.scheme) == s, col(ExternalId.value) == v) for s, v in pairs)),
     )
-    rows = session.exec(select(model).where(col(model.id).in_(entity_ids))).all()
+    rows = session.exec(select(model).where(col(model.id).in_(entity_ids), compatible)).all()
     return _exact(rows, MatchMethod.external_id)
 
 
@@ -184,7 +216,8 @@ def match_artist(
     """Match an artist by MBID, external IDs, then name (or sort name)."""
     if mbid and (result := _by_mbid(session, Artist, col(Artist.mbid), mbid)):
         return result
-    if result := _by_external_ids(session, Artist, EntityType.artist, external_ids):
+    compatible = _mbid_compatible(col(Artist.mbid), mbid)
+    if result := _by_external_ids(session, Artist, EntityType.artist, external_ids, compatible):
         return result
     if not name or not (query := normalize_artist(name)):
         return MatchResult(Decision.new, [])
@@ -193,7 +226,7 @@ def match_artist(
     )
     artists = session.exec(
         select(Artist)
-        .where(similarity >= CANDIDATE_MIN_SIMILARITY)
+        .where(similarity >= CANDIDATE_MIN_SIMILARITY, compatible)
         .order_by(similarity.desc())
         .limit(CANDIDATE_LIMIT)
     )
@@ -214,6 +247,7 @@ def match_release_group(
     title: str | None = None,
     *,
     artist: str | None = None,
+    artist_names: Sequence[str] = (),
     mbid: uuid.UUID | None = None,
     release_mbid: uuid.UUID | None = None,
     barcode: str | None = None,
@@ -221,6 +255,7 @@ def match_release_group(
 ) -> MatchResult[ReleaseGroup]:
     """Match a release group by MBID (its own or its release's), barcode and external IDs,
     then title and artist credit text. Without artist text, fuzzy matches need review.
+    ``artist_names``: the individual artists of the credit, if known (see ``credit_score``).
     """
     if mbid and (result := _by_mbid(session, ReleaseGroup, col(ReleaseGroup.mbid), mbid)):
         return result
@@ -228,14 +263,17 @@ def match_release_group(
         result := _by_mbid(session, ReleaseGroup, col(ReleaseGroup.release_mbid), release_mbid)
     ):
         return result
+    compatible = _mbid_compatible(col(ReleaseGroup.mbid), mbid)
     if barcode and (digits := barcode.strip().lstrip("0")):
         # A UPC-A is the same barcode as the EAN-13 with a leading zero.
         rows = session.exec(
-            select(ReleaseGroup).where(func.ltrim(ReleaseGroup.barcode, "0") == digits)
+            select(ReleaseGroup).where(func.ltrim(ReleaseGroup.barcode, "0") == digits, compatible)
         ).all()
         if result := _exact(rows, MatchMethod.external_id):
             return result
-    if result := _by_external_ids(session, ReleaseGroup, EntityType.release_group, external_ids):
+    if result := _by_external_ids(
+        session, ReleaseGroup, EntityType.release_group, external_ids, compatible
+    ):
         return result
     if not title:
         return MatchResult(Decision.new, [])
@@ -247,9 +285,13 @@ def match_release_group(
         col(ReleaseGroup.artist_credit_id),
         query,
         artist,
+        compatible,
     )
     return _result(
-        ((rg, _title_artist_score(query, rg.title, artist, rg.artist_credit)) for rg in rows),
+        (
+            (rg, _title_artist_score(query, rg.title, artist, artist_names, rg.artist_credit))
+            for rg in rows
+        ),
         allow_auto=artist is not None,
     )
 
@@ -259,30 +301,41 @@ def match_recording(
     title: str | None = None,
     *,
     artist: str | None = None,
+    artist_names: Sequence[str] = (),
     length_ms: int | None = None,
     mbid: uuid.UUID | None = None,
     isrc: str | None = None,
     external_ids: ExternalIds = (),
 ) -> MatchResult[Recording]:
     """Match a recording by MBID, ISRC and external IDs, then title, artist credit text and
-    duration. Without artist text, fuzzy matches need review.
+    duration. Without artist text, fuzzy matches need review. ``artist_names``: the
+    individual artists of the credit, if known (see ``credit_score``).
     """
     if mbid and (result := _by_mbid(session, Recording, col(Recording.mbid), mbid)):
         return result
     ids = [*external_ids, *([("isrc", isrc)] if isrc else [])]
-    if result := _by_external_ids(session, Recording, EntityType.recording, ids):
+    compatible = _mbid_compatible(col(Recording.mbid), mbid)
+    if result := _by_external_ids(session, Recording, EntityType.recording, ids, compatible):
         return result
     if not title:
         return MatchResult(Decision.new, [])
     query = normalize_title(title)
     rows = _fuzzy_candidates(
-        session, Recording, col(Recording.title), col(Recording.artist_credit_id), query, artist
+        session,
+        Recording,
+        col(Recording.title),
+        col(Recording.artist_credit_id),
+        query,
+        artist,
+        compatible,
     )
     return _result(
         (
             (
                 recording,
-                _title_artist_score(query, recording.title, artist, recording.artist_credit),
+                _title_artist_score(
+                    query, recording.title, artist, artist_names, recording.artist_credit
+                ),
             )
             for recording in rows
             if not _durations_differ(length_ms, recording.length_ms)
@@ -298,10 +351,11 @@ def _fuzzy_candidates[T: Base](
     credit_column: Mapped[uuid.UUID],
     query: str,
     artist: str | None,
+    compatible: ColumnElement[bool],
 ) -> Sequence[T]:
     """Rows with a similar title, ranked by title and (if given) artist credit similarity."""
     title_similarity = _similarity(query, title_column)
-    statement = select(model).where(title_similarity >= CANDIDATE_MIN_SIMILARITY)
+    statement = select(model).where(title_similarity >= CANDIDATE_MIN_SIMILARITY, compatible)
     if artist and (artist_query := normalize_artist(artist)):
         statement = statement.join(ArtistCredit, credit_column == ArtistCredit.id).order_by(
             (title_similarity + _similarity(artist_query, col(ArtistCredit.name))).desc()
@@ -311,10 +365,20 @@ def _fuzzy_candidates[T: Base](
     return session.exec(statement.limit(CANDIDATE_LIMIT)).all()
 
 
-def _title_artist_score(query: str, title: str, artist: str | None, credit: ArtistCredit) -> float:
-    score = text_score(query, normalize_title(title))
+def _title_artist_score(
+    query: str,
+    title: str,
+    artist: str | None,
+    artist_names: Sequence[str],
+    credit: ArtistCredit,
+) -> float:
+    normalized = normalize_title(title)
+    score = text_score(query, normalized)
+    if numbers(query) != numbers(normalized):
+        # "Movement 1" and "Movement 2" differ in one character: ask, never auto-match.
+        score = min(score, AUTO_MATCH_SCORE - 1)
     if artist:
-        score = score * credit_score(artist, credit) / 100
+        score = score * credit_score(artist, credit, artist_names) / 100
     return score
 
 

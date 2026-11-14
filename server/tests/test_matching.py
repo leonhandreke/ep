@@ -31,6 +31,10 @@ from ep.models import Artist, EntityType, ExternalId, Recording, ReleaseGroup, R
         ("Rock & Roll", "rock and roll"),
         ("Motörhead / Ace of Spades", "motorhead ace of spades"),
         ("Søvn", "sovn"),
+        # An edition word next to a different-recording word: keep the part.
+        ("Sinnerman (Live, 2011 Remaster)", "sinnerman live 2011 remaster"),
+        ("Hey Jude - Remix / Mono", "hey jude remix mono"),
+        ("Hey Jude (Radio Edit) [Remastered]", "hey jude radio edit"),
     ],
 )
 def test_normalize_title(title: str, expected: str) -> None:
@@ -133,8 +137,11 @@ def test_match_artist_new_and_by_mbid(session: Session) -> None:
     result = match_artist(session, "Completely different text", mbid=mbid)
     assert result.match is nina
     assert result.candidates[0].method is MatchMethod.mbid
-    # An unknown MBID falls through to the name.
-    assert match_artist(session, "Nina Simone", mbid=uuid.uuid4()).match is nina
+    # An unknown MBID falls through to the name, but never to a row with another MBID.
+    assert match_artist(session, "Nina Simone", mbid=uuid.uuid4()).decision is Decision.new
+    plain = artist(session, "Aphex Twin")
+    session.flush()
+    assert match_artist(session, "Aphex Twin", mbid=uuid.uuid4()).match is plain
 
 
 # Recordings
@@ -276,3 +283,53 @@ def test_match_release_group_by_ids(session: Session) -> None:
     session.flush()
     bandcamp = [("bandcamp", "https://nina.bandcamp.com/album/pastel-blues")]
     assert match_release_group(session, external_ids=bandcamp).match is pastel
+
+
+def test_match_recording_numbers_must_agree(session: Session) -> None:
+    fp = artist(session, "Floating Points")
+    movement_2 = recording(session, "Promises: Movement 2", fp)
+    part_ii = recording(session, "Part II", fp)
+    result = match_recording(session, "Promises: Movement 1", artist="Floating Points")
+    assert result.decision is Decision.needs_review
+    assert result.candidates[0].entity is movement_2
+    assert match_recording(session, "Part III", artist="Floating Points").match is None
+    assert match_recording(session, "Part II", artist="Floating Points").match is part_ii
+
+
+def test_match_live_is_not_the_studio_recording(session: Session) -> None:
+    recording(session, "Sinnerman", artist(session, "Nina Simone"))
+    result = match_recording(session, "Sinnerman (Live, 2011 Remaster)", artist="Nina Simone")
+    assert result.match is None
+
+
+def test_match_never_returns_rows_with_another_mbid(session: Session) -> None:
+    nina = artist(session, "Nina Simone")
+    other = recording(session, "Sinnerman", nina, mbid=uuid.uuid4())
+    session.add(
+        ExternalId(
+            entity_type=EntityType.recording,
+            entity_id=other.id,
+            scheme="isrc",
+            value="USPR36500123",
+        )
+    )
+    session.flush()
+    mbid = uuid.uuid4()
+    result = match_recording(
+        session, "Sinnerman", artist="Nina Simone", mbid=mbid, isrc="USPR36500123"
+    )
+    assert result.decision is Decision.new
+    assert result.candidates == []
+    loose = recording(session, "Sinnerman", nina)
+    assert match_recording(session, "Sinnerman", artist="Nina Simone", mbid=mbid).match is loose
+    # Without an MBID both are candidates.
+    assert len(match_recording(session, "Sinnerman", artist="Nina Simone").candidates) == 2
+
+    rg = release_group(session, "Pastel Blues", nina, mbid=uuid.uuid4())
+    assert match_release_group(session, "Pastel Blues", artist="Nina Simone").match is rg
+    assert (
+        match_release_group(
+            session, "Pastel Blues", artist="Nina Simone", mbid=uuid.uuid4()
+        ).candidates
+        == []
+    )

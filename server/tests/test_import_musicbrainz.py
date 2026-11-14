@@ -6,8 +6,15 @@ from fastapi.testclient import TestClient
 from sqlmodel import Session, SQLModel, func, select
 
 from ep.api.musicbrainz import get_musicbrainz
-from ep.importers.musicbrainz import ReleaseConflict, import_release
+from ep.credits import CreditPart, get_or_create_artist_credit
+from ep.importers.musicbrainz import (
+    RecordingConflict,
+    ReleaseConflict,
+    import_release,
+    propose_recordings,
+)
 from ep.main import app
+from ep.matching import Decision, MatchMethod
 from ep.metadata.musicbrainz import MBRelease
 from ep.models import (
     Artist,
@@ -18,6 +25,7 @@ from ep.models import (
     Recording,
     ReleaseGroup,
     ReleaseGroupType,
+    Source,
     Track,
 )
 from tests.helpers import make_artist, make_release_group
@@ -139,6 +147,108 @@ def test_import_multi_disc_release(session: Session) -> None:
     frog = release_group.tracks[6]
     assert frog.recording.title == "The Little Blue Frog (mst)"
     assert frog.title == "The Little Blue Frog"  # the track title overrides the recording's
+
+
+def loose_recording(session: Session, title: str, artist_name: str) -> Recording:
+    """A recording without MBID or track, as a YouTube import leaves it."""
+    artist = Artist(name=artist_name, sort_name=artist_name)
+    session.add(artist)
+    credit = get_or_create_artist_credit(session, [CreditPart(artist, artist_name)])
+    recording = Recording(title=title, artist_credit_id=credit.id)
+    session.add(recording)
+    session.flush()
+    return recording
+
+
+def test_propose_and_attach_loose_recording(session: Session) -> None:
+    release = promises()
+    loose = loose_recording(session, "Promises - Movement 1", "Floating Points")
+    session.add(
+        Source(kind="youtube", uri="https://www.youtube.com/watch?v=x", recording_id=loose.id)
+    )
+    session.add(
+        ExternalId(
+            entity_type=EntityType.recording, entity_id=loose.id, scheme="youtube", value="x"
+        )
+    )
+    session.flush()
+
+    proposals = propose_recordings(session, release)
+    first_track = release.media[0].tracks[0]
+    assert set(proposals) == {t.id for t in release.media[0].tracks}
+    assert proposals[first_track.id].match is loose
+    assert proposals[first_track.id].candidates[0].method is MatchMethod.fuzzy
+    # Movement 2 is not auto-matched to the Movement 1 recording.
+    assert proposals[release.media[0].tracks[1].id].match is None
+    matches = {tid: r.match for tid, r in proposals.items() if r.match}
+    assert list(matches) == [first_track.id]
+
+    release_group = import_release(session, release, recordings=matches)
+    assert release_group.tracks[0].recording_id == loose.id
+    assert loose.mbid == uuid.UUID(MOVEMENT_1)
+    assert loose.title == "Promises - Movement 1"  # kept; the track carries MB's title
+    assert release_group.tracks[0].title == "Promises: Movement 1"
+    assert loose.length_ms == 384151  # filled in: it had none
+    assert loose.artist_credit.name == "Floating Points"  # kept
+    assert count(session, Recording) == 9
+    assert count(session, Source) == 1
+    schemes = session.exec(
+        select(ExternalId.scheme)
+        .where(ExternalId.entity_id == loose.id)
+        .order_by(ExternalId.scheme)
+    ).all()
+    assert schemes == ["isrc", "youtube"]
+
+    # Imported again: every track now matches its recording by MBID.
+    again = propose_recordings(session, release)
+    assert all(r.candidates[0].method is MatchMethod.mbid for r in again.values())
+    assert again[first_track.id].match is loose
+
+
+def test_import_rejects_conflicting_prematched_recordings(session: Session) -> None:
+    release = promises()
+    tracks = release.media[0].tracks
+    loose = loose_recording(session, "Movement", "Floating Points")
+    with pytest.raises(RecordingConflict, match="is given for tracks of"):
+        import_release(session, release, recordings={tracks[0].id: loose, tracks[1].id: loose})
+    loose.mbid = uuid.uuid4()
+    with pytest.raises(RecordingConflict, match="has MBID"):
+        import_release(session, release, recordings={tracks[0].id: loose})
+    with pytest.raises(ValueError, match="not tracks of release"):
+        import_release(session, release, recordings={uuid.uuid4(): loose})
+    loose.mbid = None
+    session.flush()
+    import_release(session, release)
+    with pytest.raises(RecordingConflict, match="already in the library"):
+        import_release(session, release, recordings={tracks[0].id: loose})
+
+
+def test_propose_demotes_one_recording_matched_by_two_tracks(session: Session) -> None:
+    release = big_fun()
+    # Two tracks of different MusicBrainz recordings, both with this ISRC.
+    loose = loose_recording(session, "Something", "Miles Davis")
+    disc_1 = release.media[0].tracks
+    two = [
+        t.model_copy(
+            update={"recording": t.recording.model_copy(update={"isrcs": ["XX0000000001"]})}
+        )
+        for t in disc_1[:2]
+    ]
+    medium = release.media[0].model_copy(update={"tracks": [*two, *disc_1[2:]]})
+    release = release.model_copy(update={"media": [medium, release.media[1]]})
+    session.add(
+        ExternalId(
+            entity_type=EntityType.recording,
+            entity_id=loose.id,
+            scheme="isrc",
+            value="XX0000000001",
+        )
+    )
+    session.flush()
+    proposals = propose_recordings(session, release)
+    for track in two:
+        assert proposals[track.id].decision is Decision.needs_review
+        assert proposals[track.id].candidates[0].entity is loose
 
 
 # Endpoints
