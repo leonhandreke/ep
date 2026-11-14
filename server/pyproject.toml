@@ -1,0 +1,56 @@
+[project]
+name = "ep"
+version = "0.1.0"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "alembic>=1.20.1",
+    "fastapi>=0.163.0",
+    "psycopg[binary]>=3.3.9",
+    "pydantic-settings>=2.16.3",
+    "sqlmodel>=0.0.50",
+    "uvicorn[standard]>=0.54.0",
+    "yt-dlp[default]>=2026.10.26",
+]
+
+[dependency-groups]
+dev = [
+    "httpx2>=2.16.0",
+    "prek>=0.5.10",
+    "pytest>=9.2.0",
+    "ruff>=0.17.5",
+    "ty>=0.0.104",
+]
+
+[build-system]
+requires = ["uv_build>=0.9,<1"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "ep"
+module-root = ""
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-m 'not network'"
+markers = [
+    "network: hits the network or downloads audio (opt-in: pytest -m network)",
+]
+
+[tool.alembic]
+script_location = "%(here)s/alembic"
+file_template = "%%(year)d%%(month).2d%%(day).2d_%%(rev)s_%%(slug)s"
+prepend_sys_path = ["."]
+# The database URL comes from EP_DATABASE_URL (see alembic/env.py).
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["ep"]
+known-third-party = ["alembic"]
+
+[tool.ty.environment]
+python-version = "3.13"

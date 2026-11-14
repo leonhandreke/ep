@@ -1,0 +1,20 @@
+# Git hooks, run by prek (https://prek.j178.dev). Install with:
+#   uv run --project server prek install
+# Workspace mode: server/prek.toml holds the server's own hooks. prek runs each
+# file only through the nearest config, so both configs list the builtins.
+#:schema https://www.schemastore.org/prek.json
+
+[[repos]]
+repo = "builtin"
+hooks = [
+    { id = "trailing-whitespace", args = ["--markdown-linebreak-ext=md"] },
+    { id = "end-of-file-fixer" },
+    { id = "mixed-line-ending", args = ["--fix=lf"] },
+    { id = "check-added-large-files" },
+    { id = "check-merge-conflict" },
+    { id = "check-case-conflict" },
+    { id = "check-yaml" },
+    { id = "check-toml" },
+    { id = "check-json" },
+    { id = "detect-private-key" },
+]

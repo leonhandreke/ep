@@ -1,0 +1,45 @@
+name: ep
+
+x-app: &app
+  build: .
+  image: ep-server
+  environment:
+    EP_DATABASE_URL: postgresql+psycopg://ep:ep@db:5432/ep
+    EP_LIBRARY_DIR: /library
+    EP_WATCH_DIRS: '["/watch/Library"]'
+  volumes:
+    - ${HOME}/Music/ep-Library:/library
+    - ${HOME}/Music/Library:/watch/Library:ro
+  depends_on:
+    db:
+      condition: service_healthy
+
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: ep
+      POSTGRES_PASSWORD: ep
+      POSTGRES_DB: ep
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ep -d ep"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
+  api:
+    <<: *app
+    ports:
+      - "8000:8000"
+
+  worker:
+    <<: *app
+    # Placeholder until stage 5 adds Procrastinate.
+    command: ["sh", "-c", "echo 'worker: placeholder (no jobs yet)'; exec sleep infinity"]
+
+volumes:
+  db-data:
