@@ -113,11 +113,27 @@ uv run alembic revision --autogenerate -m "add catalogue"
   different MBID than the caller's are never candidates; titles whose numbers differ
   ("Movement 1"/"Movement 2") never auto-match. Thresholds are constants in
   `ep.matching.match`.
-- `GET /search?q=` (autocomplete) ranks by trigram word similarity of the
-  lowercase/unaccented text plus a prefix bonus, so short prefixes work ("bjo" finds
-  "Björk"); a query of several words also matches "artist title" of recordings and
-  release groups ("nina simone sinnerman"). `GET /resolve/{type}/{uuid}` finds an
-  entity by internal ID or MBID (or a release group by its release MBID).
+- `GET /search?q=` (autocomplete) ranks by trigram word similarity of the normalised
+  text plus a prefix bonus, so short prefixes work ("bjo" finds "Björk"); a query of
+  several words also matches "artist title" of recordings and release groups ("nina
+  simone sinnerman"). `GET /resolve/{type}/{uuid}` finds an entity by internal ID or
+  MBID (or a release group by its release MBID).
+- Matching and search run in Postgres on indexes (the one exception to the plain
+  schema): `artist.name`, `artist.sort_name`, `artist_credit.name`,
+  `release_group.title` and `recording.title` each have a stored generated
+  `*_normalized` column (`ep_normalize(<column>)`, never set by code) with a GIN
+  `gin_trgm_ops` index. `ep_normalize` (migration 0004) is the SQL twin of
+  `ep.matching.normalize.normalize`; change both together, `tests/test_normalize_sql.py`
+  checks that they agree on every character. Queries use the pg_trgm operator `<%`
+  and `LIKE` (index-backed), with the threshold set per transaction
+  (`ep.matching.sql.set_word_similarity_threshold`), never the bare `word_similarity()`
+  function as a filter; `tests/test_matching_indexes.py` checks that the plans can use
+  the indexes. rapidfuzz still makes the decision: featured-artist/edition stripping,
+  word order, number guard and per-artist credit scores are Python only.
+- `scripts/bench_matching.py` loads a synthetic library (50k artists, 500k recordings)
+  into a scratch database `ep_bench` and times matcher calls and searches, with
+  `--explain` for query plans. Before stage 4b (no indexes): 0.8–11 s per call; after:
+  4–200 ms for the matcher, 8–150 ms for search (400 ms for a one-letter query).
 - MusicBrainz test fixtures are real responses in `tests/fixtures/musicbrainz/`, served
   by `tests/mock_musicbrainz.py`.
 

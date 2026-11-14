@@ -9,9 +9,10 @@ own directory and is planned separately.
 - Everything backend lives in `server/`.
 - Never modify audio files. All edits live in the database. Watched directories are
   mounted read-only.
-- Keep the schema plain: no cache tables, no denormalised copies, no speculative indexes.
-  Prefer an extra ORM query over custom SQL or a bespoke accessor. Optimise only when
-  something is measurably slow.
+- Keep the schema plain: no cache tables, no denormalised copies. Err on the side of the
+  ORM. Indexes and custom SQL are allowed where they make sense (a query that is
+  clearly better expressed or much faster in SQL, an index for an obvious lookup
+  path); do not add them speculatively.
 - Entities may exist without a MusicBrainz ID. `mbid` is always nullable.
 - One release per release group. Importing a second, different release for an existing
   release group is an error.
@@ -22,8 +23,9 @@ own directory and is planned separately.
 
 ## Tech stack
 
-- Python 3.15, uv, FastAPI, SQLModel, Alembic, Postgres 18 (`pg_trgm`, `unaccent`
-  extensions for fuzzy search, used via ORM `func.similarity`, no extra indexes yet).
+- Python 3.15, uv, FastAPI, SQLModel, Alembic, Postgres 18 (`pg_trgm` for fuzzy
+  matching and search, on generated normalised columns with GIN trigram indexes; see
+  stage 4b).
 - Procrastinate (Postgres-backed job queue) for import jobs; no Redis.
 - `httpx` (MusicBrainz at 1 req/s with a descriptive User-Agent, NTS, Bandcamp pages),
   `mutagen` + `ffprobe` (tags, duration), `rapidfuzz` (match scoring),
@@ -147,8 +149,9 @@ One module, used by every importer, by NTS tracklist dedupe and by search/autoco
 
 1. Exact: MBID, then ISRC or any other `external_id`.
 2. Fuzzy: normalise artist and title (lowercase, unaccent, strip "feat. …",
-   "(Remastered 2011)", punctuation), fetch candidates with trigram similarity, re-score
-   with rapidfuzz, and require the duration to be within a tolerance when both are known.
+   "(Remastered 2011)", punctuation), fetch candidates with trigram word similarity
+   (index-backed, in Postgres), re-score with rapidfuzz, and require the duration to be
+   within a tolerance when both are known.
 3. Decision by score: auto-match, ask the user (goes into the job proposal), or create new.
 
 Example: a loose YouTube track exists; the Bandcamp album containing it is imported. The
@@ -172,6 +175,13 @@ recording matches, gains a `track` row on the new release group and a second sou
 All importers share the stages fetch → resolve metadata → match → proposal → apply.
 A job stops at `needs_review` when any match is uncertain; the wizard shows the proposal
 and posts the user's decisions back. Confident jobs apply directly.
+
+The import queue is also the user's decision inbox. A job with any problem (uncertain
+match, release-group edition conflict, download failure, unreadable file, metadata not
+found) is never dropped or silently skipped: it stays in the queue in `needs_review` or
+`failed` with a structured list of issues, each with a kind, a human-readable message
+and the choices available (pick a candidate, create new, retry, skip this item, dismiss
+the job). Jobs leave the queue only by being completed or explicitly dismissed.
 
 - **Bandcamp**: `bandcamp.py` + MusicBrainz URL lookup, then `yt-dlp -x` into
   `~/Music/ep-Library/Artist/Release Group/NN Title.ext`.
@@ -205,6 +215,26 @@ and posts the user's decisions back. Confident jobs apply directly.
    resolution, cover art.
 4. **Matching and MusicBrainz**: `musicbrainz.py`, matching module, `/search`,
    `/resolve`.
+   **4b. Postgres-native matching**: investigate how the matcher and `/search` can make
+   the best use of Postgres and its bundled extensions (`pg_trgm` operators and
+   GIN/GiST indexes, `unaccent`, `fuzzystrmatch`, full-text search, ICU collations,
+   generated columns), and change the implementation where that is a real improvement.
+   This is the one place where indexes and Postgres-specific SQL are welcome.
+   Outcome: an IMMUTABLE SQL function `ep_normalize`, the exact twin of Python's
+   `normalize` (Postgres 18 `casefold` with the builtin `pg_unicode_fast` collation and
+   `normalize()`, replacing `unaccent`, whose rules Python cannot reproduce), stored
+   generated `*_normalized` columns with GIN trigram indexes, queries on the `<%` and
+   `LIKE` operators with per-transaction thresholds, "artist title" search as one
+   index-backed select per split of the query, and btree indexes for external IDs,
+   barcodes, artist credits and tracks by recording. Rejected: GiST/KNN (the rank is
+   not a single trigram distance), full-text search (no typo tolerance, cannot span the
+   recording-credit join), `fuzzystrmatch` (rapidfuzz scores better; phonetic codes are
+   English-centric and collide), ICU nondeterministic collations and `citext` (no
+   punctuation/feat. handling, no trigram support), `btree_gin` (nothing to combine).
+   **4c. Query clean-up**: go through the existing codebase with the relaxed rule
+   above: add indexes for obvious lookup paths, replace awkward multi-query code with
+   a join or custom SQL where that is clearly better, and leave ORM code alone where
+   it is fine.
 5. **Jobs and folder import**: Procrastinate, `import_job`, proposal/review flow, folder
    importer, watcher.
 6. **Bandcamp and YouTube**: `bandcamp.py`, `ytdlp.py`, downloads, chapter slices.
@@ -217,6 +247,9 @@ each other once 5 is done.
 ## Test fixtures and local setup
 
 - Bandcamp album: https://knotwilg.bandcamp.com/album/leitmotiv-2
+  The artist is Maxine Funke; Knotwilg is the label whose Bandcamp page hosts it.
+  The importer must take the artist from the album's artist field, never from the
+  Bandcamp subdomain / page owner. This must be a test case.
 - YouTube single video: https://www.youtube.com/watch?v=GSWtPDAN3PE
 - YouTube playlist (import as one release group, one file per entry):
   https://www.youtube.com/watch?v=-i8dwSGgZjE&list=PLpCe82icWpaIvy78b4vyPWy3h8WThV5pW

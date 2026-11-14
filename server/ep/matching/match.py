@@ -6,9 +6,10 @@ duration) and tries, in order:
 1. MBID: a local row with that MBID is an automatic match.
 2. External IDs (ISRC, barcode, Deezer, ...): one row with any of them is an automatic
    match; several need review.
-3. Fuzzy: candidates by Postgres trigram similarity of the folded (lowercase,
-   unaccented) title or name, re-scored with rapidfuzz on normalised strings
-   (``ep.matching.normalize``). A recording or release group scores
+3. Fuzzy: candidates by Postgres trigram word similarity of the normalised query to
+   the normalised title or name (``ep.matching.sql``, index-backed), re-scored with
+   rapidfuzz on normalised strings (``ep.matching.normalize``), which also strips
+   featured artists and edition suffixes. A recording or release group scores
    ``title score * artist score / 100``, so the same title by another artist scores
    low. Recordings whose duration differs by more than ``DURATION_TOLERANCE_MS`` are
    dropped when both durations are known. Titles with different numbers ("Movement 1"
@@ -16,6 +17,12 @@ duration) and tries, in order:
 
 When the caller knows an MBID, rows with a *different* MBID are never candidates in
 steps 2 and 3: they are known to be other entities.
+
+Candidates are rows whose value contains (most of) the query: word similarity of the
+query to the best-matching part of the value. The other way round (a short value
+within a long query) is not indexable and not needed: a value covering less than
+about 40% of the query cannot reach ``REVIEW_SCORE`` with rapidfuzz, and one covering
+more has a word similarity above ``CANDIDATE_MIN_SIMILARITY`` anyway.
 
 The result lists candidates, best first, and a decision: ``auto_match`` (use
 ``result.match``), ``needs_review`` (ask the user) or ``new`` (create an entity).
@@ -26,15 +33,27 @@ import uuid
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Any, cast
 
 from rapidfuzz import fuzz
 from sqlalchemy import ColumnElement, and_, func, or_, true
-from sqlalchemy.orm import Mapped
+from sqlalchemy.orm import Mapped, QueryableAttribute, selectinload
+from sqlalchemy.orm.interfaces import ORMOption
 from sqlmodel import Session, col, select
 
 from ep.matching.normalize import normalize_artist, normalize_title
+from ep.matching.sql import set_word_similarity_threshold, word_similar
 from ep.metadata.musicbrainz import normalize_isrc
-from ep.models import Artist, ArtistCredit, Base, EntityType, ExternalId, Recording, ReleaseGroup
+from ep.models import (
+    Artist,
+    ArtistCredit,
+    ArtistCreditName,
+    Base,
+    EntityType,
+    ExternalId,
+    Recording,
+    ReleaseGroup,
+)
 
 # Scores are 0-100.
 # At least this, and AUTO_MATCH_MARGIN ahead of the runner-up: match without asking.
@@ -48,7 +67,8 @@ MIN_CANDIDATE_SCORE = 40.0
 MAX_CANDIDATES = 10
 # Two known durations further apart than this are different recordings.
 DURATION_TOLERANCE_MS = 10_000
-# Rows fetched by trigram similarity (0-1) before re-scoring with rapidfuzz.
+# Rows fetched by trigram word similarity (0-1, above this) before re-scoring with
+# rapidfuzz.
 CANDIDATE_MIN_SIMILARITY = 0.3
 CANDIDATE_LIMIT = 50
 
@@ -88,11 +108,6 @@ class MatchResult[T: Base]:
 
 ExternalIds = Iterable[tuple[str, str]]
 """(scheme, value) pairs, e.g. ``[("isrc", "USPR36500123"), ("deezer", "3135556")]``."""
-
-
-def folded(column: Mapped[str] | ColumnElement[str] | str) -> ColumnElement[str]:
-    """SQL: lowercase and unaccented, for trigram comparison."""
-    return func.unaccent(func.lower(column))
 
 
 def text_score(a: str, b: str) -> float:
@@ -197,13 +212,34 @@ def _by_external_ids[T: Base](
 
 
 def _similarity(query: str, column: Mapped[str]) -> ColumnElement[float]:
-    """Trigram similarity of a normalised query and a column, 0-1, either way round.
+    """Trigram similarity of a normalised query and a normalised column, 0-1, either way
+    round, for ranking candidates.
 
     ``word_similarity`` finds a query within a longer value ("here comes the sun" in
     "Here Comes the Sun (Remastered 2009)") and the other way round.
     """
-    target = folded(column)
-    return func.greatest(func.word_similarity(query, target), func.word_similarity(target, query))
+    return func.greatest(func.word_similarity(query, column), func.word_similarity(column, query))
+
+
+def _candidate(query: str, column: Mapped[str]) -> ColumnElement[bool]:
+    """SQL, index-backed: the query is within the normalised column's value (word
+    similarity above ``CANDIDATE_MIN_SIMILARITY``; call ``set_word_similarity_threshold``
+    first)."""
+    return word_similar(query, column)
+
+
+def _relationship(attribute: object) -> QueryableAttribute[Any]:
+    # SQLModel types relationship attributes as their targets.
+    return cast(QueryableAttribute[Any], attribute)
+
+
+def _with_credit(relationship: ArtistCredit) -> ORMOption:
+    """Load option: the artist credit with its artists, for ``credit_score``."""
+    return (
+        selectinload(_relationship(relationship))
+        .selectinload(_relationship(ArtistCredit.names))
+        .selectinload(_relationship(ArtistCreditName.artist))
+    )
 
 
 def match_artist(
@@ -222,11 +258,17 @@ def match_artist(
     if not name or not (query := normalize_artist(name)):
         return MatchResult(Decision.new, [])
     similarity = func.greatest(
-        _similarity(query, col(Artist.name)), _similarity(query, col(Artist.sort_name))
+        _similarity(query, col(Artist.name_normalized)),
+        _similarity(query, col(Artist.sort_name_normalized)),
     )
+    set_word_similarity_threshold(session, CANDIDATE_MIN_SIMILARITY)
     artists = session.exec(
         select(Artist)
-        .where(similarity >= CANDIDATE_MIN_SIMILARITY, compatible)
+        .where(
+            _candidate(query, col(Artist.name_normalized))
+            | _candidate(query, col(Artist.sort_name_normalized)),
+            compatible,
+        )
         .order_by(similarity.desc())
         .limit(CANDIDATE_LIMIT)
     )
@@ -281,8 +323,9 @@ def match_release_group(
     rows = _fuzzy_candidates(
         session,
         ReleaseGroup,
-        col(ReleaseGroup.title),
+        col(ReleaseGroup.title_normalized),
         col(ReleaseGroup.artist_credit_id),
+        _with_credit(ReleaseGroup.artist_credit),
         query,
         artist,
         compatible,
@@ -323,8 +366,9 @@ def match_recording(
     rows = _fuzzy_candidates(
         session,
         Recording,
-        col(Recording.title),
+        col(Recording.title_normalized),
         col(Recording.artist_credit_id),
+        _with_credit(Recording.artist_credit),
         query,
         artist,
         compatible,
@@ -349,19 +393,25 @@ def _fuzzy_candidates[T: Base](
     model: type[T],
     title_column: Mapped[str],
     credit_column: Mapped[uuid.UUID],
+    load_credit: ORMOption,
     query: str,
     artist: str | None,
     compatible: ColumnElement[bool],
 ) -> Sequence[T]:
-    """Rows with a similar title, ranked by title and (if given) artist credit similarity."""
-    title_similarity = _similarity(query, title_column)
-    statement = select(model).where(title_similarity >= CANDIDATE_MIN_SIMILARITY, compatible)
+    """Rows with a similar title, ranked by title and (if given) artist credit similarity.
+
+    Ties (a common title within many longer ones) go to the closest whole title, so that
+    "Love" is among the candidates for "love" however many "Love Song"s there are.
+    """
+    rank = _similarity(query, title_column)
+    set_word_similarity_threshold(session, CANDIDATE_MIN_SIMILARITY)
+    statement = (
+        select(model).where(_candidate(query, title_column), compatible).options(load_credit)
+    )
     if artist and (artist_query := normalize_artist(artist)):
-        statement = statement.join(ArtistCredit, credit_column == ArtistCredit.id).order_by(
-            (title_similarity + _similarity(artist_query, col(ArtistCredit.name))).desc()
-        )
-    else:
-        statement = statement.order_by(title_similarity.desc())
+        statement = statement.join(ArtistCredit, credit_column == ArtistCredit.id)
+        rank = rank + _similarity(artist_query, col(ArtistCredit.name_normalized))
+    statement = statement.order_by(rank.desc(), func.similarity(query, title_column).desc())
     return session.exec(statement.limit(CANDIDATE_LIMIT)).all()
 
 
