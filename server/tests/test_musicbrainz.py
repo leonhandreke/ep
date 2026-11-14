@@ -63,8 +63,8 @@ def test_get_release_with_tracks_credits_and_isrcs(mb: MockMusicBrainz) -> None:
     assert request.headers["User-Agent"] == USER_AGENT
 
 
-def test_user_agent_is_app_name_and_version() -> None:
-    assert USER_AGENT == "EP/0.1.0"
+def test_user_agent_has_app_version_and_contact() -> None:
+    assert USER_AGENT == "EP/0.1.0 ( leonh@ndreke.de )"
 
 
 def test_multi_disc_release(mb: MockMusicBrainz) -> None:

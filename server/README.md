@@ -93,8 +93,8 @@ uv run alembic revision --autogenerate -m "add catalogue"
   to its release), barcode and ISRC, searches (Lucene syntax, `lucene_query` builds
   one), and Cover Art Archive front covers. Typed Pydantic results. One request per
   second per process (`LIMITER`; the `api` and `worker` processes each have one),
-  User-Agent `EP/<version>` (no contact data), retries on 503. `get_release` fails
-  rather than return a partial track list.
+  User-Agent `EP/<version> ( <contact email> )` (MusicBrainz asks for contact details),
+  retries on 503. `get_release` fails rather than return a partial track list.
 - `ep.importers.musicbrainz.import_release(session, release, recordings=None)` adds a
   release fetched with `get_release` to the catalogue (artists, credits, release group
   with `release_mbid`, recordings, tracks with `disc`, ISRCs), reusing rows by MBID and

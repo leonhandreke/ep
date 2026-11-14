@@ -25,7 +25,8 @@ from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 
 API_URL = "https://musicbrainz.org/ws/2"
 COVER_ART_URL = "https://coverartarchive.org"
-USER_AGENT = f"EP/{version('ep')}"
+# MusicBrainz asks for contact details: "App/version ( contact )".
+USER_AGENT = f"EP/{version('ep')} ( leonh@ndreke.de )"
 # Seconds between two MusicBrainz requests (https://musicbrainz.org/doc/MusicBrainz_API/Rate_Limiting).
 REQUEST_INTERVAL = 1.0
 # Retries after a 503, waiting Retry-After seconds, or RETRY_BACKOFF * 2**attempt.
