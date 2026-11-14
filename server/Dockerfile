@@ -1,5 +1,12 @@
 FROM python:3.15-slim-trixie
 
+# ffprobe reads duration and codec of audio files (ep.probe).
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    rm -f /etc/apt/apt.conf.d/docker-clean \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg
+
 COPY --from=ghcr.io/astral-sh/uv:0.13.8 /uv /uvx /bin/
 
 ENV UV_COMPILE_BYTECODE=1 \

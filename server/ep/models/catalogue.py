@@ -13,7 +13,7 @@ from sqlmodel import Field, Relationship
 from ep.models.base import Base
 
 
-def _enum_column(enum: type[StrEnum]) -> sa.Enum:
+def enum_column(enum: type[StrEnum]) -> sa.Enum:
     return sa.Enum(
         enum, native_enum=False, length=32, values_callable=lambda e: [m.value for m in e]
     )
@@ -46,7 +46,7 @@ class Artist(Base, table=True):
     name: str
     sort_name: str
     disambiguation: str = ""
-    type: ArtistType | None = Field(default=None, sa_type=_enum_column(ArtistType))
+    type: ArtistType | None = Field(default=None, sa_type=enum_column(ArtistType))
 
 
 class ArtistCredit(Base, table=True):
@@ -89,7 +89,7 @@ class ReleaseGroup(Base, table=True):
     release_mbid: uuid.UUID | None = Field(default=None, unique=True)
     title: str
     artist_credit_id: uuid.UUID = Field(foreign_key="artist_credit.id")
-    type: ReleaseGroupType = Field(sa_type=_enum_column(ReleaseGroupType))
+    type: ReleaseGroupType = Field(sa_type=enum_column(ReleaseGroupType))
     # Partial date as text: YYYY, YYYY-MM or YYYY-MM-DD.
     date: str | None = None
     cover_path: str | None = None
@@ -137,7 +137,7 @@ class ExternalId(Base, table=True):
     __tablename__ = "external_id"
     __table_args__ = (sa.UniqueConstraint("entity_type", "entity_id", "scheme", "value"),)
 
-    entity_type: EntityType = Field(sa_type=_enum_column(EntityType))
+    entity_type: EntityType = Field(sa_type=enum_column(EntityType))
     entity_id: uuid.UUID
     scheme: str
     value: str

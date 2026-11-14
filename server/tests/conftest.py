@@ -7,6 +7,7 @@ rolled back afterwards, so tests do not see each other's data.
 """
 
 import os
+import subprocess
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -19,7 +20,7 @@ from sqlmodel import Session
 
 from ep.db import get_session
 from ep.main import app
-from ep.settings import get_settings
+from ep.settings import Settings, get_settings
 
 SERVER_DIR = Path(__file__).resolve().parent.parent
 
@@ -62,7 +63,15 @@ def session(engine: Engine) -> Iterator[Session]:
 
 
 @pytest.fixture
-def client(session: Session) -> Iterator[TestClient]:
+def library_dir(tmp_path: Path) -> Path:
+    """The managed library for a test: an empty temp dir (never ~/Music/ep-Library)."""
+    path = tmp_path / "library"
+    path.mkdir()
+    return path
+
+
+@pytest.fixture
+def client(session: Session, library_dir: Path) -> Iterator[TestClient]:
     def request_session() -> Iterator[Session]:
         # Like a per-request session: a failed request leaves nothing pending behind.
         try:
@@ -72,6 +81,56 @@ def client(session: Session) -> Iterator[TestClient]:
             raise
 
     app.dependency_overrides[get_session] = request_session
+    app.dependency_overrides[get_settings] = lambda: Settings(library_dir=library_dir)
     with TestClient(app) as client:
         yield client
     app.dependency_overrides.clear()
+
+
+# Audio fixtures, generated with ffmpeg once per test session.
+
+MB_RECORDING_ID = "8f3471b5-7e6a-48da-86a9-c1c07a0f47ae"
+MB_RELEASE_ID = "1e6b3e9a-4e0e-4b9d-9c5d-2b2f0b1c4d5e"
+MB_RELEASE_GROUP_ID = "7c3218d7-75e0-4e8c-971f-f097b6c308c5"
+MB_ARTIST_IDS = ["dd4f0e2d-5c3e-4a8f-a0d4-17b6d7a9c1e1", "a1a2a3a4-b1b2-c1c2-d1d2-e1e2e3e4e5e6"]
+
+
+def _ffmpeg(*args: str | Path) -> None:
+    subprocess.run(["ffmpeg", "-v", "error", "-y", *map(str, args)], check=True)
+
+
+@pytest.fixture(scope="session")
+def audio_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """Small generated audio files: a fully tagged FLAC with a cover, an MP3, an M4A."""
+    directory = tmp_path_factory.mktemp("audio")
+    cover = directory / "cover.png"
+    _ffmpeg("-f", "lavfi", "-i", "color=c=red:s=8x8", "-frames:v", "1", cover)
+    with_cover = ("-i", cover, "-map", "0:a", "-map", "1:v", "-c:v", "copy")
+    with_cover += ("-disposition:v", "attached_pic")
+
+    def sine(seconds: int) -> tuple[str, ...]:
+        return ("-f", "lavfi", "-i", f"sine=frequency=440:duration={seconds}")
+
+    _ffmpeg(
+        *sine(6),
+        *with_cover,
+        *("-metadata", "title=Sinnerman", "-metadata", "artist=Nina Simone"),
+        *("-metadata", "ALBUMARTIST=Nina Simone", "-metadata", "album=Pastel Blues"),
+        *("-metadata", "TRACKNUMBER=3/12", "-metadata", "DISCNUMBER=1"),
+        *("-metadata", "DISCTOTAL=2", "-metadata", "date=1965-10"),
+        *("-metadata", "ISRC=USPR36500123"),
+        *("-metadata", f"MUSICBRAINZ_TRACKID={MB_RECORDING_ID}"),
+        *("-metadata", f"MUSICBRAINZ_ALBUMID={MB_RELEASE_ID}"),
+        *("-metadata", f"MUSICBRAINZ_RELEASEGROUPID={MB_RELEASE_GROUP_ID}"),
+        *("-metadata", f"MUSICBRAINZ_ARTISTID={'; '.join(MB_ARTIST_IDS)}"),
+        directory / "album.flac",
+    )
+    _ffmpeg(
+        *sine(3),
+        *with_cover,
+        *("-id3v2_version", "4", "-metadata", "title=Feeling Good", "-metadata", "track=2"),
+        directory / "song.mp3",
+    )
+    _ffmpeg(*sine(2), "-c:a", "aac", "-metadata", "title=Lilac Wine", directory / "song.m4a")
+    (directory / "notes.txt").write_text("not audio")
+    return directory

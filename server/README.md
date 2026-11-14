@@ -66,11 +66,28 @@ uv run alembic revision --autogenerate -m "add catalogue"
 - `external_id` has no foreign key: deleting an entity must call
   `ep.api.external_ids.delete_external_ids`.
 
+## Sources, playback, covers
+
+- `source` rows locate audio (`ep.models.source`): `file` (absolute path as the server
+  sees it, e.g. `/library/...` or `/watch/Library/...`), `slice` (parent + `start_ms`/
+  `end_ms`, relative to the parent) or a remote link. Deleting a source row never
+  touches the file; a source with derived sources, or a recording with sources, is a 409.
+- `ep.playback.resolve` walks `parent_id` up to the nearest `file`, summing slice offsets
+  (nested slices are clipped to their parent). `playback` on `SourceRead` and `TrackRead`
+  is the result: stream `GET /sources/{id}/stream` (whole file, HTTP Range) and play
+  `start_ms`..`end_ms`. Remote-only sources have `playback: null` and stream as a 409.
+- `ep.probe.probe(path)` reads codec/duration (`ffprobe`, in the image) and tags plus the
+  embedded cover (`mutagen`). It never writes. `POST /sources` uses it to fill in a new
+  file source's codec, duration and size.
+- Covers are uploaded with `PUT /covers/release-group/{id}` and stored in
+  `EP_LIBRARY_DIR/_covers/` (`ep.covers`), never next to files in watched directories.
+
 ## Tests
 
 Tests run against a real Postgres: the `db` service must be up. The test session drops
 and recreates the `ep_test` database, migrates it to head, and wraps each test in a
-transaction that is rolled back.
+transaction that is rolled back. Audio fixtures are generated with `ffmpeg` (must be on
+the `PATH`) into temp dirs; the managed library is a temp dir too.
 
 ```sh
 cd server

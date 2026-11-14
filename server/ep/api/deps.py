@@ -12,8 +12,10 @@ from ep.api.schemas import ArtistCreditNameIn, Page
 from ep.credits import CreditPart, get_or_create_artist_credit
 from ep.db import get_session
 from ep.models import Artist, ArtistCredit
+from ep.settings import Settings, get_settings
 
 SessionDep = Annotated[Session, Depends(get_session)]
+SettingsDep = Annotated[Settings, Depends(get_settings)]
 PageDep = Annotated[Page, Query()]
 
 

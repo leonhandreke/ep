@@ -40,8 +40,10 @@ def integrity_error_handler(request: Request, exc: Exception) -> JSONResponse:
     )
 
 
-def unprocessable(loc: Sequence[str | int], msg: str, input: Any) -> RequestValidationError:
+def unprocessable(
+    loc: Sequence[str | int], msg: str, input: Any, type: str = "not_found"
+) -> RequestValidationError:
     """A 422 in the same shape as FastAPI's validation errors (``HTTPValidationError``)."""
     return RequestValidationError(
-        [{"type": "not_found", "loc": ("body", *loc), "msg": msg, "input": input}]
+        [{"type": type, "loc": ("body", *loc), "msg": msg, "input": input}]
     )

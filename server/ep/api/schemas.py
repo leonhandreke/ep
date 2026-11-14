@@ -1,4 +1,4 @@
-"""Request and response schemas for the catalogue endpoints.
+"""Request and response schemas.
 
 Create schemas list required fields without defaults. Update (PATCH) schemas default
 every field to ``MISSING``: omitted fields are left alone, and only nullable columns
@@ -7,7 +7,7 @@ accept an explicit ``null``.
 
 import uuid
 from datetime import date, datetime
-from typing import Annotated
+from typing import Annotated, Any
 
 from pydantic import (
     MISSING,
@@ -18,9 +18,10 @@ from pydantic import (
     NonNegativeInt,
     PositiveInt,
     StringConstraints,
+    computed_field,
 )
 
-from ep.models import ArtistType, EntityType, ReleaseGroupType
+from ep.models import ArtistType, EntityType, ReleaseGroupType, SourceKind
 
 NonEmptyStr = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
@@ -142,6 +143,13 @@ class ReleaseGroupRead(Read):
     type: ReleaseGroupType
     date: str | None
     barcode: str | None
+    cover_path: str | None = Field(exclude=True)
+
+    @computed_field
+    @property
+    def cover_url(self) -> str | None:
+        """Path of the cover image (``GET /covers/release-group/{id}``), if there is one."""
+        return f"/covers/release-group/{self.id}" if self.cover_path else None
 
 
 # Recordings
@@ -200,12 +208,29 @@ class TrackUpdate(BaseModel):
     title: NonEmptyStr | MISSING | None = MISSING
 
 
+class PlaybackRead(BaseModel):
+    """How to play a source: stream ``file_source_id`` and play ``start_ms`` to ``end_ms``.
+
+    ``GET /sources/{id}/stream`` serves the whole file for any source that resolves to
+    it; the client seeks. ``end_ms`` null means to the end of the file.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    source_id: uuid.UUID
+    file_source_id: uuid.UUID
+    start_ms: int
+    end_ms: int | None
+
+
 class TrackRead(Read):
     release_group_id: uuid.UUID
     disc: int
     position: int
     title: str | None
     recording: RecordingRead
+    # The recording's first playable source; null if it has none.
+    playback: PlaybackRead | None = None
 
 
 # External IDs
@@ -222,3 +247,58 @@ class ExternalIdRead(Read):
     entity_id: uuid.UUID
     scheme: str
     value: str
+
+
+# Sources
+
+Sha256 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
+
+
+class SourceCreate(BaseModel):
+    kind: SourceKind
+    # Absolute path for file (must exist), URL/URI for remote kinds, omitted for slice.
+    uri: NonEmptyStr | None = None
+    parent_id: uuid.UUID | None = None
+    # Slice only: range within the parent. No end: to the end of the parent.
+    start_ms: NonNegativeInt | None = None
+    end_ms: PositiveInt | None = None
+    recording_id: uuid.UUID | None = None
+    managed: bool = False
+    # For file sources, codec/duration_ms/size are read from the file when omitted.
+    codec: NonEmptyStr | None = None
+    duration_ms: NonNegativeInt | None = None
+    size: NonNegativeInt | None = None
+    sha256: Sha256 | None = None
+    meta: dict[str, Any] = Field(default_factory=dict)
+
+
+class SourceUpdate(BaseModel):
+    kind: SourceKind | MISSING = MISSING
+    uri: NonEmptyStr | MISSING | None = MISSING
+    parent_id: uuid.UUID | MISSING | None = MISSING
+    start_ms: NonNegativeInt | MISSING | None = MISSING
+    end_ms: PositiveInt | MISSING | None = MISSING
+    recording_id: uuid.UUID | MISSING | None = MISSING
+    managed: bool | MISSING = MISSING
+    codec: NonEmptyStr | MISSING | None = MISSING
+    duration_ms: NonNegativeInt | MISSING | None = MISSING
+    size: NonNegativeInt | MISSING | None = MISSING
+    sha256: Sha256 | MISSING | None = MISSING
+    meta: dict[str, Any] | MISSING = MISSING
+
+
+class SourceRead(Read):
+    kind: SourceKind
+    uri: str | None
+    parent_id: uuid.UUID | None
+    start_ms: int | None
+    end_ms: int | None
+    recording_id: uuid.UUID | None
+    managed: bool
+    codec: str | None
+    duration_ms: int | None
+    size: int | None
+    sha256: str | None
+    meta: dict[str, Any]
+    # Null if the source does not resolve to a file (e.g. a remote-only link).
+    playback: PlaybackRead | None = None

@@ -17,6 +17,7 @@ from ep.models.catalogue import (
     ReleaseGroupType,
     Track,
 )
+from ep.models.source import Source, SourceKind
 
 __all__ = [
     "Artist",
@@ -29,5 +30,7 @@ __all__ = [
     "Recording",
     "ReleaseGroup",
     "ReleaseGroupType",
+    "Source",
+    "SourceKind",
     "Track",
 ]
