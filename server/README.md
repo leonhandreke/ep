@@ -32,6 +32,7 @@ files; `server/`: ruff, ty, `uv lock --check`).
 |---|---|---|
 | `EP_DATABASE_URL` | `postgresql+psycopg://ep:ep@localhost:5432/ep` | SQLAlchemy URL |
 | `EP_LIBRARY_DIR` | `/library` | managed library directory |
+| `EP_MEDIA_ROOTS` | `["<EP_LIBRARY_DIR>", "/watch"]` | JSON list: the only directories file sources may point into |
 | `EP_TEST_DATABASE_URL` | `EP_DATABASE_URL` with database `ep_test` | used by tests only |
 
 ## Start, migrate
@@ -72,6 +73,10 @@ uv run alembic revision --autogenerate -m "add catalogue"
   sees it, e.g. `/library/...` or `/watch/Library/...`), `slice` (parent + `start_ms`/
   `end_ms`, relative to the parent) or a remote link. Deleting a source row never
   touches the file; a source with derived sources, or a recording with sources, is a 409.
+- A `file` source's path must lie under one of `EP_MEDIA_ROOTS`, symlinks and `..`
+  resolved (`ep.media_roots.is_within_media_roots`): checked on create/patch (422) and
+  again on every stream (403). The API is unauthenticated; this keeps `/stream` from
+  serving arbitrary files.
 - `ep.playback.resolve` walks `parent_id` up to the nearest `file`, summing slice offsets
   (nested slices are clipped to their parent). `playback` on `SourceRead` and `TrackRead`
   is the result: stream `GET /sources/{id}/stream` (whole file, HTTP Range) and play

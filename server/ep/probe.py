@@ -17,6 +17,7 @@ from mutagen.easymp4 import EasyMP4Tags
 from mutagen.flac import FLAC, Picture
 from mutagen.id3 import ID3
 from mutagen.mp4 import MP4, MP4Cover
+from mutagen.ogg import OggFileType
 
 # Picard's MP4 names for tags that mutagen's EasyMP4 does not map by default.
 for _key, _name in {
@@ -185,8 +186,10 @@ def _cover(file: mutagen.FileType | None) -> Cover | None:
             return None
         png = covr[0].imageformat == MP4Cover.FORMAT_PNG
         return Cover(bytes(covr[0]), "image/png" if png else "image/jpeg")
-    else:  # Ogg Vorbis / Opus: base64 FLAC picture blocks in the comments
-        blocks = (file.tags or {}).get("metadata_block_picture", [])
+    elif isinstance(file, OggFileType):  # base64 FLAC picture blocks in the comments
+        blocks = file.get("metadata_block_picture", [])
         pictures = [Picture(base64.b64decode(block)) for block in blocks]
+    else:
+        return None
     pictures = sorted(pictures, key=lambda p: p.type != _FRONT_COVER)
     return next((Cover(p.data, p.mime) for p in pictures if p.data), None)

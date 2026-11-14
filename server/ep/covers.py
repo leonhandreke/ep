@@ -33,6 +33,7 @@ def set_release_group_cover(release_group: ReleaseGroup, data: bytes, library_di
     path = directory / f"{release_group.id}{ext}"
     with tempfile.NamedTemporaryFile(dir=directory, delete=False) as tmp:
         tmp.write(data)
+    os.chmod(tmp.name, 0o644)  # NamedTemporaryFile creates it 0600
     os.replace(tmp.name, path)
     if release_group.cover_path and Path(release_group.cover_path) != path:
         remove_cover_file(release_group.cover_path, library_dir)

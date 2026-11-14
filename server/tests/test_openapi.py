@@ -37,6 +37,13 @@ def test_stream_is_documented_as_audio(client: TestClient) -> None:
     responses = schema["paths"]["/sources/{id}/stream"]["get"]["responses"]
     assert set(responses["200"]["content"]) == {"audio/*"}
     assert set(responses["206"]["content"]) == {"audio/*"}
-    assert "409" in responses
+    assert {"403", "404", "409"} <= set(responses)
     cover_url = schema["components"]["schemas"]["ReleaseGroupRead"]["properties"]["cover_url"]
     assert cover_url["readOnly"] is True
+
+
+def test_response_fields_with_defaults_are_required(client: TestClient) -> None:
+    schemas = client.get("/openapi.json").json()["components"]["schemas"]
+    assert "playback" in schemas["SourceRead"]["required"]
+    assert "playback" in schemas["TrackRead"]["required"]
+    assert "cover_url" in schemas["ReleaseGroupRead"]["required"]

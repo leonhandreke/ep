@@ -6,6 +6,7 @@ session, then migrated to head. Each test runs inside a transaction that is
 rolled back afterwards, so tests do not see each other's data.
 """
 
+import base64
 import os
 import subprocess
 from collections.abc import Iterator
@@ -15,6 +16,8 @@ import pytest
 from alembic import command
 from alembic.config import Config
 from fastapi.testclient import TestClient
+from mutagen.flac import Picture
+from mutagen.oggopus import OggOpus
 from sqlalchemy import Engine, create_engine, make_url, text
 from sqlmodel import Session
 
@@ -71,7 +74,7 @@ def library_dir(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def client(session: Session, library_dir: Path) -> Iterator[TestClient]:
+def client(session: Session, library_dir: Path, audio_dir: Path) -> Iterator[TestClient]:
     def request_session() -> Iterator[Session]:
         # Like a per-request session: a failed request leaves nothing pending behind.
         try:
@@ -81,7 +84,9 @@ def client(session: Session, library_dir: Path) -> Iterator[TestClient]:
             raise
 
     app.dependency_overrides[get_session] = request_session
-    app.dependency_overrides[get_settings] = lambda: Settings(library_dir=library_dir)
+    # Media roots: the library and the generated audio, nothing else in the temp dirs.
+    settings = Settings(library_dir=library_dir, media_roots=[library_dir, audio_dir])
+    app.dependency_overrides[get_settings] = lambda: settings
     with TestClient(app) as client:
         yield client
     app.dependency_overrides.clear()
@@ -101,7 +106,7 @@ def _ffmpeg(*args: str | Path) -> None:
 
 @pytest.fixture(scope="session")
 def audio_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """Small generated audio files: a fully tagged FLAC with a cover, an MP3, an M4A."""
+    """Small generated audio files: a fully tagged FLAC with a cover, an MP3, an M4A, an Opus."""
     directory = tmp_path_factory.mktemp("audio")
     cover = directory / "cover.png"
     _ffmpeg("-f", "lavfi", "-i", "color=c=red:s=8x8", "-frames:v", "1", cover)
@@ -132,5 +137,13 @@ def audio_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
         directory / "song.mp3",
     )
     _ffmpeg(*sine(2), "-c:a", "aac", "-metadata", "title=Lilac Wine", directory / "song.m4a")
+    opus = ("-c:a", "libopus", "-metadata", "title=Ne me quitte pas")
+    _ffmpeg(*sine(2), *opus, directory / "song.opus")
+    # Ogg covers are base64 FLAC picture blocks in a comment (only the fixture is written).
+    picture = Picture()
+    picture.type, picture.mime, picture.data = 3, "image/png", cover.read_bytes()
+    opus_file = OggOpus(directory / "song.opus")
+    opus_file["metadata_block_picture"] = [base64.b64encode(picture.write()).decode()]
+    opus_file.save()
     (directory / "notes.txt").write_text("not audio")
     return directory

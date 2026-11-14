@@ -1,5 +1,6 @@
 import mimetypes
 import uuid
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Never
 
@@ -7,9 +8,10 @@ from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import FileResponse
 from sqlmodel import Session
 
-from ep.api.deps import SessionDep, get_or_404, get_or_422
+from ep.api.deps import SessionDep, SettingsDep, get_or_404, get_or_422
 from ep.api.errors import CONFLICT, NOT_FOUND, ErrorRead, unprocessable
 from ep.api.schemas import PlaybackRead, SourceCreate, SourceRead, SourceUpdate
+from ep.media_roots import is_within_media_roots
 from ep.models import Recording, Source, SourceKind
 from ep.playback import NotPlayable, resolve
 from ep.probe import ProbeError, probe
@@ -18,6 +20,12 @@ router = APIRouter(prefix="/sources", tags=["sources"])
 
 NOT_PLAYABLE: dict[int | str, dict[str, Any]] = {
     status.HTTP_409_CONFLICT: {"model": ErrorRead, "description": "Source has no file to play"}
+}
+OUTSIDE_MEDIA_ROOTS: dict[int | str, dict[str, Any]] = {
+    status.HTTP_403_FORBIDDEN: {
+        "model": ErrorRead,
+        "description": "The file is outside the configured media roots",
+    }
 }
 
 # Types AVPlayer recognises; Python's table has e.g. audio/mp4a-latm for .m4a.
@@ -54,7 +62,7 @@ def source_read(source: Source) -> SourceRead:
     return SourceRead.model_validate(source).model_copy(update={"playback": playback})
 
 
-def _check_source(session: Session, source: Source) -> None:
+def _check_source(session: Session, source: Source, media_roots: Sequence[Path]) -> None:
     """Validate a new or edited source as a whole; 422 at the offending field."""
 
     def invalid(field: str, msg: str) -> Never:
@@ -76,8 +84,12 @@ def _check_source(session: Session, source: Source) -> None:
         for field in ("start_ms", "end_ms"):
             if getattr(source, field) is not None:
                 invalid(field, "only a slice has a time range")
-    if source.kind == SourceKind.file and not Path(source.uri or "").is_absolute():
-        invalid("uri", "a file source needs an absolute path")
+    if source.kind == SourceKind.file:
+        path = Path(source.uri or "")
+        if not path.is_absolute():
+            invalid("uri", "a file source needs an absolute path")
+        if not is_within_media_roots(path, media_roots):
+            invalid("uri", "a file source must be under one of the media roots")
 
     if source.recording_id is not None:
         get_or_422(session, Recording, source.recording_id, ("recording_id",))
@@ -100,10 +112,13 @@ def _fill_file_facts(source: Source) -> None:
 
 
 @router.post("", status_code=status.HTTP_201_CREATED, responses=CONFLICT)
-def create_source(body: SourceCreate, session: SessionDep) -> SourceRead:
-    """Create a source of any kind: a file (must exist), a slice of a source, a remote link."""
+def create_source(body: SourceCreate, session: SessionDep, settings: SettingsDep) -> SourceRead:
+    """Create a source of any kind: a file (must exist), a slice of a source, a remote link.
+
+    A file must lie under one of the media roots (``EP_MEDIA_ROOTS``).
+    """
     source = Source.model_validate(body)
-    _check_source(session, source)
+    _check_source(session, source, settings.media_roots)
     if source.kind == SourceKind.file:
         _fill_file_facts(source)
     session.add(source)
@@ -117,11 +132,13 @@ def get_source(id: uuid.UUID, session: SessionDep) -> SourceRead:
 
 
 @router.patch("/{id}", responses=NOT_FOUND | CONFLICT)
-def update_source(id: uuid.UUID, body: SourceUpdate, session: SessionDep) -> SourceRead:
+def update_source(
+    id: uuid.UUID, body: SourceUpdate, session: SessionDep, settings: SettingsDep
+) -> SourceRead:
     source = get_or_404(session, Source, id)
     with session.no_autoflush:
         source.sqlmodel_update(body.model_dump())
-        _check_source(session, source)
+        _check_source(session, source, settings.media_roots)
     session.commit()
     return source_read(source)
 
@@ -141,6 +158,7 @@ def delete_source(id: uuid.UUID, session: SessionDep) -> None:
     response_class=FileResponse,
     responses=NOT_FOUND
     | NOT_PLAYABLE
+    | OUTSIDE_MEDIA_ROOTS
     | {
         status.HTTP_200_OK: {"content": {"audio/*": {}}, "description": "The whole audio file"},
         status.HTTP_206_PARTIAL_CONTENT: {
@@ -149,17 +167,21 @@ def delete_source(id: uuid.UUID, session: SessionDep) -> None:
         },
     },
 )
-def stream_source(id: uuid.UUID, session: SessionDep) -> FileResponse:
+def stream_source(id: uuid.UUID, session: SessionDep, settings: SettingsDep) -> FileResponse:
     """The audio file a source resolves to, with HTTP Range support.
 
     For a slice this is the whole underlying file: play from ``playback.start_ms`` to
-    ``playback.end_ms`` (``GET /sources/{id}``). Remote-only sources are a 409.
+    ``playback.end_ms`` (``GET /sources/{id}``). Remote-only sources are a 409, files
+    outside the media roots (``EP_MEDIA_ROOTS``) a 403.
     """
     source = get_or_404(session, Source, id)
     try:
         playback = resolve(source)
     except NotPlayable as e:
         raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from None
+    # Checked again here: the roots may have changed, or a symlink been swapped in.
+    if not is_within_media_roots(playback.path, settings.media_roots):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "file is outside the media roots")
     if not playback.path.is_file():
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"file not found: {playback.path}")
     return FileResponse(playback.path, media_type=audio_media_type(playback.path))

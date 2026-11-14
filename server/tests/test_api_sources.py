@@ -6,8 +6,10 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 
+from ep.media_roots import is_within_media_roots
 from ep.models import Source, SourceKind
 from ep.playback import NotPlayable, resolve
+from ep.settings import Settings
 from tests.helpers import make_artist, make_recording, make_release_group, make_track, post
 
 
@@ -252,9 +254,9 @@ def test_stream_slice_serves_the_whole_underlying_file(client: TestClient, audio
 
 
 def test_stream_missing_file_is_not_found(
-    client: TestClient, tmp_path: Path, audio_dir: Path
+    client: TestClient, library_dir: Path, audio_dir: Path
 ) -> None:
-    path = tmp_path / "gone.mp3"
+    path = library_dir / "gone.mp3"
     path.write_bytes((audio_dir / "song.mp3").read_bytes())
     file = make_source(client, "file", uri=str(path))
     path.unlink()
@@ -262,3 +264,67 @@ def test_stream_missing_file_is_not_found(
     assert response.status_code == 404
     assert "file not found" in response.json()["detail"]
     assert client.get(f"/sources/{uuid.uuid4()}/stream").status_code == 404
+
+
+def test_file_sources_must_be_under_the_media_roots(
+    client: TestClient, session: Session, tmp_path: Path, library_dir: Path, audio_dir: Path
+) -> None:
+    song = audio_dir / "song.mp3"
+    outside = tmp_path / "outside.mp3"
+    outside.write_bytes(song.read_bytes())
+    escape = library_dir / "escape.mp3"
+    escape.symlink_to(outside)
+    (library_dir / "linked").symlink_to(audio_dir, target_is_directory=True)
+
+    def create(uri: str | Path) -> int:
+        return client.post("/sources", json={"kind": "file", "uri": str(uri)}).status_code
+
+    for uri in (outside, escape, library_dir / ".." / "outside.mp3", "/etc/hosts"):
+        response = client.post("/sources", json={"kind": "file", "uri": str(uri)})
+        assert response.status_code == 422, uri
+        assert response.json()["detail"][0]["loc"] == ["body", "uri"]
+        assert "media roots" in response.json()["detail"][0]["msg"]
+    assert create(library_dir / "linked" / "song.mp3") == 201  # a symlink into a root is fine
+
+    file = make_source(client, "file", uri=str(song))
+    assert client.patch(f"/sources/{file['id']}", json={"uri": str(outside)}).status_code == 422
+    link = make_source(client, "youtube", uri="https://y.example/v")
+    response = client.patch(f"/sources/{link['id']}", json={"kind": "file", "uri": str(escape)})
+    assert response.status_code == 422
+
+    # Rows that bypassed the API (or roots that changed since) are refused at stream time.
+    for path in (outside, escape):
+        row = Source(kind=SourceKind.file, uri=str(path))
+        session.add(row)
+        session.flush()
+        piece = make_source(client, "slice", parent_id=str(row.id), start_ms=0)
+        for source_id in (row.id, piece["id"]):
+            response = client.get(f"/sources/{source_id}/stream")
+            assert response.status_code == 403, path
+            assert response.json() == {"detail": "file is outside the media roots"}
+
+
+def test_default_media_roots_are_the_library_and_watch_mounts(tmp_path: Path) -> None:
+    roots = Settings(library_dir=tmp_path).media_roots
+    assert roots == [tmp_path, Path("/watch")]
+    assert is_within_media_roots(Path("/watch/Library/a/b.flac"), roots)
+    assert is_within_media_roots(tmp_path / "x.flac", roots)
+    assert not is_within_media_roots(Path("/watchlist/b.flac"), roots)
+    assert not is_within_media_roots(Path("/watch/../etc/passwd"), roots)
+
+
+def test_unique_kind_and_uri(client: TestClient, audio_dir: Path) -> None:
+    """A path is indexed once and a link stored once; null-uri slices are not affected."""
+    file = make_source(client, "file", uri=str(audio_dir / "album.flac"))
+    for _ in range(2):  # identical slices are allowed (uri is null: NULLs are distinct)
+        make_source(client, "slice", parent_id=file["id"], start_ms=0, end_ms=1000)
+    url = "https://www.youtube.com/watch?v=x"
+    link = make_source(client, "youtube", uri=url)
+    response = client.post("/sources", json={"kind": "youtube", "uri": url})
+    assert response.status_code == 409
+    assert "uq_source_kind_uri" in response.json()["detail"]
+    # The same URL under another kind is a different source; the one link can be reused
+    # as the parent of several derived sources.
+    make_source(client, "soundcloud", uri=url)
+    make_source(client, "file", uri=str(audio_dir / "song.mp3"), parent_id=link["id"])
+    make_source(client, "file", uri=str(audio_dir / "song.m4a"), parent_id=link["id"])

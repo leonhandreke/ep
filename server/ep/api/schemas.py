@@ -48,7 +48,11 @@ class Page(BaseModel):
 
 
 class Read(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    # Fields with defaults (``playback``) are still always present in responses: mark
+    # them required in the OpenAPI schema, for the generated client.
+    model_config = ConfigDict(
+        from_attributes=True, json_schema_serialization_defaults_required=True
+    )
 
     id: uuid.UUID
     created_at: datetime
