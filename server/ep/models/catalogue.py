@@ -68,7 +68,7 @@ class ReleaseGroupType(StrEnum):
 
 
 class EntityType(StrEnum):
-    """Entities that external IDs (and later notes and tags) can attach to, found by
+    """Entities that external IDs, notes and tags attach to, found by
     ``/search`` and ``/resolve``."""
 
     artist = "artist"
