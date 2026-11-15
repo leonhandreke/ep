@@ -1,6 +1,8 @@
 FROM python:3.15-slim-trixie
 
-# ffprobe reads duration and codec of audio files (ep.probe).
+# ffprobe reads duration and codec of audio files (ep.probe); ffmpeg remuxes yt-dlp's
+# audio downloads. yt-dlp and Deno (its JavaScript runtime for YouTube) are Python
+# dependencies (yt-dlp[default,deno]), in the virtualenv.
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     rm -f /etc/apt/apt.conf.d/docker-clean \
