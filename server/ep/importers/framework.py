@@ -11,7 +11,8 @@ framework does the rest, identically for every kind:
 - ``run_job``: the job state machine. A job with open issues stops at ``needs_review``;
   answers (``record_answers``) re-run it from the start, each stage consulting the
   answers by issue id, until nothing is open. Then it downloads and applies;
-- downloads (``_download``): each pending medium is downloaded into its own work
+- downloads (``_download``): cover URLs are fetched (``Importer.fetch_cover``) and
+  each pending medium is downloaded into its own work
   directory of the job (``job_work_dir``), which survives failures and re-runs: a
   finished download is reused, a partial one is handed to the importer again (to resume
   or overwrite). A medium whose origin is already a source is not downloaded again. The
@@ -91,6 +92,7 @@ from ep.importers.proposal import (
 )
 from ep.matching import Decision, MatchResult, match_artist, match_recording, match_release_group
 from ep.media_roots import is_within_media_roots
+from ep.metadata import web
 from ep.metadata.musicbrainz import (
     MBArtist,
     MBArtistCreditPart,
@@ -98,6 +100,7 @@ from ep.metadata.musicbrainz import (
     MusicBrainz,
     render_artist_credit,
 )
+from ep.metadata.web import WebError
 from ep.models import (
     Artist,
     ArtistCredit,
@@ -260,6 +263,11 @@ class Importer:
         ``DownloadError`` on failure."""
         raise NotImplementedError(f"{self.kind} imports do not download")
 
+    def fetch_cover(self, url: str) -> bytes:
+        """The image at a cover URL (``UrlCover``), fetched before applying; raise
+        ``WebError`` on failure."""
+        return web.fetch(url)
+
     def library_path(self, proposal: Proposal, medium: IncomingMedium) -> PurePath:
         """Where a downloaded medium goes in the managed library, relative to it and
         without extension: ``Artist/Release Group/NN Title`` for a track of a release,
@@ -382,9 +390,7 @@ def _download(ctx: JobContext, importer: Importer, proposal: Proposal) -> None:
     pending = [medium for medium in proposal.media if medium.download and medium.key in used]
     for release in proposal.releases:
         if isinstance(release.cover, UrlCover) and release.target.kind is not TargetKind.skip:
-            # TODO(stage 6): fetch cover URLs into the work dir here.
-            ctx.log(f"cover {release.cover.url} not fetched: not supported yet", LogLevel.warning)
-            release.cover = None
+            release.cover = _fetch_cover(ctx, importer, release.cover)
     if not pending:
         return
     ctx.stage(JobStage.download, len(pending))
@@ -411,6 +417,31 @@ def _download(ctx: JobContext, importer: Importer, proposal: Proposal) -> None:
                 issue.message = f"download failed: {e}"
                 ctx.raise_issue(issue)
         ctx.advance()
+
+
+def _fetch_cover(ctx: JobContext, importer: Importer, cover: UrlCover) -> FileCover | None:
+    """A cover image from the web, saved in the job's work directory (reused by later
+    runs); None (logged) if it cannot be fetched or is not an image: the import goes on
+    without it."""
+    directory = ctx.work_dir / "covers"
+    name = hashlib.sha256(cover.url.encode()).hexdigest()[:16]
+    if found := sorted(directory.glob(f"{name}.*")):
+        return FileCover(path=str(found[0]))
+    try:
+        data = importer.fetch_cover(cover.url)
+    except WebError as e:
+        ctx.log(f"cover not fetched: {e}", LogLevel.warning)
+        return None
+    if (extension := covers.image_extension(data)) is None:
+        ctx.log(f"cover {cover.url} is not a JPEG, PNG or WebP image", LogLevel.warning)
+        return None
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{name}{extension}"
+    partial = path.with_name(path.name + ".part")
+    partial.write_bytes(data)
+    partial.replace(path)
+    ctx.log(f"cover fetched: {cover.url}")
+    return FileCover(path=str(path))
 
 
 def _medium_dir(ctx: JobContext, medium: IncomingMedium) -> Path:
@@ -706,7 +737,7 @@ def match_proposal(ctx: JobContext, proposal: Proposal) -> None:
             _match_tracks(ctx, proposal, release, taken)
         ctx.advance(len(release.tracks))
     for track in proposal.loose_tracks:
-        if track.target.kind is TargetKind.undecided:
+        if track.target.kind is TargetKind.undecided and not ctx.waiting(track.key):
             track.target = _match_track(ctx, proposal, track, taken)
         ctx.advance()
     _match_artists(ctx, proposal)

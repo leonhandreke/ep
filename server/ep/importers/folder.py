@@ -11,8 +11,8 @@ Input: a directory under the media roots. The importer
    ``slice`` per track;
 3. resolves metadata per album: a tagged release MBID is looked up (unknown to
    MusicBrainz: a ``metadata_not_found`` issue); otherwise MusicBrainz is searched by
-   album, album artist and track count, and up to ``MAX_RELEASE_LOOKUPS`` candidates
-   are fetched to compare track durations. Nothing fitting: the tags are kept as
+   album, album artist and track count, and a few candidates are fetched to compare
+   track durations (``ep.importers.resolve``). Nothing fitting: the tags are kept as
    entered, which is a normal outcome. Candidates that do not fit but are otherwise
    exact: an ``uncertain_metadata`` issue.
 
@@ -35,17 +35,11 @@ from ep.importers.framework import (
     Importer,
     ImportFailed,
     JobContext,
-    answer_fits,
     credit_name,
-    mb_credit,
     release_label,
     sha256_file,
 )
-from ep.importers.musicbrainz import release_group_type
 from ep.importers.proposal import (
-    SKIP,
-    UNDECIDED,
-    CandidateType,
     Choice,
     EmbeddedCover,
     FileCover,
@@ -56,7 +50,6 @@ from ep.importers.proposal import (
     IncomingRelease,
     IncomingTrack,
     Issue,
-    IssueCandidate,
     IssueKind,
     LogLevel,
     Proposal,
@@ -64,17 +57,10 @@ from ep.importers.proposal import (
     SubjectType,
     issue_id,
 )
-from ep.matching.match import DURATION_TOLERANCE_MS
+from ep.importers.resolve import prune_artists, search_release, skip_release, use_musicbrainz
 from ep.media_roots import is_within_media_roots
-from ep.metadata.musicbrainz import (
-    MBRelease,
-    MBTrack,
-    MusicBrainzError,
-    MusicBrainzNotFound,
-    lucene_query,
-    render_artist_credit,
-)
-from ep.models import ImportKind, JobStage, ReleaseGroup, ReleaseGroupType, Source, SourceKind
+from ep.metadata.musicbrainz import MusicBrainzError, MusicBrainzNotFound
+from ep.models import ImportKind, JobStage, ReleaseGroupType, Source, SourceKind
 from ep.probe import ProbeError, ProbeResult, probe
 
 AUDIO_EXTENSIONS = frozenset(
@@ -83,12 +69,6 @@ AUDIO_EXTENSIONS = frozenset(
 )  # fmt: skip
 COVER_NAMES = ("cover", "folder", "front")
 COVER_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp")
-# MusicBrainz search hits below this relevance (0-100) are not considered.
-MIN_SEARCH_SCORE = 90
-# Search candidates fetched in full to compare durations (one request each).
-MAX_RELEASE_LOOKUPS = 3
-# Candidates shown in an uncertain_metadata issue.
-MAX_METADATA_CANDIDATES = 5
 VARIOUS_ARTISTS = "Various Artists"
 # MusicBrainz's special purpose artist for compilations of several artists.
 VARIOUS_ARTISTS_MBID = uuid.UUID("89ad4ac3-39f7-470e-963a-56509c546377")
@@ -177,7 +157,7 @@ class FolderImporter(Importer):
             proposal.releases.append(release)
             self._resolve(ctx, proposal, release, album)
             ctx.advance()
-        _prune_artists(proposal)
+        prune_artists(proposal)
         return proposal
 
     # Fetch
@@ -379,201 +359,19 @@ class FolderImporter(Importer):
                 answer = ctx.raise_issue(issue)  # while open, matching waits for it
                 release.release_mbid = release.mbid = None
                 if answer is not None and answer.choice is Choice.skip:
-                    _skip(release)
+                    skip_release(release)
                 return
             except MusicBrainzError as e:
                 raise ImportFailed(f"MusicBrainz lookup failed: {e}") from e
-            if not _use_musicbrainz(ctx, proposal, release, mb_release):
+            if not use_musicbrainz(ctx, proposal, release, mb_release):
                 release.release_mbid = release.mbid = None
             return
-        mb_release = self._search(ctx, release, subject)
-        if mb_release is not None:
-            _use_musicbrainz(ctx, proposal, release, mb_release)
-
-    def _search(
-        self, ctx: JobContext, release: IncomingRelease, subject: Subject
-    ) -> MBRelease | None:
         artist = credit_name(release.credit)
-        count = len(release.tracks)
-        query = lucene_query(
-            release=release.title,
-            artist=artist if artist != UNKNOWN_ARTIST else None,
-            tracks=str(count),
+        mb_release = search_release(
+            ctx, release, subject, artist=artist if artist != UNKNOWN_ARTIST else None
         )
-        try:
-            hits = ctx.musicbrainz.search_releases(query, limit=25)
-        except MusicBrainzError as e:
-            raise ImportFailed(f"MusicBrainz search failed: {e}") from e
-        known = set(
-            ctx.session.exec(
-                select(ReleaseGroup.release_mbid).where(
-                    col(ReleaseGroup.release_mbid).in_([hit.id for hit in hits])
-                )
-            )
-        )
-        candidates = sorted(
-            (
-                hit
-                for hit in hits
-                if (hit.score or 0) >= MIN_SEARCH_SCORE
-                and sum(m.track_count for m in hit.media) == count
-            ),
-            key=lambda hit: (
-                hit.id in known,
-                hit.score or 0,
-                any(m.format == "Digital Media" for m in hit.media),
-                hit.country == "XW",
-                hit.date is not None,
-            ),
-            reverse=True,
-        )
-        issue = Issue(
-            id=issue_id(IssueKind.uncertain_metadata, release.key),
-            kind=IssueKind.uncertain_metadata,
-            message=(
-                f"MusicBrainz has releases like {release_label(release)!r}, but their track "
-                "lengths do not fit the files. Use one, or import the files as tagged."
-            ),
-            subject=subject,
-            candidates=[_mb_candidate(hit) for hit in candidates[:MAX_METADATA_CANDIDATES]],
-            choices=[Choice.pick_candidate, Choice.keep_as_entered, Choice.skip],
-        )
-        answer = ctx.answers.get(issue.id)
-        if answer is not None and answer_fits(issue, answer):
-            ctx.raise_issue(issue)
-            match answer.choice:
-                case Choice.pick_candidate:
-                    assert answer.candidate_id is not None
-                    return ctx.mb_release(answer.candidate_id)
-                case Choice.skip:
-                    _skip(release)
-            return None
-        for hit in candidates[:MAX_RELEASE_LOOKUPS]:
-            try:
-                mb_release = ctx.mb_release(hit.id)
-            except MusicBrainzNotFound:
-                continue
-            except MusicBrainzError as e:
-                raise ImportFailed(f"MusicBrainz lookup failed: {e}") from e
-            aligned = _align(release, mb_release)
-            if aligned is not None and _durations_fit(release, aligned):
-                ctx.log(f"found in MusicBrainz: {_mb_label(mb_release)} ({mb_release.id})")
-                return mb_release
-        if candidates and candidates[0].score == 100:
-            ctx.raise_issue(issue)  # open: matching waits for the answer
-            return None
-        ctx.log(
-            f"{release_label(release)!r} not found in MusicBrainz; importing the tags as entered"
-        )
-        return None
-
-
-def _skip(release: IncomingRelease) -> None:
-    release.target = SKIP
-    for track in release.tracks:
-        track.target = SKIP
-
-
-# Using a MusicBrainz release
-
-
-def _align(release: IncomingRelease, mb_release: MBRelease) -> dict[str, MBTrack] | None:
-    """Incoming track key -> MusicBrainz track, or None if the files do not fit the
-    release: by tagged release track MBID, else recording MBID, else disc and position."""
-    mb_tracks = [track for medium in mb_release.media for track in medium.tracks]
-    by_id = {track.id: track for track in mb_tracks}
-    recording_counts = Counter(track.recording.id for track in mb_tracks)
-    by_recording = {t.recording.id: t for t in mb_tracks if recording_counts[t.recording.id] == 1}
-    by_position = {
-        (medium.position or index, track.position): track
-        for index, medium in enumerate(mb_release.media, start=1)
-        for track in medium.tracks
-    }
-    aligned: dict[str, MBTrack] = {}
-    for track in release.tracks:
-        mb_track = (
-            (by_id.get(track.mb_track_id) if track.mb_track_id else None)
-            or (by_recording.get(track.mbid) if track.mbid else None)
-            or by_position.get((track.disc, track.position))
-        )
-        if mb_track is None:
-            return None
-        aligned[track.key] = mb_track
-    if len({t.id for t in aligned.values()}) != len(aligned):
-        return None
-    return aligned
-
-
-def _durations_fit(release: IncomingRelease, aligned: dict[str, MBTrack]) -> bool:
-    """Every track as long as its MusicBrainz track (where both lengths are known)."""
-    for track in release.tracks:
-        mb_track = aligned[track.key]
-        mb_length = mb_track.length or mb_track.recording.length
-        if track.length_ms is None or mb_length is None:
-            continue
-        if abs(track.length_ms - mb_length) > DURATION_TOLERANCE_MS:
-            return False
-    return True
-
-
-def _use_musicbrainz(
-    ctx: JobContext, proposal: Proposal, release: IncomingRelease, mb_release: MBRelease
-) -> bool:
-    """Take the release's metadata from MusicBrainz; False (tags kept) if the files do not
-    fit its track list."""
-    aligned = _align(release, mb_release)
-    if aligned is None or mb_release.release_group is None:
-        ctx.log(
-            f"the files of {release_label(release)!r} do not fit MusicBrainz release "
-            f"{mb_release.id}; importing the tags as entered",
-            LogLevel.warning,
-        )
-        return False
-    positions = {
-        track.id: (medium.position or index, track.position)
-        for index, medium in enumerate(mb_release.media, start=1)
-        for track in medium.tracks
-    }
-    mb_group = mb_release.release_group
-    release.title = mb_group.title
-    release.credit = mb_credit(proposal, mb_group.artist_credit or mb_release.artist_credit)
-    release.type = release_group_type(mb_group)
-    release.date = mb_group.first_release_date or mb_release.date
-    release.barcode = mb_release.barcode
-    release.mbid, release.release_mbid = mb_group.id, mb_release.id
-    release.target = UNDECIDED  # the framework matches it, by MBID or else
-    for track in release.tracks:
-        mb_track = aligned[track.key]
-        track.disc, track.position = positions[mb_track.id]
-        track.title = mb_track.title
-        track.credit = mb_credit(
-            proposal, mb_track.artist_credit or mb_track.recording.artist_credit
-        )
-        track.mbid, track.mb_track_id = mb_track.recording.id, mb_track.id
-        track.isrcs = sorted({*track.isrcs, *mb_track.recording.isrcs})
-    return True
-
-
-def _mb_label(mb_release: MBRelease) -> str:
-    return f"{mb_release.title} — {render_artist_credit(mb_release.artist_credit)}"
-
-
-def _mb_candidate(hit: MBRelease) -> IssueCandidate:
-    facts = [
-        hit.date,
-        hit.country,
-        ", ".join(sorted({m.format for m in hit.media if m.format})) or None,
-        f"{sum(m.track_count for m in hit.media)} tracks",
-        hit.disambiguation or None,
-    ]
-    return IssueCandidate(
-        type=CandidateType.musicbrainz_release,
-        id=hit.id,
-        title=hit.title,
-        subtitle=render_artist_credit(hit.artist_credit),
-        detail=" · ".join(fact for fact in facts if fact),
-        score=float(hit.score or 0),
-    )
+        if mb_release is not None:
+            use_musicbrainz(ctx, proposal, release, mb_release)
 
 
 # Tags
@@ -650,13 +448,3 @@ def _cue_audio(cue_path: Path, name: str, probed: dict[Path, ProbeResult]) -> Pa
     stem = Path(name).stem.casefold()
     same_stem = [p for p in probed if p.parent == cue_path.parent and p.stem.casefold() == stem]
     return same_stem[0] if len(same_stem) == 1 else None
-
-
-def _prune_artists(proposal: Proposal) -> None:
-    """Drop incoming artists no credit refers to any more (replaced by MusicBrainz)."""
-    used = {
-        part.artist_key
-        for item in [*proposal.releases, *proposal.all_tracks()]
-        for part in item.credit
-    }
-    proposal.artists = [artist for artist in proposal.artists if artist.key in used]

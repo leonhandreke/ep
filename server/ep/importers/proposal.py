@@ -219,6 +219,10 @@ class IncomingRelease(Model):
     mbid: uuid.UUID | None = None
     release_mbid: uuid.UUID | None = None
     cover: IncomingCover | None = None
+    # As given by the source (Bandcamp, YouTube); not imported yet (no label or tag
+    # tables), kept for the review UI and for tags (stage 8).
+    label: str | None = None
+    tags: list[str] = Field(default_factory=list)
     tracks: list[IncomingTrack]
     # The release group this maps to.
     target: Target = UNDECIDED
@@ -281,6 +285,7 @@ class CandidateType(StrEnum):
     release_group = "release_group"
     recording = "recording"
     musicbrainz_release = "musicbrainz_release"
+    musicbrainz_recording = "musicbrainz_recording"
 
 
 class IssueCandidate(Model):
