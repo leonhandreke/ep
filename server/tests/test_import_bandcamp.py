@@ -1,9 +1,13 @@
 """Bandcamp import end to end: saved pages, MusicBrainz from the mock, fake downloads."""
 
+import html
+import json
+import re
 import uuid
 from pathlib import Path
 from typing import Any
 
+import httpx2
 import pytest
 from fastapi.testclient import TestClient
 from procrastinate.testing import InMemoryConnector
@@ -25,7 +29,7 @@ from ep.models import (
     Track,
 )
 from ep.settings import Settings
-from tests.fakes import KNOTWILG, PROMISES, FakeYtDlp, web_transport
+from tests.fakes import BANDCAMP, KNOTWILG, PROMISES, FakeYtDlp, web_transport
 from tests.imports import get_job, review, run_queued
 from tests.mock_musicbrainz import PROMISES_RELEASE
 
@@ -238,3 +242,68 @@ def test_network_knotwilg_metadata(session: Session, settings: Settings) -> None
     assert release.release_mbid is None  # not in MusicBrainz (2026-11)
     assert len(release.tracks) == 5
     assert [a.name for a in proposal.artists] == ["Maxine Funke"]
+
+
+def test_bot_check_is_an_issue_to_retry(
+    client: TestClient, session: Session, job_queue: InMemoryConnector, settings: Settings
+) -> None:
+    """Bandcamp's CDN answers with a challenge page: an issue with a retry, no rows."""
+    challenge = b'<html><link href="/_fs-ch-1T1wmsGaOgGaSxcX/assets/styles.css" /></html>'
+    blocked = httpx2.MockTransport(lambda request: httpx2.Response(200, content=challenge))
+    importers: dict[ImportKind, Importer] = {
+        ImportKind.bandcamp: BandcampImporter(FakeYtDlp(), blocked)
+    }
+    job = post_url(client, "bandcamp", KNOTWILG)
+    assert run_queued(session, job_queue, settings, importers=importers) == {
+        uuid.UUID(job["id"]): JobState.needs_review
+    }
+    [issue] = get_job(client, job["id"])["proposal"]["issues"]
+    assert issue["kind"] == "fetch_failed"
+    assert issue["choices"] == ["retry"]
+    assert "bot check" in issue["message"] and "does not try to get around" in issue["message"]
+    assert count(session, Recording) == 0
+
+    # Once Bandcamp answers again, a retry imports the album.
+    importers[ImportKind.bandcamp] = BandcampImporter(FakeYtDlp(), web_transport())
+    review(client, job["id"], {"issue_id": issue["id"], "choice": "retry"})
+    assert run_queued(session, job_queue, settings, importers=importers) == {
+        uuid.UUID(job["id"]): JobState.done
+    }
+    assert count(session, Recording) == 5
+
+
+def test_preorder_tracks_without_stream_have_no_download(
+    client: TestClient,
+    session: Session,
+    job_queue: InMemoryConnector,
+    settings: Settings,
+    ytdlp: FakeYtDlp,
+) -> None:
+    """A pre-order: tracks not released yet are imported without audio, the others
+    downloaded."""
+    text = (BANDCAMP / "knotwilg_leitmotiv-2.html").read_text()
+    m = re.search(r'data-tralbum="(.+?)"', text, re.DOTALL)
+    assert m is not None
+    data = json.loads(html.unescape(m.group(1)))
+    data["album_is_preorder"] = True
+    for info in data["trackinfo"][2:]:
+        info.update(file=None, unreleased_track=True, duration=0.0)
+    page = text[: m.start(1)] + html.escape(json.dumps(data)) + text[m.end(1) :]
+    transport = web_transport()
+
+    def handle(request: httpx2.Request) -> httpx2.Response:
+        if str(request.url) == KNOTWILG:
+            return httpx2.Response(200, content=page.encode())
+        return transport.handle_request(request)
+
+    importers: dict[ImportKind, Importer] = {
+        ImportKind.bandcamp: BandcampImporter(ytdlp, httpx2.MockTransport(handle))
+    }
+    job = post_url(client, "bandcamp", KNOTWILG)
+    assert run_queued(session, job_queue, settings, importers=importers) == {
+        uuid.UUID(job["id"]): JobState.done
+    }
+    assert len(ytdlp.downloads) == 2
+    assert count(session, Recording) == 5
+    files = session.exec(select(Source).where(Source.kind == SourceKind.file)).all()
+    assert len(files) == 2

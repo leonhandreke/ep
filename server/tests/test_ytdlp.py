@@ -126,6 +126,38 @@ def test_download_keeps_the_codec_and_reports_progress(tmp_path: Path) -> None:
         ytdlp.download((tmp_path / "missing.webm").as_uri(), out)
 
 
+def test_download_of_a_silent_ytdlp_times_out(tmp_path: Path) -> None:
+    """A stalled yt-dlp prints nothing: the timeout still ends it."""
+    script = tmp_path / "stalled.py"
+    script.write_text("import time\ntime.sleep(60)\n")
+    ytdlp = YtDlp([sys.executable, str(script)])
+    with pytest.raises(YtDlpError, match=r"longer than 0\.5 s"):
+        ytdlp.download(VIDEO, tmp_path, timeout=0.5)
+
+
+@pytest.mark.parametrize("url", ["--exec=touch /tmp/x", "ytsearch:aedis", "file:///etc/passwd"])
+def test_only_web_urls_reach_ytdlp(tmp_path: Path, url: str) -> None:
+    script = tmp_path / "never.py"
+    script.write_text("raise SystemExit('yt-dlp must not run')\n")
+    ytdlp = YtDlp([sys.executable, str(script)])
+    for call in (ytdlp.video, ytdlp.playlist, lambda u: ytdlp.download(u, tmp_path)):
+        with pytest.raises(YtDlpError, match="not a web URL"):
+            call(url)
+
+
+def test_urls_come_after_the_option_terminator(tmp_path: Path) -> None:
+    script = tmp_path / "args.py"
+    argv_file = tmp_path / "argv.json"
+    script.write_text(
+        f"import json, sys\nopen({str(argv_file)!r}, 'w').write(json.dumps(sys.argv))\n"
+        "print('{}')\n"
+    )
+    with pytest.raises(YtDlpError):  # {} is no video
+        YtDlp([sys.executable, str(script)]).video(VIDEO)
+    argv = json.loads(argv_file.read_text())
+    assert argv[-2:] == ["--", VIDEO]
+
+
 @pytest.mark.network
 def test_network_metadata() -> None:
     ytdlp = YtDlp()

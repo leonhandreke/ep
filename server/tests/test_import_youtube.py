@@ -106,6 +106,12 @@ def issues(client: TestClient, job: dict[str, Any]) -> list[dict[str, Any]]:
         ('Björk "Hyperballad"', ("Björk", "Hyperballad")),
         ("Artist - Song (Live at Glastonbury)", ("Artist", "Song (Live at Glastonbury)")),
         ("Body Music", (None, "Body Music")),
+        # One noise word after the only dash is the title.
+        ("Madonna - Music", ("Madonna", "Music")),
+        ("India.Arie - Video", ("India.Arie", "Video")),
+        ("Artist - Song - Video", ("Artist", "Song")),
+        ("Nightcall - Official Video", (None, "Nightcall")),
+        ("Artist - Song - HD", ("Artist", "Song")),
         ("Saturday Morning Doze", (None, "Saturday Morning Doze")),
     ],
 )  # fmt: skip

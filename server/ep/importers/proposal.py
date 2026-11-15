@@ -245,6 +245,8 @@ class IssueKind(StrEnum):
     # The metadata the item refers to does not exist (a tagged MBID unknown to
     # MusicBrainz, a page that is gone).
     metadata_not_found = "metadata_not_found"
+    # The input could not be fetched (network or server error, a bot check); retry.
+    fetch_failed = "fetch_failed"
     # A file could not be read as audio.
     unreadable_file = "unreadable_file"
     # A download failed.

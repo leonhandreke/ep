@@ -6,14 +6,16 @@ importer
 1. fetches the page and reads the release from it (``ep.metadata.bandcamp``): the
    artist is the release's artist field, never the page owner (often a label, kept as
    ``label``), tags are kept in the proposal (``tags``) for later. A page that is gone
-   is a ``metadata_not_found`` issue;
+   is a ``metadata_not_found`` issue, one that cannot be fetched (a bot check, the
+   network) a ``fetch_failed`` issue; both offer a retry;
 2. resolves it to MusicBrainz: the releases linked to the page URL, then the barcode,
    then a search (``ep.importers.resolve``); the first whose tracks fit by position
    and length is used. Not in MusicBrainz is a normal outcome: the release is imported
    as entered on Bandcamp, without MBIDs;
 3. describes one download per track: the track page is the origin, a ``bandcamp``
    source that becomes the parent of the downloaded ``file`` source (``managed``).
-   Tracks without a page (not released yet) are imported without audio (logged);
+   Tracks that cannot be streamed (pre-order tracks not released yet) are imported
+   without audio (logged);
 4. downloads each track with ``yt-dlp -x`` (Bandcamp streams MP3: kept as is).
 
 A track page that is part of an album becomes a recording without release group (the
@@ -60,6 +62,7 @@ from ep.metadata.bandcamp import (
     BandcampError,
     BandcampNotFound,
     BandcampRelease,
+    BandcampUnreachable,
     similar_names,
 )
 from ep.metadata.musicbrainz import MusicBrainzError
@@ -100,6 +103,18 @@ class BandcampImporter(Importer):
                     id=issue_id(IssueKind.metadata_not_found, url),
                     kind=IssueKind.metadata_not_found,
                     message=f"The Bandcamp page is not there (any more): {e}",
+                    subject=Subject(type=SubjectType.release, key=url, label=url),
+                    choices=[Choice.retry],
+                )
+            )
+            return proposal
+        except BandcampUnreachable as e:
+            # A bot check, the network, a server error: the inbox offers a retry.
+            ctx.raise_issue(
+                Issue(
+                    id=issue_id(IssueKind.fetch_failed, url),
+                    kind=IssueKind.fetch_failed,
+                    message=f"The Bandcamp page could not be fetched: {e}",
                     subject=Subject(type=SubjectType.release, key=url, label=url),
                     choices=[Choice.retry],
                 )
@@ -153,20 +168,22 @@ class BandcampImporter(Importer):
         release_credit = artist_credit(proposal, page.artist)
         tracks = []
         for track in page.tracks:
-            if track.url is None:
+            medium_key = track.url if track.streamable else None
+            if medium_key is None:
                 ctx.log(
-                    f"track {track.number} ({track.title!r}) has no page (not released "
-                    "yet): imported without audio",
+                    f"track {track.number} ({track.title!r}) cannot be streamed (not "
+                    "released yet): imported without audio; import the page again once "
+                    "it is out",
                     LogLevel.warning,
                 )
             else:
                 proposal.media.append(
                     IncomingMedium(
-                        key=track.url,
+                        key=medium_key,
                         path=None,
                         managed=True,
                         download=True,
-                        origin=Origin(kind=SourceKind.bandcamp, uri=track.url),
+                        origin=Origin(kind=SourceKind.bandcamp, uri=medium_key),
                     )
                 )
             credit = release_credit
@@ -175,7 +192,7 @@ class BandcampImporter(Importer):
             tracks.append(
                 IncomingTrack(
                     key=track.url or f"{page.url}#{track.number}",
-                    medium_key=track.url,
+                    medium_key=medium_key,
                     position=track.number,
                     title=track.title,
                     credit=credit,
@@ -189,13 +206,15 @@ class BandcampImporter(Importer):
         """MusicBrainz by URL, then barcode, then search; else as entered."""
         try:
             linked = ctx.musicbrainz.lookup_url(release.key)
+            mb_release = first_fitting(ctx, release, [r.id for r in linked], "its Bandcamp URL")
             by_barcode = (
-                ctx.musicbrainz.releases_by_barcode(release.barcode) if release.barcode else []
+                ctx.musicbrainz.releases_by_barcode(release.barcode)
+                if mb_release is None and release.barcode
+                else []
             )
         except MusicBrainzError as e:
             raise ImportFailed(f"MusicBrainz lookup failed: {e}") from e
-        mb_release = first_fitting(ctx, release, [r.id for r in linked], "its Bandcamp URL")
-        if mb_release is None and by_barcode:
+        if by_barcode:
             count = len(release.tracks)
             fitting = [r.id for r in by_barcode if sum(m.track_count for m in r.media) == count]
             mb_release = first_fitting(ctx, release, fitting, f"barcode {release.barcode}")

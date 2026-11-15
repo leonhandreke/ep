@@ -71,6 +71,7 @@ def test_import_schemas_describe_issues_and_choices(client: TestClient) -> None:
         "uncertain_metadata",
         "release_conflict",
         "metadata_not_found",
+        "fetch_failed",
         "unreadable_file",
         "download_failed",
     }

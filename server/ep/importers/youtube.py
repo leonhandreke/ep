@@ -116,9 +116,28 @@ _CATALOGUE_NUMBER = re.compile(r"\s*\[(?=[^\]]*[A-Za-z])(?=[^\]]*\d)[A-Za-z0-9.-
 # Noise words after a separator at the end ("Title - Official Video", "Title | Lyrics"),
 # or a quality mark after a space ("Title HD"; not "Body Music").
 _NOISE_TRAILING = re.compile(
-    rf"(?:\s+[{_DASH}|:]\s*(?:(?:{_NOISE_WORD})\b[\s/&+,.]*)+|\s+(?:hd|hq|4k|8k|1080p|720p))$",
+    rf"(?:\s+(?P<sep>[{_DASH}|:])\s*(?P<words>(?:(?:{_NOISE_WORD})\b[\s/&+,.]*)+)"
+    r"|\s+(?:hd|hq|4k|8k|1080p|720p))$",
     re.IGNORECASE,
 )
+_QUALITY = re.compile(r"^(?:hd|hq|4k|8k|1080p|720p)$", re.IGNORECASE)
+
+
+def _strip_trailing_noise(text: str) -> str:
+    """``_NOISE_TRAILING`` removed, except one word after the only dash: in "Madonna -
+    Music" or "India.Arie - Video" that word is the title, not noise ("Artist - Title -
+    Video" and "Title - Official Video" are noise)."""
+    m = _NOISE_TRAILING.search(text)
+    if m is None:
+        return text
+    rest = text[: m.start()]
+    words = (m.group("words") or "").split()
+    single = len(words) == 1 and not _QUALITY.match(words[0])
+    if single and m.group("sep") in _DASH and not any(s in rest for s in _SEPARATORS):
+        return text
+    return rest
+
+
 # "Premiere: ", "PREMIERE | ", "Exclusive - " at the start.
 _NOISE_LEADING = re.compile(rf"^(?:premiere|exclusive|new)\s*[:|{_DASH}]\s*", re.IGNORECASE)
 # "(Full Album)" or " - Full Album" and everything after it (genre lists, years).
@@ -142,7 +161,7 @@ def clean_title(title: str) -> str:
         previous = text
         text = _NOISE_BRACKETED.sub("", text)
         text = _CATALOGUE_NUMBER.sub("", text)
-        text = _NOISE_TRAILING.sub("", text)
+        text = _strip_trailing_noise(text)
     text = " ".join(text.split()).strip(f" |:{_DASH}")
     return text or title.strip()
 

@@ -212,6 +212,7 @@ uv run alembic revision --autogenerate -m "add catalogue"
   release's artist field, never the page owner (a label page: `label` in the proposal);
   Bandcamp tags are kept in the proposal (`tags`). MusicBrainz by page URL, barcode,
   then search. One `bandcamp` source per track page, parent of the downloaded file.
+  Tracks that cannot be streamed (pre-orders) are imported without audio (logged).
 - YouTube importer (`ep.importers.youtube`): a video is a loose recording, or with
   chapters a single-file album (slices); a playlist is one release group, one file per
   entry. yt-dlp's artist/track/album fields, else "Artist - Title" from the title
@@ -225,15 +226,19 @@ uv run alembic revision --autogenerate -m "add catalogue"
   Deno, the JavaScript runtime YouTube needs (no system packages). `--dump-single-json`
   (with `--flat-playlist` for playlists) for metadata; downloads with `-x` and no
   `--audio-format`, so the original codec is kept (opus, m4a, mp3), resuming `.part`
-  files; progress goes to the job log. `youtube_url` / `bandcamp.canonical_url`
+  files; progress goes to the job log. URLs are passed after `--` and must be `http(s)`
+  (`YtDlp`); importers download only canonical YouTube video and Bandcamp track URLs
+  (`ep.importers.download`). Metadata calls time out after 5 minutes, downloads after 3
+  hours (a watchdog kills a silent yt-dlp). `youtube_url` / `bandcamp.canonical_url`
   canonicalise input URLs (the job input and the source `uri`).
 - Web requests other than MusicBrainz (Bandcamp pages, covers: `ep.metadata.web`) send
   `User-Agent: EP/<version>`, without contact details.
 - Known limitation (2026-11): Bandcamp's CDN answers requests from the Docker image
   (Debian's OpenSSL) with a bot check instead of the page, and yt-dlp's Bandcamp
   extractor then wants browser impersonation (`curl_cffi`). From macOS both work. The
-  job fails with "Bandcamp answered with a bot check" (`BandcampBlocked`); EP does not
-  try to get around it.
+  job stops at `needs_review` with a `fetch_failed` issue ("Bandcamp answered with a bot
+  check", `BandcampBlocked`) whose only choice is retry; EP does not try to get around
+  the check.
 - Watcher (`ep.jobs.watcher`): `watchfiles` polling plus periodic rescans; a watch dir's
   `baseline_at` keeps what was there at registration from being imported automatically
   (`POST /watch-dirs/{id}/scan` does that on request). "Changed" is the newest mtime or

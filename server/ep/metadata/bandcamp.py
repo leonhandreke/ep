@@ -46,7 +46,11 @@ class BandcampNotFound(BandcampError):
     """The page does not exist (any more)."""
 
 
-class BandcampBlocked(BandcampError):
+class BandcampUnreachable(BandcampError):
+    """The page could not be fetched (network, server error, bot check): worth a retry."""
+
+
+class BandcampBlocked(BandcampUnreachable):
     """Bandcamp's CDN served a bot check (a JavaScript challenge page) instead of the
     page. Seen from the Docker image (Debian's OpenSSL), not from macOS, 2026-11."""
 
@@ -258,7 +262,9 @@ def _track(info: _TrackInfo, index: int, base_url: str) -> BandcampTrack:
     title = info.title
     if info.artist:
         # The title is prefixed by the track artist, if filled ("Artist - Title").
-        title = title.replace(f"{info.artist} - ", "", 1)
+        # Harmony removes the first "Artist - " anywhere; only a prefix is removed here.
+        # Without a track artist the title is kept whole, compilations too (as Harmony).
+        title = title.removeprefix(f"{info.artist} - ")
     return BandcampTrack(
         number=info.track_num or index + 1,
         title=title,
@@ -286,8 +292,9 @@ def parse_release_page(page: str, url: str) -> BandcampRelease:
     if tralbum_json is None or band_json is None:
         if _CHALLENGE in page:
             raise BandcampBlocked(
-                f"{url}: Bandcamp answered with a bot check instead of the page (its CDN "
-                "rejects this client)"
+                f"{url}: Bandcamp answered with a bot check instead of the page: its CDN "
+                "does not let this server through. EP does not try to get around the "
+                "check; retry once Bandcamp answers again."
             )
         raise BandcampError(f"{url}: no embedded release data (not an album or track page?)")
     try:
@@ -351,5 +358,5 @@ class Bandcamp:
         except WebNotFound as e:
             raise BandcampNotFound(str(e)) from e
         except WebError as e:
-            raise BandcampError(str(e)) from e
+            raise BandcampUnreachable(str(e)) from e
         return parse_release_page(content.decode("utf-8", errors="replace"), canonical)

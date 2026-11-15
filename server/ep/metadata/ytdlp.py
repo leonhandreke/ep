@@ -21,6 +21,7 @@ import json
 import re
 import subprocess
 import sys
+import threading
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
@@ -154,8 +155,9 @@ _VIDEO_PATHS = re.compile(r"^/(?:shorts|embed|live|v)/([A-Za-z0-9_-]{11})/?$")
 
 
 def _playlist_id(value: str | None) -> str | None:
-    # Mixes ("RD...") are generated per viewer, "WL"/"LL" are private: not albums.
-    if value and _LIST_ID.match(value) and not value.startswith("RD") and value not in {"WL", "LL"}:
+    # Mixes ("RD...") are generated per viewer, "WL"/"LL"/"LM" are private: not albums.
+    private = {"WL", "LL", "LM"}
+    if value and _LIST_ID.match(value) and not value.startswith("RD") and value not in private:
         return value
     return None
 
@@ -226,6 +228,20 @@ class YtDlp:
         extra_args: Sequence[str] = (),
     ) -> None:
         self.command = [*command, "--ignore-config", *extra_args]
+        self._schemes = {"http", "https"} | (
+            {"file"} if "--enable-file-urls" in extra_args else set()
+        )
+
+    def _check_url(self, url: str) -> str:
+        """Only web URLs (yt-dlp would also take search keys like ``ytsearch:``); passed
+        after ``--`` so that no URL is read as an option."""
+        try:
+            scheme = urlsplit(url).scheme
+        except ValueError:
+            scheme = ""
+        if scheme not in self._schemes:
+            raise YtDlpError(f"not a web URL: {url!r}")
+        return url
 
     def _json(self, *args: str) -> dict[str, Any]:
         try:
@@ -246,14 +262,14 @@ class YtDlp:
             raise YtDlpError(f"yt-dlp printed no JSON: {e}") from e
 
     def video(self, url: str) -> VideoInfo:
-        data = self._json("--no-playlist", "--", url)
+        data = self._json("--no-playlist", "--", self._check_url(url))
         try:
             return VideoInfo.model_validate(data)
         except ValidationError as e:
             raise YtDlpError(f"unexpected yt-dlp metadata for {url}: {e}") from e
 
     def playlist(self, url: str) -> PlaylistInfo:
-        data = self._json("--flat-playlist", "--yes-playlist", "--", url)
+        data = self._json("--flat-playlist", "--yes-playlist", "--", self._check_url(url))
         if data.get("_type") != "playlist":
             raise YtDlpError(f"{url} is not a playlist")
         try:
@@ -266,9 +282,11 @@ class YtDlp:
         url: str,
         directory: Path,
         progress: Callable[[Progress], None] | None = None,
+        timeout: float = DOWNLOAD_TIMEOUT,
     ) -> Path:
         """Download the audio of ``url`` into ``directory`` (``<id>.<ext>``, original
-        codec) and return the file's path. Resumes a partial download there."""
+        codec) and return the file's path. Resumes a partial download there. yt-dlp is
+        killed after ``timeout`` seconds."""
         template = (
             f"download:{_PROGRESS} %(progress.downloaded_bytes)s "
             "%(progress.total_bytes)s %(progress.total_bytes_estimate)s"
@@ -281,7 +299,7 @@ class YtDlp:
             *("--print", f"after_move:{_FILE} %(filepath)s"),
             *("--paths", str(directory), "--output", "%(id)s.%(ext)s"),
             "--",
-            url,
+            self._check_url(url),
         ]
         output: list[str] = []
         files: list[Path] = []
@@ -289,6 +307,16 @@ class YtDlp:
             args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
         ) as process:
             assert process.stdout is not None
+            # Reading the output blocks while yt-dlp is silent (a stalled connection): a
+            # timer kills it, which ends the output.
+            timed_out = threading.Event()
+
+            def kill() -> None:
+                timed_out.set()
+                process.kill()
+
+            watchdog = threading.Timer(timeout, kill)
+            watchdog.start()
             try:
                 for line in process.stdout:
                     line = line.rstrip("\n")
@@ -299,10 +327,13 @@ class YtDlp:
                         files.append(Path(line.removeprefix(_FILE).strip()))
                     else:
                         output.append(line)
-                process.wait(timeout=DOWNLOAD_TIMEOUT)
-            except subprocess.TimeoutExpired as e:
-                process.kill()
-                raise YtDlpError(f"download took longer than {DOWNLOAD_TIMEOUT} s") from e
+                process.wait()
+            finally:
+                watchdog.cancel()
+                if process.poll() is None:  # an exception while reading (e.g. progress)
+                    process.kill()
+        if timed_out.is_set():
+            raise YtDlpError(f"download took longer than {timeout} s")
         if process.returncode != 0:
             raise YtDlpError(_error_message("\n".join(output)))
         if len(files) != 1 or not files[0].is_file():

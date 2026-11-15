@@ -99,7 +99,11 @@ class FakeYtDlp(YtDlp):
         return PlaylistInfo.model_validate_json(path.read_bytes())
 
     def download(
-        self, url: str, directory: Path, progress: Callable[[Progress], None] | None = None
+        self,
+        url: str,
+        directory: Path,
+        progress: Callable[[Progress], None] | None = None,
+        timeout: float = 0,
     ) -> Path:
         self.downloads.append(url)
         if url in self.failing_downloads:
