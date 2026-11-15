@@ -51,6 +51,7 @@ from ep.models import (
     ReleaseGroupType,
     Track,
 )
+from ep.notes.tags import add_imported_tags
 
 _ARTIST_TYPES = {
     "Person": ArtistType.person,
@@ -116,6 +117,7 @@ def import_release(
     *,
     artists: Mapping[uuid.UUID, Artist | None] | None = None,
     release_group: ReleaseGroup | None = None,
+    tags: Sequence[str] = (),
 ) -> ReleaseGroup:
     """Add a release (fetched with ``MusicBrainz.get_release``) to the catalogue.
 
@@ -130,6 +132,10 @@ def import_release(
     others). Artists and a release group not given are found by MBID, else by a
     confident match, else created.
 
+    A release group this creates gets the genres of the MusicBrainz release group and
+    release, and ``tags`` (e.g. Bandcamp's), as tags; one already in the library keeps
+    the tags it has (``ep.notes.tags``).
+
     Flushes but does not commit. Returns the release group.
     """
     if release.release_group is None:
@@ -138,7 +144,11 @@ def import_release(
     _check_prematched(session, release, recordings)
     resolver = _ArtistResolver(session, artists or {})
     release_group = _release_group(session, resolver, release, release.release_group, release_group)
+    created = release_group in session.new
     session.flush()
+    if created:
+        genres = [genre.name for genre in (*release.release_group.genres, *release.genres)]
+        add_imported_tags(session, EntityType.release_group, release_group.id, [*genres, *tags])
     existing = {(track.disc, track.position): track for track in release_group.tracks}
     for disc_index, medium in enumerate(release.media, start=1):
         disc = medium.position or disc_index

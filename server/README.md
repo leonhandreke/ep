@@ -74,8 +74,14 @@ uv run alembic revision --autogenerate -m "add catalogue"
   shape (`ep.api.deps.get_or_422`), never a bare string detail.
 - Artist credits are shared and never edited in place; use `ep.credits`
   (`get_or_create_artist_credit`, `delete_artist_credit_if_unused`).
-- `external_id` has no foreign key: deleting an entity must call
-  `ep.external_ids.delete_external_ids`.
+- `external_id`, `note` and `entity_tag` have no foreign key to the entity: deleting an
+  entity must call `ep.external_ids.delete_external_ids` and
+  `ep.notes.store.delete_annotations` (note and tags deleted, links to it unresolved).
+  Deleting as a side effect (radio clean-up) must spare annotated entities
+  (`ep.notes.store.annotated`).
+- Entities named in a path by "MBID or ID" (`/notes`, `/backlinks`, `/entity-tags`,
+  `/resolve`) go through `ep.entities.resolve_ref`; mixed-type lists render entities
+  with `ep.api.entities.entity_reads` (`EntityRead`: title, subtitle, cover, link).
 
 ## Sources, playback, covers
 
@@ -320,6 +326,51 @@ uv run alembic revision --autogenerate -m "add catalogue"
   tracklist entries): `/artists` first page 3 ms (index on the browse order), but
   ~1 s at offset 40000 (each skipped artist is tested); `/search` adds up to ~1 s when
   a query hits tens of thousands of rows.
+
+## Notes, links, tags
+
+- Tables (`ep.models.notes`): `note` (one per entity: `entity_type` + `entity_id`
+  unique, Markdown `body`), `note_link` (derived from the body, rebuilt on every save:
+  target type, the UUID as written `target_ref`, the entity it resolved to on save
+  `target_id` or null, `raw`, code point range), `tag` (`name` unique ignoring case:
+  index on `lower(name)`), `entity_tag`. A track's note is its recording's.
+- Links (`ep.notes.links`): `[[type:uuid|Display text]]`, display text optional, `\|`
+  `\[` `\]` `\\` escaped in it (`format_link` writes them). Not links: fenced code
+  blocks, inline code spans (CommonMark rules), `\[[...]]`, unknown types, malformed
+  UUIDs; indented code blocks are not recognised (nested lists). The UUID is the MBID if
+  the entity has one, else its ID; `/search` hits carry `link_ref` and the whole `link`.
+- Resolution: on save into `target_id`, and again on every read by the UUID written
+  (`GET /notes` re-resolves; backlinks match `target_id` or `target_ref` against the
+  entity's ID, MBID and release MBID). So a link keeps working when its target gains an
+  MBID, and starts working when a target with its UUID is created later; the text is
+  never rewritten. Deleting a target nulls `target_id`: the link reads as broken
+  (`target: null`), the text stays.
+- `GET /notes/{type}/{id}` (MBID or ID; no note reads as an empty one, 404 only for a
+  missing entity): body, `updated_at`, links with their range in **UTF-16 code units**
+  (NSRange) and the target as `EntityRead` (title, subtitle, cover URL, MBID). `PUT`
+  saves (blank deletes) with `base_updated_at`, the `updated_at` the edit started from:
+  if the note changed since and the body differs, 409 `NoteConflictRead` with the
+  current note (the row is locked; a concurrent first save is a 409 too).
+- `GET /backlinks/{type}/{id}`: notes linking to exactly this entity, newest edit first,
+  each with its entity and the line around each link (links shown as display text or
+  title, long lines cut, highlight range).
+- `GET /notes/search?q=`: Postgres full-text search, `websearch_to_tsquery` on an
+  expression GIN index over `to_tsvector('ep_notes', ep_note_text(body))` (migration
+  0010): `ep_note_text` shows links as their display text, `ep_notes` is `simple` (no
+  stemming) with `unaccent`; snippets from `ts_headline` with highlight ranges.
+- Tags (`ep.notes.tags`, `ep.api.tags`): `GET /tags` (counts, `prefix`),
+  `GET/PATCH/DELETE /tags/{id}` (renaming onto an existing name merges),
+  `GET /tags/{id}/entities` (by type, newest first), `GET/POST /entity-tags/{type}/{id}`
+  (add by name: trimmed, whitespace collapsed, find-or-create ignoring case),
+  `DELETE /entity-tags/{type}/{id}/{tag_id}`. Hashtags in note bodies are not parsed.
+- Imported tags: Bandcamp tags and MusicBrainz genres (release group and release,
+  `inc=genres`) on a release group, NTS genres and moods on an episode, **only when the
+  import creates the entity**: re-importing never brings back a removed tag. YouTube
+  video tags are not used (keyword noise).
+- Never deleted as a side effect: a recording radio created that has a note, a tag or
+  an inbound link outlives its tracklist entries (`delete_unused_recordings`), and so
+  does an annotated artist left uncredited. No code path merges two entities (attaching
+  an incoming track to a library recording moves nothing), so no note is ever merged.
 
 ## Tests
 

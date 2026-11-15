@@ -34,8 +34,9 @@ MAX_RETRIES = 3
 RETRY_BACKOFF = 1.0
 TIMEOUT = 30.0
 
-# Includes for a full release lookup: tracks with their recordings, credits and ISRCs.
-RELEASE_INCLUDES = ("recordings", "artist-credits", "release-groups", "isrcs")
+# Includes for a full release lookup: tracks with their recordings, credits and ISRCs,
+# and genres (of the release, its release group and recordings).
+RELEASE_INCLUDES = ("recordings", "artist-credits", "release-groups", "isrcs", "genres")
 
 
 class MusicBrainzError(Exception):
@@ -80,6 +81,12 @@ def render_artist_credit(parts: list[MBArtistCreditPart]) -> str:
     return "".join(part.name + part.joinphrase for part in parts)
 
 
+class MBGenre(MBModel):
+    name: str
+    # Votes.
+    count: int = 0
+
+
 # MusicBrainz sends "" for an unknown date or barcode.
 EmptyIsNone = Annotated[str | None, BeforeValidator(lambda value: value or None)]
 
@@ -95,6 +102,8 @@ class MBReleaseGroup(MBModel):
     # Partial date YYYY[-MM[-DD]].
     first_release_date: EmptyIsNone = None
     artist_credit: list[MBArtistCreditPart] = Field(default_factory=list)
+    # Release lookups only (``inc=genres``).
+    genres: list[MBGenre] = Field(default_factory=list)
     score: int | None = None
 
 
@@ -143,6 +152,8 @@ class MBRelease(MBModel):
     artist_credit: list[MBArtistCreditPart] = Field(default_factory=list)
     release_group: MBReleaseGroup | None = None
     media: list[MBMedium] = Field(default_factory=list)
+    # Lookups only (``inc=genres``).
+    genres: list[MBGenre] = Field(default_factory=list)
     score: int | None = None
 
 

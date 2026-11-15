@@ -3,7 +3,8 @@
 The fixtures are real responses, recorded once (minified):
 
 - ``release_promises``: Floating Points, Pharoah Sanders & The London Symphony
-  Orchestra, "Promises" (9 tracks, three-artist credit, ISRCs)
+  Orchestra, "Promises" (9 tracks, three-artist credit, ISRCs, genres: recorded again
+  with ``inc=genres``, 2026-11-15)
 - ``release_big_fun``: Miles Davis, "Big Fun" (2 CDs, a track title that differs from
   its recording title)
 - ``url_promises``: the Bandcamp page of "Promises" with its release relations

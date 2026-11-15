@@ -124,6 +124,7 @@ from ep.models import (
 )
 from ep.models.base import utcnow
 from ep.models.catalogue import EntityType, ExternalId
+from ep.notes.tags import add_imported_tags
 from ep.probe import ProbeError, probe
 from ep.settings import Settings
 
@@ -1225,6 +1226,10 @@ class _Applier:
                     barcode=release.barcode,
                 )
                 self.session.add(release_group)
+                # Only for a release group the import creates (``ep.notes.tags``).
+                add_imported_tags(
+                    self.session, EntityType.release_group, release_group.id, release.tags
+                )
             self.session.flush()
             positions = {(t.disc, t.position) for t in release_group.tracks}
             for track in release.tracks:
@@ -1264,6 +1269,7 @@ class _Applier:
             prematched,
             artists=self.mb_artists(mb_release_artists(mb_release)),
             release_group=given,
+            tags=release.tags,
         )
         by_track_id = {
             mb_track.id: (medium.position or index, mb_track.position)

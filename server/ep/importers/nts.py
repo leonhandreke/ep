@@ -35,8 +35,8 @@ importer
    plays any more (the station corrected or removed an entry) are deleted
    (``ep.radio.delete_unused_recordings``).
 
-NTS genres and moods are kept in the proposal (``radio.episode.genres``/``moods``) for
-tags (stage 8).
+NTS genres and moods (``radio.episode.genres``/``moods``) become tags of the episode
+when the import creates it; importing it again leaves its tags alone (``ep.notes.tags``).
 """
 
 from pathlib import Path, PurePath
@@ -91,6 +91,7 @@ from ep.metadata.nts import (
 )
 from ep.metadata.ytdlp import YtDlp
 from ep.models import (
+    EntityType,
     ImportKind,
     JobStage,
     RadioEpisode,
@@ -101,6 +102,7 @@ from ep.models import (
     SourceKind,
     rel,
 )
+from ep.notes.tags import add_imported_tags
 from ep.radio import delete_unused_recordings, delete_unused_slices, radio_only_ids
 
 # Seconds an episode download may take (two hours of audio, ~150 MB).
@@ -367,6 +369,10 @@ class NtsImporter(Importer):
                 show_id=show.id, slug=incoming.slug, name=incoming.name, url=incoming.url
             )
             session.add(episode)
+            # Only for an episode the import creates: re-importing keeps the user's tags.
+            add_imported_tags(
+                session, EntityType.radio_episode, episode.id, [*incoming.genres, *incoming.moods]
+            )
         episode.show_id = show.id
         episode.slug, episode.name = incoming.slug, incoming.name
         episode.description, episode.location = incoming.description, incoming.location

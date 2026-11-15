@@ -124,7 +124,7 @@ computed in the query, not stored.
 | Table | Columns |
 |---|---|
 | `note` | `entity_type`, `entity_id` (unique together), `body` (Markdown) |
-| `note_link` | `note_id`, `target_type`, `target_id?` (null if unresolved), `raw` |
+| `note_link` | `note_id`, `target_type`, `target_ref` (the UUID written), `target_id?` (null if unresolved), `raw`, `start`/`end` |
 | `tag` | `name` (unique) |
 | `entity_tag` | `tag_id`, `entity_type`, `entity_id` |
 
@@ -250,6 +250,11 @@ the job). Jobs leave the queue only by being completed or explicitly dismissed.
 6. **Bandcamp and YouTube**: `bandcamp.py`, `ytdlp.py`, downloads, chapter slices.
 7. **Radio**: radio tables, `nts.py`, NTS importer, radio-only filtering.
 8. **Notes and tags**: notes, link parsing, backlinks, tags.
+   Outcome: links resolved on save and again on read by the UUID written (an MBID
+   gained later, a target created later); optimistic concurrency on `updated_at`;
+   full-text search over notes (`ep_notes`: `simple` + `unaccent`); imported tags only
+   on entities the import creates; annotated entities are never deleted as a side
+   effect.
 
 Each stage ends with passing tests and a migration. Stages 6, 7 and 8 are independent of
 each other once 5 is done.

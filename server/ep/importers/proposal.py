@@ -242,8 +242,9 @@ class IncomingRelease(Model):
     mbid: uuid.UUID | None = None
     release_mbid: uuid.UUID | None = None
     cover: IncomingCover | None = None
-    # As given by the source (Bandcamp, YouTube); not imported yet (no label or tag
-    # tables), kept for the review UI and for tags (stage 8).
+    # As given by the source (Bandcamp): the label is shown in review, not imported;
+    # the tags become tags of the release group if the import creates it
+    # (``ep.notes.tags``).
     label: str | None = None
     tags: list[str] = Field(default_factory=list)
     tracks: list[IncomingTrack]
@@ -383,7 +384,8 @@ class IncomingRadioEpisode(Model):
     # The episode page.
     url: str
     image: IncomingImage | None = None
-    # As given by the station; not imported yet, kept for tags (stage 8).
+    # As given by the station: tags of the episode if the import creates it
+    # (``ep.notes.tags``).
     genres: list[str] = Field(default_factory=list)
     moods: list[str] = Field(default_factory=list)
 

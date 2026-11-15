@@ -117,11 +117,19 @@ def test_label_page_album_not_in_musicbrainz(
     # The work directory is gone.
     assert not (settings.library_dir / ".downloads" / job["id"]).exists()
 
-    # Again: nothing new, nothing downloaded again.
+    # Bandcamp's tags are tags of the new release group.
+    tags_path = f"/entity-tags/release_group/{release_group.id}"
+    tags = client.get(tags_path).json()
+    assert {tag["name"] for tag in tags} == set(release["tags"])
+    folk = next(tag for tag in tags if tag["name"] == "experimental folk")
+    assert client.delete(f"{tags_path}/{folk['id']}").status_code == 204
+
+    # Again: nothing new, nothing downloaded again, the removed tag stays removed.
     assert client.post(f"/imports/{job['id']}/retry").status_code == 200
     run()
     assert len(ytdlp.downloads) == 5
     assert count(session, Source) == 10
+    assert len(client.get(tags_path).json()) == len(tags) - 1
 
 
 def loose_video(
@@ -188,6 +196,12 @@ def test_album_found_by_its_url_with_a_loose_recording_to_review(
     release_group = session.exec(select(ReleaseGroup)).one()
     assert release_group.release_mbid == uuid.UUID(PROMISES_RELEASE)
     assert count(session, Recording) == 9
+    # Tags: MusicBrainz's genres and Bandcamp's tags.
+    tags = {t["name"] for t in client.get(f"/entity-tags/release_group/{release_group.id}").json()}
+    bandcamp_tags = get_job(client, job["id"])["proposal"]["releases"][0]["tags"]
+    assert bandcamp_tags
+    assert {"jazz", "third stream"} <= tags
+    assert {t.casefold() for t in bandcamp_tags} <= {t.casefold() for t in tags}
     session.refresh(loose)
     assert loose.mbid is not None
     [track] = session.exec(select(Track).where(Track.recording_id == loose.id)).all()

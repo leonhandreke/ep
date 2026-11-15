@@ -424,7 +424,6 @@ class YouTubeImporter(Importer):
             title=title,
             credit=credit,
             cover=UrlCover(url=thumbnail) if thumbnail else None,
-            tags=list(info.tags),
             tracks=tracks,
         )
         ctx.log(

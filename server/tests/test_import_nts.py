@@ -15,10 +15,12 @@ from ep.importers.framework import Importer
 from ep.importers.nts import NtsImporter
 from ep.models import (
     Artist,
+    EntityTag,
     EntityType,
     ExternalId,
     ImportKind,
     JobState,
+    Note,
     RadioEpisode,
     RadioEpisodeTrack,
     RadioShow,
@@ -27,7 +29,7 @@ from ep.models import (
     SourceKind,
 )
 from ep.playback import recording_playbacks
-from ep.radio import _deletable_audio
+from ep.radio import _deletable_audio, radio_only_ids
 from ep.settings import Settings
 from tests.fakes import (
     NTS,
@@ -705,3 +707,165 @@ def test_radio_only_combinations(
     # A loose recording with a YouTube file and a radio slice: visible.
     kozelek = client.get(f"/artists/{library['kozelek']['id']}/recordings").json()
     assert [r["title"] for r in kozelek] == ["Ruth Marie"]
+
+
+# Tags and notes
+
+
+def entity_tags(client: TestClient, type: str, id: object) -> list[str]:
+    response = client.get(f"/entity-tags/{type}/{id}")
+    assert response.status_code == 200, response.text
+    return [tag["name"] for tag in response.json()]
+
+
+def test_genres_and_moods_become_tags_of_a_new_episode_only(
+    client: TestClient,
+    session: Session,
+    run: Any,
+    library: dict[str, Any],
+    responses: dict[str, httpx2.Response],
+) -> None:
+    data = _episode_data()
+    data["moods"] = [
+        {"id": "moods-sunny", "value": "Sunny"},
+        {"id": "genres-folk", "value": "folk"},
+    ]
+    _serve(responses, data)
+    start(client)
+    run()
+    episode = session.exec(select(RadioEpisode)).one()
+    # Ignoring case, "folk" is "Folk".
+    assert entity_tags(client, "radio_episode", episode.id) == [
+        "Ambient",
+        "Dream Pop",
+        "Folk",
+        "Indie Rock",
+        "Sunny",
+    ]
+    # The user removes one and adds one; importing again does not bring it back.
+    [ambient] = [t for t in client.get("/tags").json() if t["name"] == "Ambient"]
+    assert (
+        client.delete(f"/entity-tags/radio_episode/{episode.id}/{ambient['id']}").status_code == 204
+    )
+    client.post(f"/entity-tags/radio_episode/{episode.id}", json={"name": "Mine"})
+    note = client.put(
+        f"/notes/radio_episode/{episode.id}", json={"body": "Lovely.", "base_updated_at": None}
+    )
+    assert note.status_code == 200
+    data["genres"].append({"id": "genres-new", "value": "New Genre"})
+    _serve(responses, data)
+    start(client, NTS_EPISODE)
+    run()
+    session.expire_all()
+    assert entity_tags(client, "radio_episode", episode.id) == [
+        "Dream Pop",
+        "Folk",
+        "Indie Rock",
+        "Mine",
+        "Sunny",
+    ]
+    assert client.get(f"/notes/radio_episode/{episode.id}").json()["body"] == "Lovely."
+
+
+def test_annotated_radio_recordings_are_kept(
+    client: TestClient,
+    session: Session,
+    run: Any,
+    library: dict[str, Any],
+    responses: dict[str, httpx2.Response],
+) -> None:
+    """Deleting an episode, re-importing it or re-pointing an entry deletes the
+    recordings only radio knew, but never one with a note, a tag or a link to it (the
+    user's writing is never deleted as a side effect); the episode's own note goes."""
+    start(client)
+    run()
+    tracks = episode_tracks(session)
+    radio_only = radio_only_ids(
+        session, (t.recording_id for t in tracks.values() if t.recording_id)
+    )
+    positions = [p for p in sorted(tracks) if tracks[p].recording_id in radio_only][:5]
+    assert positions[0] == 1
+    made = {p: session.get_one(Recording, tracks[p].recording_id) for p in positions}
+    noted, tagged, linked, repointed, plain = made.values()
+    noted_artist = noted.artist_credit.names[0].artist
+    put = {"base_updated_at": None}
+    assert client.put(f"/notes/recording/{noted.id}", json={**put, "body": "!"}).status_code == 200
+    assert client.post(f"/entity-tags/recording/{tagged.id}", json={"name": "x"}).status_code == 200
+    author = library["kozelek"]["id"]
+    episode = session.exec(select(RadioEpisode)).one()
+    body = f"[[recording:{linked.id}|this]] on [[radio_episode:{episode.id}|the show]]"
+    assert client.put(f"/notes/artist/{author}", json={**put, "body": body}).status_code == 200
+    put_note = client.put(f"/notes/recording/{repointed.id}", json={**put, "body": "keep"})
+    assert put_note.status_code == 200
+    episode_note = client.put(f"/notes/radio_episode/{episode.id}", json={**put, "body": "ep"})
+    assert episode_note.status_code == 200
+
+    # Re-pointing the entry away from an annotated recording keeps it.
+    response = client.patch(
+        f"/radio/episode-tracks/{tracks[positions[3]].id}",
+        json={"recording_id": library["ruth"]["id"]},
+    )
+    assert response.status_code == 200, response.text
+    session.expire_all()
+    assert session.get(Recording, repointed.id) is not None
+
+    # NTS drops the first entry from the tracklist: its recording has a note, it stays.
+    data = _episode_data()
+    del data["embeds"]["tracklist"]["results"][0]
+    _serve(responses, data)
+    start(client, NTS_EPISODE)
+    run()
+    session.expire_all()
+    assert session.get(Recording, noted.id) is not None
+
+    kept = [recording.id for recording in (noted, tagged, linked, repointed)]
+    plain_id = plain.id
+    assert client.delete(f"/radio/episodes/{episode.id}").status_code == 204
+    session.expire_all()
+    assert all(session.get(Recording, id) is not None for id in kept)
+    assert session.get(Recording, plain_id) is None
+    assert session.get(Artist, noted_artist.id) is not None
+    # Kept recordings are in no tracklist: no longer hidden as radio-only.
+    assert radio_only_ids(session, kept) == set()
+    # The episode's note went; the link to it is broken, the text stays.
+    assert client.get(f"/notes/recording/{kept[0]}").json()["body"] == "!"
+    note = client.get(f"/notes/artist/{author}").json()
+    assert note["body"] == body
+    assert [link["target"] is None for link in note["links"]] == [False, True]
+    assert session.exec(select(Note).where(Note.entity_type == "radio_episode")).all() == []
+
+
+def test_annotated_artist_of_a_deleted_radio_recording_is_kept(
+    client: TestClient, session: Session, run: Any, library: dict[str, Any]
+) -> None:
+    start(client)
+    run()
+    entry = episode_tracks(session)[1]
+    recording = session.get_one(Recording, entry.recording_id)
+    artist = recording.artist_credit.names[0].artist
+    response = client.post(f"/entity-tags/artist/{artist.id}", json={"name": "favourite"})
+    assert response.status_code == 200
+    response = client.patch(
+        f"/radio/episode-tracks/{entry.id}", json={"recording_id": library["ruth"]["id"]}
+    )
+    assert response.status_code == 200
+    session.expire_all()
+    assert session.get(Recording, recording.id) is None
+    assert session.get(Artist, artist.id) is not None
+    assert entity_tags(client, "artist", artist.id) == ["favourite"]
+
+
+def test_deleting_a_show_deletes_its_and_its_episodes_notes_and_tags(
+    client: TestClient, session: Session, run: Any, library: dict[str, Any]
+) -> None:
+    start(client)
+    run()
+    show = session.exec(select(RadioShow)).one()
+    episode = session.exec(select(RadioEpisode)).one()
+    for type, id in ("radio_show", show.id), ("radio_episode", episode.id):
+        response = client.put(f"/notes/{type}/{id}", json={"body": "n", "base_updated_at": None})
+        assert response.status_code == 200
+    assert entity_tags(client, "radio_episode", episode.id)  # imported genres
+    assert client.delete(f"/radio/shows/{show.id}").status_code == 204
+    assert session.exec(select(Note)).all() == []
+    assert session.exec(select(EntityTag)).all() == []

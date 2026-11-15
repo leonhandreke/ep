@@ -58,7 +58,7 @@ def test_get_release_with_tracks_credits_and_isrcs(mb: MockMusicBrainz) -> None:
 
     [request] = mb.requests
     assert request.url.path == f"/ws/2/release/{PROMISES_RELEASE}"
-    assert request.url.params["inc"] == "recordings+artist-credits+release-groups+isrcs"
+    assert request.url.params["inc"] == "recordings+artist-credits+release-groups+isrcs+genres"
     assert request.url.params["fmt"] == "json"
     assert request.headers["User-Agent"] == USER_AGENT
 

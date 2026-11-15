@@ -3,7 +3,7 @@ from collections.abc import Iterator
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlmodel import Session, SQLModel, func, select
+from sqlmodel import Session, SQLModel, col, delete, func, select
 
 from ep.api.musicbrainz import get_musicbrainz
 from ep.credits import CreditPart, get_or_create_artist_credit
@@ -20,12 +20,14 @@ from ep.models import (
     Artist,
     ArtistCredit,
     ArtistType,
+    EntityTag,
     EntityType,
     ExternalId,
     Recording,
     ReleaseGroup,
     ReleaseGroupType,
     Source,
+    Tag,
     Track,
 )
 from tests.helpers import make_artist, make_release_group
@@ -348,3 +350,53 @@ def test_import_release_attaches_confident_artist_matches(session: Session) -> N
     assert [p.mbid for p in pharoahs] == [None, None]
     assert lso.mbid is None  # "a new artist" was asked for
     assert count(session, Artist) == 6
+
+
+def _tag_names(session: Session, release_group: ReleaseGroup) -> list[str]:
+    return sorted(
+        session.exec(
+            select(Tag.name)
+            .join(EntityTag, col(EntityTag.tag_id) == Tag.id)
+            .where(EntityTag.entity_id == release_group.id)
+        ).all()
+    )
+
+
+def test_genres_become_tags_of_a_new_release_group_only(session: Session) -> None:
+    release = promises()
+    assert release.release_group is not None
+    assert [genre.name for genre in release.release_group.genres][:2] == ["ambient", "electronic"]
+    release_group = import_release(session, release, tags=["Jazz", "spiritual jazz"])
+    # Release group and release genres, and the tags given, once each ignoring case.
+    expected = [
+        "ambient",
+        "electronic",
+        "instrumental",
+        "instrumental jazz",
+        "jazz",  # MusicBrainz's spelling came first
+        "modern classical",
+        "spiritual jazz",
+        "third stream",
+    ]
+    assert _tag_names(session, release_group) == sorted(expected)
+    # The user removes one; importing again does not bring it back.
+    ambient = session.exec(select(Tag.id).where(Tag.name == "ambient")).one()
+    session.exec(delete(EntityTag).where(col(EntityTag.tag_id) == ambient))
+    import_release(session, release, tags=["new"])
+    assert "ambient" not in _tag_names(session, release_group)
+    assert "new" not in _tag_names(session, release_group)
+
+
+def test_no_genre_tags_for_a_release_group_in_the_library(session: Session) -> None:
+    credit_artist = Artist(name="Floating Points", sort_name="Floating Points")
+    session.add(credit_artist)
+    session.flush()
+    credit = get_or_create_artist_credit(session, [CreditPart(credit_artist, "Floating Points")])
+    existing = ReleaseGroup(
+        title="Promises", artist_credit_id=credit.id, type=ReleaseGroupType.album
+    )
+    session.add(existing)
+    session.flush()
+    release_group = import_release(session, promises(), release_group=existing)
+    assert release_group.id == existing.id
+    assert _tag_names(session, release_group) == []

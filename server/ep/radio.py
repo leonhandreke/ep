@@ -34,6 +34,7 @@ from ep.models import (
     SourceKind,
     Track,
 )
+from ep.notes.store import annotated, delete_annotations
 
 
 def radio_only_recording(
@@ -96,13 +97,16 @@ def radio_only_ids(session: Session, recording_ids: Iterable[uuid.UUID]) -> set[
 
 
 def delete_unused_recordings(session: Session, recording_ids: Iterable[uuid.UUID]) -> int:
-    """Delete those of the recordings that are in no tracklist, on no release group and
-    have no source, with their external IDs, credits and artists left uncredited.
+    """Delete those of the recordings that are in no tracklist, on no release group,
+    have no source and are not annotated (no note, tag or inbound link:
+    ``ep.notes.store.annotated``), with their external IDs, credits and the artists
+    left uncredited (unless annotated themselves).
 
     The rule for recordings that radio created: a radio-only recording lives as long as
-    a tracklist entry points at it. Callers pass the recordings that were radio-only
-    before a change (an entry re-pointed, dropped from the station's tracklist, an
-    episode deleted); one that gained a track or a source of its own meanwhile stays.
+    a tracklist entry points at it, or the user wrote about it. Callers pass the
+    recordings that were radio-only before a change (an entry re-pointed, dropped from
+    the station's tracklist, an episode deleted); one that gained a track or a source
+    of its own meanwhile stays.
     Returns how many were deleted. Flushes.
     """
     ids = set(recording_ids)
@@ -115,6 +119,7 @@ def delete_unused_recordings(session: Session, recording_ids: Iterable[uuid.UUID
             ~exists().where(col(RadioEpisodeTrack.recording_id) == col(Recording.id)),
             ~exists().where(col(Track.recording_id) == col(Recording.id)),
             ~exists().where(col(Source.recording_id) == col(Recording.id)),
+            ~annotated(EntityType.recording, col(Recording.id), col(Recording.mbid)),
         )
     ).all()
     for recording in unused:
@@ -170,6 +175,7 @@ def delete_episode(
     if file is not None:
         files = _delete_file_source(session, file, library_dir, delete_audio, protected)
     delete_unused_recordings(session, radio_only)
+    delete_annotations(session, EntityType.radio_episode, episode.id)
     if episode.image_path and Path(episode.image_path).is_relative_to(
         covers.covers_dir(library_dir)
     ):
@@ -193,6 +199,7 @@ def delete_show(
         files += delete_episode(session, episode, library_dir, delete_audio, protected)
     if show.image_path and Path(show.image_path).is_relative_to(covers.covers_dir(library_dir)):
         files.append(Path(show.image_path))
+    delete_annotations(session, EntityType.radio_show, show.id)
     session.delete(show)
     session.flush()
     return files
@@ -249,12 +256,20 @@ def _delete_recording(session: Session, recording: Recording) -> None:
     credit = recording.artist_credit
     artist_ids = [name.artist_id for name in credit.names]
     delete_external_ids(session, EntityType.recording, recording.id)
+    delete_annotations(session, EntityType.recording, recording.id)
     session.delete(recording)
     delete_artist_credit_if_unused(session, credit)
     session.flush()
     for artist_id in artist_ids:
-        credited = select(ArtistCreditName.id).where(ArtistCreditName.artist_id == artist_id)
-        if session.exec(credited).first() is None and (artist := session.get(Artist, artist_id)):
+        unused = session.exec(
+            select(Artist).where(
+                Artist.id == artist_id,
+                ~exists().where(col(ArtistCreditName.artist_id) == artist_id),
+                ~annotated(EntityType.artist, col(Artist.id), col(Artist.mbid)),
+            )
+        ).first()
+        if unused is not None:
             delete_external_ids(session, EntityType.artist, artist_id)
-            session.delete(artist)
+            delete_annotations(session, EntityType.artist, artist_id)
+            session.delete(unused)
     session.flush()
