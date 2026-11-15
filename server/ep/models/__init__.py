@@ -18,6 +18,7 @@ from ep.models.catalogue import (
     Track,
 )
 from ep.models.operations import ImportJob, ImportKind, JobStage, JobState, WatchDir
+from ep.models.radio import RadioEpisode, RadioEpisodeTrack, RadioShow, RadioStation
 from ep.models.source import Source, SourceKind
 
 __all__ = [
@@ -32,6 +33,10 @@ __all__ = [
     "ImportKind",
     "JobStage",
     "JobState",
+    "RadioEpisode",
+    "RadioEpisodeTrack",
+    "RadioShow",
+    "RadioStation",
     "Recording",
     "ReleaseGroup",
     "ReleaseGroupType",

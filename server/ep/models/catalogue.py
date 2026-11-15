@@ -68,11 +68,14 @@ class ReleaseGroupType(StrEnum):
 
 
 class EntityType(StrEnum):
-    """Entities that external IDs (and later notes and tags) can attach to."""
+    """Entities that external IDs (and later notes and tags) can attach to, found by
+    ``/search`` and ``/resolve``."""
 
     artist = "artist"
     release_group = "release_group"
     recording = "recording"
+    radio_show = "radio_show"
+    radio_episode = "radio_episode"
 
 
 class Artist(Base, table=True):
