@@ -114,7 +114,7 @@ uv run alembic revision --autogenerate -m "add catalogue"
 - Play states (`ep.playback.playabilities`, `PlayabilityRead` on tracks and recordings):
   `file`, `slice` (range of a shared file), `radio_excerpt`, `file_missing` (not at its
   path: `missing_file_source_id` to locate, a radio excerpt as `playback` if there is
-  one), `link_only` (`link` to open), `no_source`. What plays: the recording's
+  one; also a radio-only recording whose episode file is gone), `link_only` (`link` to open), `no_source`. What plays: the recording's
   `preferred_source_id` if it plays, else the oldest library source whose file is
   there, else the oldest radio excerpt. One query for a whole list, plus a `stat` per
   file tried. `PlaybackRead.file_duration_ms` is a scrubber's scale.
@@ -143,8 +143,9 @@ uv run alembic revision --autogenerate -m "add catalogue"
 - Radio entries have `state` (`in_library`, `excerpt_only`, `not_matched`); radio
   appearances have `playback`; `GET /entity-details` of a release group lists the radio
   entries that played its tracks.
-- Imports: job summaries carry `title`, `cover_url`, `link_kind`, `watch_dir_id`,
-  `input_host_path`, `message` (the error or first open issue), `counts` (tracks;
+- Imports: job summaries carry `title` and `subtitle` (what is imported and its credit
+  or show), `cover_url`, `link_kind`, `watch_dir_id`, `input_host_path`, `first_issue`
+  (id, kind, message; a blocking one first), `counts` (tracks;
   failures a retry tries again), `created` (rows the last apply created), `existing`
   (a release conflict's release group), `waiting_for` (the job ahead in the queue) and
   `progress` with the user-facing `step` (metadata, matching, downloading, applying)
@@ -152,7 +153,8 @@ uv run alembic revision --autogenerate -m "add catalogue"
   `GET /imports/summary` is the cheap poll (counts per state, running fraction, watched
   dirs, `changed_at`). `POST /imports/{id}/cancel` stops a queued or running job (the
   worker checks on every commit of the job's progress, killing a running download; an
-  `applying` job finishes): it becomes `dismissed`. Failed downloads do not hold up a
+  `applying` job finishes): it becomes `dismissed`. The worker changes a job's state only
+  with a conditional update (`JobContext.set_state`), so it never overwrites a cancel. Failed downloads do not hold up a
   job when something else was downloaded: the rest is applied and the job stays in
   `needs_review` (a retry adds the others; their partial downloads are kept).
   `GET /imports/{id}/stream?track_key=` serves an incoming track's file, to preview it
@@ -186,6 +188,22 @@ a single-file album, a radio show with two episodes, notes with links and a brok
 one, tags, jobs in each state) with generated audio and covers. It prints the
 `EP_LIBRARY_DIR` and `EP_MEDIA_ROOTS` to run the server with. Run no worker against it
 (the demo jobs are rows only). `tests/test_seed.py` seeds a scratch database.
+
+A private seeded backend (own database container and ports, nothing under `~/Music`),
+e.g. for the app's UI tests; from `server/`:
+
+```sh
+D=$(mktemp -d)
+docker run -d --rm --name ep-harness-db -e POSTGRES_USER=ep -e POSTGRES_PASSWORD=ep \
+    -e POSTGRES_DB=ep -p 127.0.0.1:55432:5432 postgres:18
+until docker exec ep-harness-db pg_isready -q -h 127.0.0.1 -U ep -d ep; do sleep 1; done
+uv run python -m ep.seed --database-url postgresql+psycopg://ep:ep@127.0.0.1:55432/ep \
+    --library-dir "$D/library" --watch-dir "$D/watch"
+EP_DATABASE_URL=postgresql+psycopg://ep:ep@127.0.0.1:55432/ep EP_LIBRARY_DIR="$D/library" \
+    EP_MEDIA_ROOTS="[\"$D/library\", \"$D/watch\"]" \
+    uv run uvicorn ep.main:app --host 127.0.0.1 --port 18000
+docker rm -f ep-harness-db && rm -rf "$D"     # tear down
+```
 
 ## Sources, playback, covers
 
@@ -488,6 +506,12 @@ one, tags, jobs in each state) with generated audio and covers. It prints the
   an incoming track to a library recording moves nothing), so no note is ever merged.
 
 ## Tests
+
+Testing policy: each feature gets its happy path and its most important failure cases,
+not every edge case. Always kept: guards against false auto-matches, the
+never-modify and path-confinement checks, notes surviving deletes, query counts, the
+OpenAPI staleness test and the Python/SQL normaliser agreement. Prefer extending an
+existing test over a new one that builds the same data again.
 
 Tests run against a real Postgres: the `db` service must be up. The test session drops
 and recreates the `ep_test` database, migrates it to head, and wraps each test in a

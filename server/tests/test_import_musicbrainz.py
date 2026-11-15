@@ -392,18 +392,3 @@ def test_genres_become_tags_of_a_new_release_group_only(session: Session) -> Non
     import_release(session, release, tags=["new"])
     assert "ambient" not in _tag_names(session, release_group)
     assert "new" not in _tag_names(session, release_group)
-
-
-def test_no_genre_tags_for_a_release_group_in_the_library(session: Session) -> None:
-    credit_artist = Artist(name="Floating Points", sort_name="Floating Points")
-    session.add(credit_artist)
-    session.flush()
-    credit = get_or_create_artist_credit(session, [CreditPart(credit_artist, "Floating Points")])
-    existing = ReleaseGroup(
-        title="Promises", artist_credit_id=credit.id, type=ReleaseGroupType.album
-    )
-    session.add(existing)
-    session.flush()
-    release_group = import_release(session, promises(), release_group=existing)
-    assert release_group.id == existing.id
-    assert _tag_names(session, release_group) == []

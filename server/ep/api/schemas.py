@@ -26,7 +26,7 @@ from pydantic import (
     model_validator,
 )
 
-from ep.importers.proposal import Choice, LogEntry, Proposal
+from ep.importers.proposal import Choice, IssueKind, LogEntry, Proposal
 from ep.links import LinkKind
 from ep.models import (
     ArtistType,
@@ -705,7 +705,7 @@ class EntityRead(BaseModel):
     # Artist name, release group / recording title, or show / episode name.
     title: str
     # Artist disambiguation, the artist credit of a release group / recording, the
-    # station of a show, the show and date of an episode.
+    # station of a show, the show of an episode.
     subtitle: str | None
     # A release group's cover; for a recording, the cover of a release group it is on;
     # a show's or episode's image.
@@ -997,6 +997,14 @@ class CreatedCountsRead(BaseModel):
     sources: int
 
 
+class IssueBriefRead(BaseModel):
+    """An issue of a job, in brief (``Issue`` in the proposal has everything)."""
+
+    id: str
+    kind: IssueKind
+    message: str
+
+
 class ImportJobSummary(Read):
     kind: ImportKind
     input: str
@@ -1009,14 +1017,16 @@ class ImportJobSummary(Read):
     state: JobState
     progress: ProgressRead
     error: str | None
-    # "Artist — Title" of what is imported (the release, the loose track, or the
-    # radio show and episode), once the proposal is built; null before.
+    # What is imported (the release, the loose track, or the radio episode) and its
+    # artist credit (for an episode: the show), once the proposal is built; null before.
     title: str | None
+    subtitle: str | None
     # The incoming cover or image: a URL elsewhere (before it is fetched) or a path on
     # this server (``/covers/...``, once imported); null if none or not known yet.
     cover_url: str | None
-    # What the job is stuck on, for one line: the error, else the first open issue.
-    message: str | None
+    # The first open issue (a blocking one if any), for a one-line summary; the
+    # proposal (``GET /imports/{id}``) has them all.
+    first_issue: IssueBriefRead | None
     # Issues waiting for an answer.
     open_issues: int
     counts: ImportCountsRead

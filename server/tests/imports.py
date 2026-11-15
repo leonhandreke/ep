@@ -1,6 +1,5 @@
 """Helpers for import tests: generated album folders and running queued jobs."""
 
-import subprocess
 import uuid
 from collections.abc import Mapping
 from pathlib import Path
@@ -15,6 +14,7 @@ from ep.jobs.queue import RUN_IMPORT
 from ep.jobs.tasks import IMPORTERS
 from ep.models import ImportKind, JobState
 from ep.settings import Settings
+from tests.fakes import ffmpeg_output
 from tests.mock_musicbrainz import MockMusicBrainz
 
 
@@ -32,8 +32,7 @@ def write_audio(
         args += ["-disposition:v", "attached_pic"]
     for key, value in (tags or {}).items():
         args += ["-metadata", f"{key}={value}"]
-    subprocess.run(["ffmpeg", "-v", "error", "-y", *map(str, args), str(path)], check=True)
-    return path
+    return ffmpeg_output(path, *args)
 
 
 def run_queued(

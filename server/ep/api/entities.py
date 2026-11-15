@@ -88,7 +88,6 @@ def entity_read(entity: Base, albums: dict[uuid.UUID, RecordingAlbum]) -> Entity
             title, subtitle = entity.name, entity.show.name
             if entity.broadcast_at is not None:
                 date = f"{entity.broadcast_at:%Y-%m-%d}"
-                subtitle += f", {date}"
             cover = f"/covers/radio-episode/{entity.id}" if entity.image_path else None
         case _:
             raise TypeError(f"unexpected entity {entity!r}")

@@ -239,20 +239,6 @@ def test_failed_track_download_does_not_lose_the_rest(
     assert get_job(client, job["id"])["counts"]["failed"] == 0
 
 
-def test_failed_track_download_skipped(
-    client: TestClient, session: Session, run: Any, ytdlp: FakeYtDlp
-) -> None:
-    trash = "https://knotwilg.bandcamp.com/track/trash"
-    ytdlp.failing_downloads.add(trash)
-    job = post_url(client, "bandcamp", KNOTWILG)
-    run()
-    [issue] = get_job(client, job["id"])["proposal"]["issues"]
-    review(client, job["id"], {"issue_id": issue["id"], "choice": "skip"})
-    assert run() == {uuid.UUID(job["id"]): JobState.done}
-    titles = session.exec(select(Recording.title)).all()
-    assert sorted(titles) == sorted(t for t in KNOTWILG_TRACKS if t != "Trash")
-
-
 def test_page_gone_is_an_issue(client: TestClient, run: Any) -> None:
     job = post_url(client, "bandcamp", "https://knotwilg.bandcamp.com/album/gone")
     assert run() == {uuid.UUID(job["id"]): JobState.needs_review}

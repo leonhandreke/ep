@@ -27,6 +27,7 @@ from ep.api.schemas import (
     ImportJobSummary,
     ImportsSummaryRead,
     ImportStep,
+    IssueBriefRead,
     JobAction,
     ProgressRead,
     ReviewRequest,
@@ -105,18 +106,20 @@ def progress_read(job: ImportJob) -> ProgressRead:
     )
 
 
-def _title(proposal: Proposal | None) -> str | None:
+def _title(proposal: Proposal | None) -> tuple[str | None, str | None]:
+    """What is imported: the release, the loose track or the radio episode, and its
+    artist credit (the show for an episode)."""
     if proposal is None:
-        return None
+        return None, None
     if proposal.radio is not None:
-        return f"{proposal.radio.show.name} — {proposal.radio.episode.name}"
+        return proposal.radio.episode.name, proposal.radio.show.name
     for release in proposal.releases:
         if release.target.kind is not TargetKind.skip:
-            return f"{credit_name(release.credit)} — {release.title}"
+            return release.title, credit_name(release.credit)
     tracks = [t for t in proposal.loose_tracks if t.target.kind is not TargetKind.skip]
     if tracks:
-        return f"{credit_name(tracks[0].credit)} — {tracks[0].title}"
-    return None
+        return tracks[0].title, credit_name(tracks[0].credit)
+    return None, None
 
 
 def _cover_url(proposal: Proposal | None) -> str | None:
@@ -193,7 +196,8 @@ def _summary_fields(job: ImportJob, proposal: Proposal | None, settings: Setting
         actions.append(JobAction.dismiss)
     if job.state in CANCELLABLE:
         actions.append(JobAction.cancel)
-    blocking = [i for i in open_issues if i.blocking] + [i for i in open_issues if not i.blocking]
+    first = next((i for i in open_issues if i.blocking), open_issues[0] if open_issues else None)
+    title, subtitle = _title(proposal)
     tracks = proposal.all_tracks() if proposal else []
     link = classify(job.input) if job.kind is not ImportKind.folder else None
     created = job.created or {}
@@ -209,9 +213,12 @@ def _summary_fields(job: ImportJob, proposal: Proposal | None, settings: Setting
         "state": job.state,
         "progress": progress_read(job),
         "error": job.error,
-        "title": _title(proposal),
+        "title": title,
+        "subtitle": subtitle,
         "cover_url": _cover_url(proposal),
-        "message": job.error or (blocking[0].message if blocking else None),
+        "first_issue": (
+            IssueBriefRead(id=first.id, kind=first.kind, message=first.message) if first else None
+        ),
         "open_issues": len(open_issues),
         "counts": ImportCountsRead(
             tracks=sum(1 for t in tracks if t.target.kind is not TargetKind.skip),

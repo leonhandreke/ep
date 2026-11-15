@@ -6463,6 +6463,17 @@
             ],
             "title": "Title"
           },
+          "subtitle": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subtitle"
+          },
           "cover_url": {
             "anyOf": [
               {
@@ -6474,16 +6485,15 @@
             ],
             "title": "Cover Url"
           },
-          "message": {
+          "first_issue": {
             "anyOf": [
               {
-                "type": "string"
+                "$ref": "#/components/schemas/IssueBriefRead"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Message"
+            ]
           },
           "open_issues": {
             "type": "integer",
@@ -6556,8 +6566,9 @@
           "progress",
           "error",
           "title",
+          "subtitle",
           "cover_url",
-          "message",
+          "first_issue",
           "open_issues",
           "counts",
           "created",
@@ -6654,6 +6665,17 @@
             ],
             "title": "Title"
           },
+          "subtitle": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subtitle"
+          },
           "cover_url": {
             "anyOf": [
               {
@@ -6665,16 +6687,15 @@
             ],
             "title": "Cover Url"
           },
-          "message": {
+          "first_issue": {
             "anyOf": [
               {
-                "type": "string"
+                "$ref": "#/components/schemas/IssueBriefRead"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Message"
+            ]
           },
           "open_issues": {
             "type": "integer",
@@ -6730,8 +6751,9 @@
           "progress",
           "error",
           "title",
+          "subtitle",
           "cover_url",
-          "message",
+          "first_issue",
           "open_issues",
           "counts",
           "created",
@@ -7696,6 +7718,29 @@
           "choice"
         ],
         "title": "IssueAnswer"
+      },
+      "IssueBriefRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/IssueKind"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "message"
+        ],
+        "title": "IssueBriefRead",
+        "description": "An issue of a job, in brief (``Issue`` in the proposal has everything)."
       },
       "IssueCandidate": {
         "properties": {

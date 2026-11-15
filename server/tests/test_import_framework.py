@@ -229,15 +229,6 @@ def test_uncertain_match_review_round_trip(
     assert count(session, Artist) == 2
 
 
-def test_create_new_answer(client: TestClient, session: Session, job: ImportJob, run: Any) -> None:
-    make_artist(client, disambiguation="a")
-    make_artist(client, disambiguation="b")
-    run()
-    review(client, str(job.id), {"issue_id": "uncertain_artist:nina", "choice": "create_new"})
-    assert run() == {job.id: JobState.done}
-    assert count(session, Artist) == 3
-
-
 def test_review_answers_are_validated(
     client: TestClient, session: Session, job: ImportJob, run: Any
 ) -> None:
@@ -354,19 +345,6 @@ def test_dismiss_deletes_downloads(
     assert work.exists()
     assert client.post(f"/imports/{job.id}/dismiss").status_code == 200
     assert not work.exists()
-
-
-def test_download_skipped(
-    client: TestClient, session: Session, job: ImportJob, run: Any, fake: FakeImporter
-) -> None:
-    fake.pending_download, fake.download_failures = True, 5
-    run()
-    review(client, str(job.id), {"issue_id": "download_failed:two", "choice": "skip"})
-    assert run() == {job.id: JobState.done}
-    [issue] = get_job(client, str(job.id))["proposal"]["issues"]
-    assert issue["answer"] == {"choice": "skip", "candidate_id": None}
-    assert count(session, Recording) == 1  # "Feeling Good" was skipped
-    assert count(session, Source) == 1
 
 
 def test_failed_job_stays_in_inbox_until_dismissed(

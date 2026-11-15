@@ -141,6 +141,18 @@ def test_play_states(
     assert excerpt_source["radio"]["offset_is_estimate"] is True
     assert excerpt_source["plays"] is True
 
+    # Known only from an episode whose audio went missing: file missing, not no source.
+    gone_episode = settings.media_roots[2] / "episode.m4a"
+    shutil.copyfile(audio_dir / "song.m4a", gone_episode)
+    lost_episode = source(client, "file", uri=str(gone_episode))
+    radio_entry(session, lost_episode, nothing["id"], 5000)
+    gone_episode.unlink()
+    playability = client.get(f"/recordings/{nothing['id']}").json()["playability"]
+    assert (playability["state"], playability["missing_file_source_id"]) == (
+        "file_missing",
+        lost_episode["id"],
+    )
+
 
 def test_preferred_source(client: TestClient, audio_dir: Path) -> None:
     recording = make_recording(client, make_artist(client))
@@ -405,11 +417,16 @@ def test_import_summary_preview_and_queue(
 
     jobs = {j["id"]: j for j in client.get("/imports").json()}
     job = jobs[str(review.id)]
-    assert (job["title"], job["link_kind"], job["message"]) == (
-        "Nina Simone — Pastel Blues",
+    assert (job["title"], job["subtitle"], job["link_kind"]) == (
+        "Pastel Blues",
+        "Nina Simone",
         "youtube_video",
-        "Is 'Sinnerman' one of these?",
     )
+    assert job["first_issue"] == {
+        "id": "uncertain_recording:t",
+        "kind": "uncertain_recording",
+        "message": "Is 'Sinnerman' one of these?",
+    }
     assert job["counts"] == {"tracks": 1, "failed": 0}
     assert jobs[str(running.id)]["progress"]["step"] == "downloading"
     assert jobs[str(waiting.id)]["waiting_for"] == str(running.id)
@@ -449,6 +466,10 @@ def test_running_job_notices_cancel(session: Session, settings: Settings) -> Non
         session.commit()
         with pytest.raises(JobCancelled):
             ctx.advance()
+        # The worker's own state change (here: stopping for review) does not win.
+        with pytest.raises(JobCancelled):
+            ctx.set_state(JobState.needs_review)
+        assert session.get_one(ImportJob, job.id).state is JobState.dismissed
 
 
 def test_timestamps_have_milliseconds_in_utc(client: TestClient) -> None:

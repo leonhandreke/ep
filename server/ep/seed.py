@@ -1039,19 +1039,19 @@ def seed(database_url: str, library_dir: Path, watch_dir: Path) -> None:
         if resolved.exists() and any(resolved.iterdir()):
             raise SeedError(f"not empty: {directory}")
 
-    config = Config(toml_file=SERVER_DIR / "pyproject.toml")
-    config.attributes["database_url"] = database_url
-    command.upgrade(config, "head")
     engine = create_engine(database_url)
     try:
-        with Session(engine) as session:
+        # Checked before migrating: a database with data is left exactly as it is.
+        with engine.connect() as connection:
             for table in TABLES:
-                if (
-                    session.connection()
-                    .execute(text(f"SELECT EXISTS (SELECT FROM {table})"))
-                    .scalar()
+                if connection.execute(text("SELECT to_regclass(:t)"), {"t": table}).scalar() and (
+                    connection.execute(text(f"SELECT EXISTS (SELECT FROM {table})")).scalar()
                 ):
                     raise SeedError(f"the database is not empty ({table} has rows)")
+        config = Config(toml_file=SERVER_DIR / "pyproject.toml")
+        config.attributes["database_url"] = database_url
+        command.upgrade(config, "head")
+        with Session(engine) as session:
             library_dir.mkdir(parents=True, exist_ok=True)
             watch_dir.mkdir(parents=True, exist_ok=True)
             seeder = Seeder(session, library_dir.resolve(), watch_dir.resolve())

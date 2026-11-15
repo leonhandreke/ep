@@ -215,7 +215,10 @@ def test_radio_notes(client: TestClient, session: Session) -> None:
     assert link["target"]["subtitle"] == "NTS"
     [backlink] = client.get(f"/backlinks/radio_show/{show.id}").json()
     assert backlink["source"]["title"] == "Early Bird Show w/ Pam"
-    assert backlink["source"]["subtitle"] == "Early Bird Show, 2026-11-12"
+    assert (backlink["source"]["subtitle"], backlink["source"]["date"]) == (
+        "Early Bird Show",
+        "2026-11-12",
+    )
     assert backlink["snippets"][0]["text"] == "From Early Bird Show"
 
 

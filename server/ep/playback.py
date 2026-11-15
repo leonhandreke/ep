@@ -200,10 +200,13 @@ def _playability(sources: list[Resolved], preferred: uuid.UUID | None) -> Playab
     for candidate in playable:
         assert candidate.playback is not None
         if not candidate.playback.path.is_file():
-            if missing is None and candidate.radio is None:
+            # The first missing library file; an episode file only if no library file
+            # is known (a radio-only recording whose episode audio went missing).
+            if missing is None or (missing.radio is not None and candidate.radio is None):
                 missing = candidate
             continue
-        if missing is not None and candidate.radio is not None:
+        library_missing = missing is not None and missing.radio is None
+        if library_missing and candidate.radio is not None:
             state = PlayState.file_missing
         elif candidate.radio is not None:
             state = PlayState.radio_excerpt
@@ -216,7 +219,9 @@ def _playability(sources: list[Resolved], preferred: uuid.UUID | None) -> Playab
             candidate.playback,
             candidate.radio,
             link,
-            missing.playback.file_source_id if missing and missing.playback else None,
+            missing.playback.file_source_id
+            if library_missing and missing is not None and missing.playback
+            else None,
         )
     if missing is not None and missing.playback is not None:
         return Playability(

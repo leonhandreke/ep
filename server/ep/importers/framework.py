@@ -193,12 +193,28 @@ class JobContext:
         return job_work_dir(self.settings.library_dir, self.job.id)
 
     def save(self) -> None:
-        """Commit the job's state, log and progress (not while applying); raise
-        ``JobCancelled`` if the job was cancelled meanwhile (the commit reloads it)."""
+        """Commit the job's log and progress (not while applying); raise
+        ``JobCancelled`` if the job was cancelled meanwhile (the commit reloads it).
+        The worker changes the state only with ``set_state``, never through the row, so
+        a commit never overwrites a cancel."""
         if not self.in_transaction:
             self.session.commit()
             if self.job.state is JobState.dismissed:
                 raise JobCancelled
+
+    def set_state(self, state: JobState) -> None:
+        """Move the job to ``state`` and commit, unless it was cancelled meanwhile
+        (``JobCancelled``). A conditional update: it waits for a cancel holding the row
+        (``POST /imports/{id}/cancel`` locks it) and then sees it."""
+        result = self.session.exec(
+            update(ImportJob)
+            .where(col(ImportJob.id) == self.job.id, col(ImportJob.state) != JobState.dismissed)
+            .values(state=state, updated_at=utcnow())
+        )
+        if result.rowcount == 0:
+            self.session.rollback()
+            raise JobCancelled
+        self.save()
 
     def log(self, message: str, level: LogLevel = LogLevel.info) -> None:
         entry = LogEntry(at=utcnow(), level=level, message=message)
@@ -373,7 +389,7 @@ def run_job(
         _download(ctx, importer, proposal)
         if _stop_for_review(ctx, proposal):
             return job.state
-        job.state = JobState.applying
+        ctx.set_state(JobState.applying)
         ctx.stage(JobStage.apply)
         ctx.in_transaction = True
         summary = apply_proposal(ctx, importer, proposal)
@@ -406,7 +422,7 @@ def _stop_for_review(ctx: JobContext, proposal: Proposal) -> bool:
     proposal.issues = ctx.issues
     ctx.job.proposal = proposal.model_dump(mode="json")
     if blocking := proposal.blocking_issues():
-        ctx.job.state = JobState.needs_review
+        ctx.set_state(JobState.needs_review)
         ctx.log(f"needs review: {len(blocking)} open issue(s)")
         return True
     ctx.save()
@@ -422,10 +438,14 @@ def _fail(ctx: JobContext, job_id: uuid.UUID, error: Exception) -> None:
             action()
         except OSError as e:
             log = [*(log or ctx.job.log), _entry(LogLevel.warning, f"undo failed: {e}")]
-    job = session.get_one(ImportJob, job_id)
-    session.refresh(job)
+    job = session.get_one(ImportJob, job_id, with_for_update=True, populate_existing=True)
     if log is not None:  # entries written in the failed apply transaction
         job.log = log
+    if job.state is JobState.dismissed:  # cancelled while it went wrong: stays cancelled
+        job.log = [*job.log, _entry(LogLevel.info, "cancelled")]
+        session.commit()
+        discard_work(ctx.settings.library_dir, job_id)
+        return
     message = str(error) if isinstance(error, ImportFailed) else f"{type(error).__name__}: {error}"
     job.state, job.error = JobState.failed, message
     job.log = [*job.log, _entry(LogLevel.error, message)]

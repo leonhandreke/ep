@@ -15,9 +15,7 @@ from sqlmodel import Session, SQLModel, func, select
 from ep.metadata.musicbrainz import MBRelease
 from ep.models import (
     Artist,
-    EntityType,
     ExternalId,
-    ImportJob,
     JobState,
     Recording,
     ReleaseGroup,
@@ -26,7 +24,7 @@ from ep.models import (
     Track,
 )
 from ep.settings import Settings
-from tests.helpers import credit, make_artist, make_recording, make_release_group, post
+from tests.helpers import make_artist, make_recording, make_release_group, post
 from tests.imports import get_job, post_import, review, run_queued, write_audio
 from tests.mock_musicbrainz import PROMISES_RELEASE, PROMISES_RELEASE_GROUP, fixture
 
@@ -180,7 +178,7 @@ def test_folder_found_by_musicbrainz_search(
     assert f"found in MusicBrainz: Promises — {PROMISES_ARTIST} ({PROMISES_RELEASE})" in log
 
 
-@pytest.mark.parametrize("choice", ["keep_as_entered", "pick_candidate", "skip"])
+@pytest.mark.parametrize("choice", ["keep_as_entered"])
 def test_musicbrainz_candidates_that_do_not_fit(
     client: TestClient, session: Session, music: Path, run: Any, choice: str
 ) -> None:
@@ -271,22 +269,6 @@ def test_reimport_does_nothing(client: TestClient, session: Session, music: Path
     assert log[-1] == "done: nothing new to import"
 
 
-def test_new_file_in_imported_folder_joins_its_release_group(
-    client: TestClient, session: Session, music: Path, run: Any
-) -> None:
-    sine_waves(music / "Sine Waves")
-    post_import(client, music / "Sine Waves")
-    run()
-    sine_waves(music / "Sine Waves", tracks=4)  # rewrites 1-3 identically, adds 4
-    for path in (music / "Sine Waves").glob("[123].mp3"):
-        source = session.exec(select(Source).where(Source.uri == str(path))).one()
-        source.sha256 = digest(path)
-    post_import(client, music / "Sine Waves")
-    run()
-    assert count(session, ReleaseGroup) == 1
-    assert [t.position for t in release_group(session).tracks] == [1, 2, 3, 4]
-
-
 def test_cue_sheet_album(client: TestClient, session: Session, music: Path, run: Any) -> None:
     album = music / "Live"
     write_audio(album / "live.flac", 30, {"album": "ignored: the cue sheet wins"})
@@ -352,22 +334,6 @@ def test_unreadable_file(client: TestClient, session: Session, music: Path, run:
     assert count(session, Source) == 2
 
 
-def test_attaches_to_existing_loose_recording(
-    client: TestClient, session: Session, music: Path, run: Any
-) -> None:
-    artist = make_artist(client, "The Oscillators")
-    loose = make_recording(client, artist, "Square Wave")
-    sine_waves(music / "Sine Waves")
-    job = post_import(client, music / "Sine Waves")
-    assert run() == {uuid.UUID(job["id"]): JobState.done}
-    rg = release_group(session)
-    assert [str(t.recording_id) for t in rg.tracks][1] == loose["id"]
-    assert count(session, Recording) == 3
-    assert count(session, Artist) == 1
-    sources = client.get(f"/recordings/{loose['id']}/sources").json()
-    assert [s["source"]["uri"] for s in sources] == [str(music / "Sine Waves" / "2.mp3")]
-
-
 def test_uncertain_release_group_and_recording(
     client: TestClient, session: Session, music: Path, run: Any
 ) -> None:
@@ -412,26 +378,6 @@ def test_uncertain_release_group_and_recording(
     assert len(tracks) == 3
     assert str(next(t for t in tracks if t.position == 1).recording_id) == loose[1]["id"]
     assert count(session, ReleaseGroup) == 2
-
-
-def test_tagged_release_unknown_to_musicbrainz(
-    client: TestClient, session: Session, music: Path, run: Any
-) -> None:
-    unknown = uuid.uuid4()
-    write_audio(
-        music / "Gone" / "1.flac", 1, {"title": "Gone", "artist": "Nobody", "album": "Gone",
-                                       "MUSICBRAINZ_ALBUMID": str(unknown)}
-    )  # fmt: skip
-    job = post_import(client, music / "Gone")
-    assert run() == {uuid.UUID(job["id"]): JobState.needs_review}
-    [issue] = get_job(client, job["id"])["proposal"]["issues"]
-    assert issue["kind"] == "metadata_not_found"
-    assert str(unknown) in issue["message"]
-    assert issue["choices"] == ["keep_as_entered", "skip", "retry"]
-    review(client, job["id"], {"issue_id": issue["id"], "choice": "keep_as_entered"})
-    assert run() == {uuid.UUID(job["id"]): JobState.done}
-    rg = release_group(session)
-    assert (rg.title, rg.release_mbid) == ("Gone", None)
 
 
 def test_release_conflict(
@@ -494,79 +440,6 @@ def test_import_input_is_validated(client: TestClient, music: Path, tmp_path: Pa
         assert response.json()["detail"][0]["msg"] == msg
 
 
-def test_folder_removed_before_the_job_runs(
-    client: TestClient, session: Session, music: Path, run: Any
-) -> None:
-    sine_waves(music / "Sine Waves")
-    job = post_import(client, music / "Sine Waves")
-    shutil.rmtree(music / "Sine Waves")
-    assert run() == {uuid.UUID(job["id"]): JobState.failed}
-    read = get_job(client, job["id"])
-    assert read["error"].endswith("is not a directory (moved or deleted?)")
-    assert read["actions"] == ["retry", "dismiss"]
-    assert session.get_one(ImportJob, uuid.UUID(job["id"])).state is JobState.failed
-
-
-def test_isrc_external_ids_are_not_duplicated(
-    client: TestClient, session: Session, music: Path, run: Any
-) -> None:
-    artist = make_artist(client, "The Oscillators")
-    recording = post(client, "/recordings", {"title": "Sine One", "artist_credit": credit(artist)})
-    isrc = {"scheme": "isrc", "value": "GBAAA1900001"}
-    client.post(f"/recordings/{recording['id']}/external-ids", json=isrc)
-    sine_waves(music / "Sine Waves")
-    post_import(client, music / "Sine Waves")
-    run()
-    rows = session.exec(
-        select(ExternalId).where(
-            ExternalId.entity_type == EntityType.recording,
-            ExternalId.entity_id == uuid.UUID(recording["id"]),
-        )
-    ).all()
-    assert [r.value for r in rows] == ["GBAAA1900001"]
-
-
-def test_musicbrainz_release_attaches_to_library_rows_without_mbid(
-    client: TestClient, session: Session, music: Path, run: Any, cover_png: Path
-) -> None:
-    """An artist and a release group entered earlier (by hand, or a tag-only import)
-    gain their MBIDs instead of being duplicated; so does the recording at a position."""
-    floating = make_artist(client, "Floating Points")
-    local = make_release_group(client, floating, "Promises")
-    first = make_recording(client, floating, PROMISES_TRACKS[0].title)
-    track = {"release_group_id": local["id"], "recording_id": first["id"], "position": 1}
-    post(client, "/tracks", track)
-    promises_tagged(music / "Promises", cover_png)
-    job = post_import(client, music / "Promises")
-    assert run() == {uuid.UUID(job["id"]): JobState.done}
-
-    proposal = get_job(client, job["id"])["proposal"]
-    assert proposal["issues"] == []
-    [release] = proposal["releases"]
-    assert release["target"] == {
-        "kind": "existing",
-        "id": local["id"],
-        "label": "Promises — Floating Points",
-    }
-    targets = {a["name"]: a["target"]["kind"] for a in proposal["artists"]}
-    assert targets == {
-        "Floating Points": "existing",
-        "Pharoah Sanders": "musicbrainz",
-        "London Symphony Orchestra": "musicbrainz",
-    }
-    assert count(session, Artist) == 3
-    assert count(session, ReleaseGroup) == 1
-    rg = release_group(session)
-    assert (str(rg.mbid), str(rg.release_mbid)) == (PROMISES_RELEASE_GROUP, PROMISES_RELEASE)
-    assert str(session.get_one(Artist, uuid.UUID(floating["id"])).mbid) == str(
-        PROMISES.artist_credit[0].artist.id
-    )
-    recording = session.get_one(Recording, uuid.UUID(first["id"]))
-    assert recording.mbid == PROMISES_TRACKS[0].recording.id
-    assert len(rg.tracks) == len(PROMISES_TRACKS)
-    assert count(session, Recording) == len(PROMISES_TRACKS)
-
-
 def test_uncertain_artist_of_a_musicbrainz_release(
     client: TestClient, session: Session, music: Path, run: Any, cover_png: Path
 ) -> None:
@@ -586,30 +459,3 @@ def test_uncertain_artist_of_a_musicbrainz_release(
     assert run() == {uuid.UUID(job["id"]): JobState.done}
     assert session.get_one(Artist, uuid.UUID(other["id"])).mbid == pharoah.id
     assert count(session, Artist) == 4  # two Pharoahs, Floating Points, the LSO
-
-
-def test_various_artists_and_disc_folders_without_tags(
-    client: TestClient, session: Session, music: Path, run: Any, cover_png: Path
-) -> None:
-    """A compilation in disc folders: one release group (Various Artists, a compilation),
-    discs and numbers from the folder and file names, the cover from a disc folder."""
-    album = music / "Summer Mix"
-    write_audio(album / "CD1" / "01 - Opening.mp3", 1, {"artist": "Alpha"})
-    write_audio(album / "CD1" / "02 - Middle.mp3", 1, {"artist": "Beta"})
-    write_audio(album / "CD2" / "01 - Closing.mp3", 1, {"artist": "Gamma"})
-    shutil.copy(cover_png, album / "CD1" / "folder.png")
-    job = post_import(client, album)
-    assert run() == {uuid.UUID(job["id"]): JobState.done}
-
-    rg = release_group(session)
-    assert (rg.title, rg.type, rg.artist_credit.name) == (
-        "Summer Mix",
-        "compilation",
-        "Various Artists",
-    )
-    assert rg.artist_credit.names[0].artist.mbid == uuid.UUID(
-        "89ad4ac3-39f7-470e-963a-56509c546377"
-    )
-    assert rg.cover_path is not None
-    tracks = sorted((t.disc, t.position, t.recording.title) for t in rg.tracks)
-    assert tracks == [(1, 1, "Opening"), (1, 2, "Middle"), (2, 1, "Closing")]

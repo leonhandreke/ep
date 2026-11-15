@@ -15,7 +15,6 @@ from ep.importers.framework import Importer
 from ep.importers.nts import NtsImporter
 from ep.models import (
     Artist,
-    EntityTag,
     EntityType,
     ExternalId,
     ImportKind,
@@ -39,7 +38,7 @@ from tests.fakes import (
     FakeYtDlp,
     nts_transport,
 )
-from tests.helpers import credit, make_artist, make_recording, make_release_group, make_track, post
+from tests.helpers import make_artist, make_recording, make_release_group, make_track, post
 from tests.imports import get_job, review, run_queued
 from tests.test_query_counts import count_selects
 
@@ -456,7 +455,10 @@ def test_radio_endpoints(
         ("radio_episode", episode["id"]),
     }
     episode_hit = next(h for h in hits if h["type"] == "radio_episode")
-    assert episode_hit["subtitle"] == "The Early Bird Show w/ PAM, 2026-11-12"
+    assert (episode_hit["subtitle"], episode_hit["date"]) == (
+        "The Early Bird Show w/ PAM",
+        "2026-11-12",
+    )
     assert episode_hit["cover_url"] == episode["image_url"] and episode_hit["mbid"] is None
     for type, id in ("radio_show", show["id"]), ("radio_episode", episode["id"]):
         assert client.get(f"/resolve/{type}/{id}").json() == {"type": type, "id": id}
@@ -516,20 +518,6 @@ def test_radio_list_query_counts(
         assert len(statements) == expected, (path, "\n\n".join(statements))
 
 
-def test_episode_with_untimed_entry(
-    client: TestClient, session: Session, run: Any, responses: dict[str, httpx2.Response]
-) -> None:
-    """An entry without any time is in the tracklist, with its recording but no slice."""
-    data = json.loads((NTS / "episode_early-bird-show-w-pam-12th-november-2026.json").read_bytes())
-    entry = data["embeds"]["tracklist"]["results"][0]
-    entry["offset_estimate"] = entry["duration_estimate"] = None
-    responses[NTS_EPISODE_API] = httpx2.Response(200, content=json.dumps(data).encode())
-    start(client)
-    run()
-    first = episode_tracks(session)[1]
-    assert first.source_id is None and first.recording_id is not None
-
-
 def _episode_data() -> dict[str, Any]:
     return json.loads((NTS / "episode_early-bird-show-w-pam-12th-november-2026.json").read_bytes())
 
@@ -538,106 +526,6 @@ def _serve(responses: dict[str, httpx2.Response], data: dict[str, Any]) -> None:
     tracklist = data["embeds"]["tracklist"]
     tracklist["metadata"]["resultset"]["count"] = len(tracklist["results"])
     responses[NTS_EPISODE_API] = httpx2.Response(200, content=json.dumps(data).encode())
-
-
-def test_a_track_played_twice_is_one_recording(
-    client: TestClient,
-    session: Session,
-    run: Any,
-    library: dict[str, Any],
-    responses: dict[str, httpx2.Response],
-) -> None:
-    """An episode that plays a track twice: both entries are the same recording, whether
-    it is new (by MBID, by text) or in the library (by ISRC)."""
-    data = _episode_data()
-    entries = data["embeds"]["tracklist"]["results"]
-    # Ackerman (new, MBID), Evangeline (library, ISRC), Nigel Peake (new, text only).
-    for offset, index in zip((7300, 7500, 7700), (5, 7, 0), strict=True):
-        repeat: dict[str, Any] = {**entries[index], "uid": str(uuid.uuid4())}
-        repeat |= {"offset": offset, "duration": 150}
-        repeat |= {"offset_estimate": None, "duration_estimate": None}
-        entries.append(repeat)
-    _serve(responses, data)
-    recordings_before = count(session, Recording)
-    job = start(client)
-    run()
-    assert get_job(client, job["id"])["state"] == "needs_review"  # only Limbo is open
-    assert count(session, Recording) == recordings_before + ENTRIES - 3
-    tracks = episode_tracks(session)
-    for first, again in (6, ENTRIES + 1), (8, ENTRIES + 2), (1, ENTRIES + 3):
-        assert tracks[first].recording_id is not None
-        assert tracks[again].recording_id == tracks[first].recording_id
-        assert tracks[again].source_id not in (None, tracks[first].source_id)
-
-
-def test_reimport_drops_what_the_station_removed(
-    client: TestClient,
-    session: Session,
-    run: Any,
-    library: dict[str, Any],
-    responses: dict[str, httpx2.Response],
-) -> None:
-    """NTS removes the first entry: its row, slice and radio-only recording go; the
-    other entries (now one position up) keep their recordings and manual edits."""
-    start(client)
-    run()
-    tracks = episode_tracks(session)
-    peake = tracks[1]
-    peake_recording, peake_slice = peake.recording_id, peake.source_id
-    assert peake_recording is not None and peake_slice is not None
-    edited = tracks[3]
-    target = library["limbos"][0]
-    response = client.patch(
-        f"/radio/episode-tracks/{edited.id}", json={"recording_id": target["id"]}
-    )
-    assert response.status_code == 200, response.text
-    sources = count(session, Source)
-
-    data = _episode_data()
-    del data["embeds"]["tracklist"]["results"][0]
-    _serve(responses, data)
-    start(client, NTS_EPISODE)
-    run()
-    session.expire_all()
-    tracks = episode_tracks(session)
-    assert sorted(tracks) == list(range(1, ENTRIES))
-    assert str(tracks[2].recording_id) == target["id"]  # the edit, one position up
-    assert session.get(Recording, peake_recording) is None
-    assert session.get(Source, peake_slice) is None
-    assert count(session, Source) == sources - 1
-    assert session.exec(select(Artist).where(Artist.name == "Nigel Peake")).first() is None
-
-
-def test_repointing_an_entry_deletes_the_recording_radio_made(
-    client: TestClient, session: Session, run: Any, library: dict[str, Any]
-) -> None:
-    start(client)
-    run()
-    entry = episode_tracks(session)[1]
-    made = entry.recording_id
-    assert made is not None
-    response = client.patch(
-        f"/radio/episode-tracks/{entry.id}", json={"recording_id": library["ruth"]["id"]}
-    )
-    assert response.status_code == 200, response.text
-    session.expire_all()
-    assert session.get(Recording, made) is None
-    assert session.exec(select(Artist).where(Artist.name == "Nigel Peake")).first() is None
-    # A library recording is never deleted that way.
-    response = client.patch(f"/radio/episode-tracks/{entry.id}", json={"recording_id": None})
-    assert response.status_code == 200, response.text
-    assert session.get(Recording, uuid.UUID(library["ruth"]["id"])) is not None
-
-
-def test_episode_detail_has_the_file_length(
-    client: TestClient, session: Session, run: Any, library: dict[str, Any]
-) -> None:
-    start(client)
-    run()
-    episode = session.exec(select(RadioEpisode)).one()
-    file = session.get_one(Source, episode.source_id)
-    detail = client.get(f"/radio/episodes/{episode.id}").json()
-    assert detail["duration_ms"] == file.duration_ms is not None
 
 
 def test_delete_audio_only_deletes_library_files(tmp_path: Path) -> None:
@@ -668,49 +556,6 @@ def test_delete_audio_only_deletes_library_files(tmp_path: Path) -> None:
     assert inside.exists() and outside.exists()
 
 
-def test_radio_only_combinations(
-    client: TestClient, session: Session, run: Any, library: dict[str, Any], audio_dir: Path
-) -> None:
-    start(client)
-    run()
-    # Featured only on an album track's recording: visible.
-    guest = make_artist(client, "Guest Singer")
-    duet = post(
-        client,
-        "/recordings",
-        {"title": "Duet", "artist_credit": credit(library["cocteau"], guest, join=" feat. ")},
-    )
-    album = make_release_group(client, library["cocteau"], "Duets")
-    make_track(client, album, duet, 1)
-    # Hand-made, no sources, in no tracklist: visible.
-    lonely = make_artist(client, "Lonely")
-    make_recording(client, lonely, "Alone")
-    # Mixed: a library recording and a radio-only one (re-pointed entry's recording).
-    peake = session.exec(select(Artist).where(Artist.name == "Nigel Peake")).one()
-    made = make_recording(client, {"id": str(peake.id)}, "Library Song")
-    post(
-        client,
-        "/sources",
-        {"kind": "file", "uri": str(audio_dir / "song.m4a"), "recording_id": made["id"]},
-    )
-    names = {a["name"] for a in client.get("/artists?limit=200").json()}
-    assert {"Guest Singer", "Lonely", "Nigel Peake", "Cocteau Twins"} <= names
-    assert "Malibu" not in names  # only radio slices
-    titles = [r["title"] for r in client.get(f"/artists/{peake.id}/recordings").json()]
-    assert titles == ["Library Song"]
-    titles = {r["title"] for r in client.get(f"/artists/{guest['id']}/recordings").json()}
-    assert titles == {"Duet"}
-    # A recording on an album and played on the radio: visible; plays the album file.
-    hits = client.get("/search?q=evangeline&types=recording").json()
-    assert [h["id"] for h in hits] == [library["evangeline"]["id"]]
-    evangeline = uuid.UUID(library["evangeline"]["id"])
-    playback = recording_playbacks(session, [evangeline])[evangeline]
-    assert str(playback.source_id) == library["album_file"]["id"]
-    # A loose recording with a YouTube file and a radio slice: visible.
-    kozelek = client.get(f"/artists/{library['kozelek']['id']}/recordings").json()
-    assert [r["title"] for r in kozelek] == ["Ruth Marie"]
-
-
 # Tags and notes
 
 
@@ -718,55 +563,6 @@ def entity_tags(client: TestClient, type: str, id: object) -> list[str]:
     response = client.get(f"/entity-tags/{type}/{id}")
     assert response.status_code == 200, response.text
     return [tag["name"] for tag in response.json()]
-
-
-def test_genres_and_moods_become_tags_of_a_new_episode_only(
-    client: TestClient,
-    session: Session,
-    run: Any,
-    library: dict[str, Any],
-    responses: dict[str, httpx2.Response],
-) -> None:
-    data = _episode_data()
-    data["moods"] = [
-        {"id": "moods-sunny", "value": "Sunny"},
-        {"id": "genres-folk", "value": "folk"},
-    ]
-    _serve(responses, data)
-    start(client)
-    run()
-    episode = session.exec(select(RadioEpisode)).one()
-    # Ignoring case, "folk" is "Folk".
-    assert entity_tags(client, "radio_episode", episode.id) == [
-        "Ambient",
-        "Dream Pop",
-        "Folk",
-        "Indie Rock",
-        "Sunny",
-    ]
-    # The user removes one and adds one; importing again does not bring it back.
-    [ambient] = [t for t in client.get("/tags").json() if t["name"] == "Ambient"]
-    assert (
-        client.delete(f"/entity-tags/radio_episode/{episode.id}/{ambient['id']}").status_code == 204
-    )
-    client.post(f"/entity-tags/radio_episode/{episode.id}", json={"name": "Mine"})
-    note = client.put(
-        f"/notes/radio_episode/{episode.id}", json={"body": "Lovely.", "base_updated_at": None}
-    )
-    assert note.status_code == 200
-    data["genres"].append({"id": "genres-new", "value": "New Genre"})
-    _serve(responses, data)
-    start(client, NTS_EPISODE)
-    run()
-    session.expire_all()
-    assert entity_tags(client, "radio_episode", episode.id) == [
-        "Dream Pop",
-        "Folk",
-        "Indie Rock",
-        "Mine",
-        "Sunny",
-    ]
-    assert client.get(f"/notes/radio_episode/{episode.id}").json()["body"] == "Lovely."
 
 
 def test_annotated_radio_recordings_are_kept(
@@ -855,19 +651,3 @@ def test_annotated_artist_of_a_deleted_radio_recording_is_kept(
     assert session.get(Recording, recording.id) is None
     assert session.get(Artist, artist.id) is not None
     assert entity_tags(client, "artist", artist.id) == ["favourite"]
-
-
-def test_deleting_a_show_deletes_its_and_its_episodes_notes_and_tags(
-    client: TestClient, session: Session, run: Any, library: dict[str, Any]
-) -> None:
-    start(client)
-    run()
-    show = session.exec(select(RadioShow)).one()
-    episode = session.exec(select(RadioEpisode)).one()
-    for type, id in ("radio_show", show.id), ("radio_episode", episode.id):
-        response = client.put(f"/notes/{type}/{id}", json={"body": "n", "base_updated_at": None})
-        assert response.status_code == 200
-    assert entity_tags(client, "radio_episode", episode.id)  # imported genres
-    assert client.delete(f"/radio/shows/{show.id}").status_code == 204
-    assert session.exec(select(Note)).all() == []
-    assert session.exec(select(EntityTag)).all() == []

@@ -29,7 +29,11 @@ The fixtures:
   ``nts/show_early-bird-show-w-pam.json``, its show; served by ``nts_transport``
 """
 
+import atexit
+import hashlib
+import shutil
 import subprocess
+import tempfile
 from collections.abc import Callable
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -73,13 +77,28 @@ def video_fixture(video_id: str) -> VideoInfo:
     return VideoInfo.model_validate_json((YTDLP / f"video_{video_id}.json").read_bytes())
 
 
-def silent_audio(path: Path, seconds: float = 1.0) -> Path:
-    subprocess.run(
-        ["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i",
-         f"anullsrc=r=8000:cl=mono:d={seconds}", str(path)],
-        check=True,
-    )  # fmt: skip
+_GENERATED: dict[tuple[str, ...], Path] = {}
+
+
+def ffmpeg_output(path: Path, *args: str | Path) -> Path:
+    """Write ``ffmpeg <args> <path>`` to ``path``. Each distinct command (input files
+    by content) runs once per test session, into a private temp dir; later calls copy
+    its output."""
+    key = (
+        *(hashlib.sha256(a.read_bytes()).hexdigest() if isinstance(a, Path) else a for a in args),
+        path.suffix,
+    )
+    if (made := _GENERATED.get(key)) is None:
+        made = Path(tempfile.mkdtemp(prefix="ep-test-audio-")) / f"audio{path.suffix}"
+        atexit.register(shutil.rmtree, made.parent, ignore_errors=True)
+        subprocess.run(["ffmpeg", "-v", "error", "-y", *map(str, args), str(made)], check=True)
+        _GENERATED[key] = made
+    shutil.copyfile(made, path)
     return path
+
+
+def silent_audio(path: Path, seconds: float = 1.0) -> Path:
+    return ffmpeg_output(path, "-f", "lavfi", "-i", f"anullsrc=r=8000:cl=mono:d={seconds}")
 
 
 class FakeYtDlp(YtDlp):

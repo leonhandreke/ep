@@ -9,7 +9,6 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import event
 from sqlmodel import Session
@@ -102,24 +101,32 @@ CASES: list[tuple[str, Callable[[dict[str, str]], str], int]] = [
 ]
 
 
-@pytest.mark.parametrize(("name", "path", "expected"), CASES, ids=[name for name, *_ in CASES])
-def test_list_endpoint_query_count(
+def check_counts(
     client: TestClient,
     session: Session,
-    audio_dir: Path,
-    name: str,
-    path: Callable[[dict[str, str]], str],
-    expected: int,
+    libraries: list[dict[str, str]],
+    cases: list[tuple[str, Callable[[dict[str, str]], str], int]],
 ) -> None:
-    counts = []
-    for size, audio_file in (1, "album.flac"), (5, "song.mp3"):
-        ids = build_library(client, audio_dir / audio_file, size)
-        with count_selects(session) as statements:
-            response = client.get(path(ids))
-        assert response.status_code == 200, response.text
-        assert response.json()
-        counts.append(len(statements))
-    assert counts == [expected, expected], "\n\n".join(statements)
+    """Each case's request, on each library, makes the expected number of SELECTs (the
+    libraries are built once for all cases: building them is what takes the time)."""
+    wrong = []
+    for name, path, expected in cases:
+        for ids in libraries:
+            with count_selects(session) as statements:
+                response = client.get(path(ids))
+            assert response.status_code == 200, response.text
+            if len(statements) != expected:
+                listing = "\n\n".join(statements)
+                wrong.append(f"{name}: {len(statements)}, not {expected}\n{listing}")
+    assert not wrong, "\n\n".join(wrong)
+
+
+def test_list_endpoint_query_count(client: TestClient, session: Session, audio_dir: Path) -> None:
+    libraries = [
+        build_library(client, audio_dir / audio_file, size)
+        for size, audio_file in ((1, "album.flac"), (5, "song.mp3"))
+    ]
+    check_counts(client, session, libraries, CASES)
 
 
 def test_import_lists_query_count(client: TestClient, session: Session, settings: Settings) -> None:
@@ -189,21 +196,5 @@ NOTE_CASES: list[tuple[str, Callable[[dict[str, str]], str], int]] = [
 ]
 
 
-@pytest.mark.parametrize(
-    ("name", "path", "expected"), NOTE_CASES, ids=[name for name, *_ in NOTE_CASES]
-)
-def test_note_and_tag_lists_query_count(
-    client: TestClient,
-    session: Session,
-    name: str,
-    path: Callable[[dict[str, str]], str],
-    expected: int,
-) -> None:
-    counts = []
-    for size in 1, 5:
-        ids = build_notes(client, size)
-        with count_selects(session) as statements:
-            response = client.get(path(ids))
-        assert response.status_code == 200, response.text
-        counts.append(len(statements))
-    assert counts == [expected, expected], "\n\n".join(statements)
+def test_note_and_tag_lists_query_count(client: TestClient, session: Session) -> None:
+    check_counts(client, session, [build_notes(client, size) for size in (1, 5)], NOTE_CASES)
