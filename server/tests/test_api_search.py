@@ -33,6 +33,9 @@ def test_search_short_prefix_finds_accented_name(client: TestClient) -> None:
         "title": "Björk",
         "subtitle": "Icelandic singer",
         "cover_url": None,
+        # What the client writes into a note for it.
+        "link_ref": bjork["id"],
+        "link": f"[[artist:{bjork['id']}|Björk]]",
         "score": search(client, "bjo", types="artist")[0]["score"],
     }
     assert "Bob Dylan" not in titles(search(client, "bjo"))

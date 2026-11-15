@@ -18,6 +18,7 @@ from ep.covers import remove_cover_file
 from ep.credits import delete_artist_credit_if_unused
 from ep.external_ids import delete_external_ids
 from ep.models import EntityType, ReleaseGroup, Track
+from ep.notes.store import delete_annotations
 
 router = APIRouter(prefix="/release-groups", tags=["release groups"])
 
@@ -65,6 +66,7 @@ def delete_release_group(id: uuid.UUID, session: SessionDep, settings: SettingsD
     release_group = get_or_404(session, ReleaseGroup, id)
     credit, cover_path = release_group.artist_credit, release_group.cover_path
     delete_external_ids(session, EntityType.release_group, id)
+    delete_annotations(session, EntityType.release_group, id)
     session.delete(release_group)
     delete_artist_credit_if_unused(session, credit)
     session.commit()

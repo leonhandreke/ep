@@ -430,8 +430,9 @@ class SourceRead(Read):
 # Search and resolve
 
 
-class SearchHitRead(BaseModel):
-    """A search hit: an artist, release group, recording, radio show or radio episode."""
+class EntityRead(BaseModel):
+    """An artist, release group, recording, radio show or radio episode, as shown in
+    lists of mixed types (search, link chips, backlinks, tags)."""
 
     type: EntityType
     id: uuid.UUID
@@ -445,6 +446,15 @@ class SearchHitRead(BaseModel):
     # A release group's cover; for a recording, the cover of a release group it is on;
     # a show's or episode's image.
     cover_url: str | None
+    # For writing a link to it: the UUID to use (the MBID if there is one, else the
+    # id), and the whole link with the title as display text.
+    link_ref: uuid.UUID
+    link: str
+
+
+class SearchHitRead(EntityRead):
+    """A search hit."""
+
     # Higher is better; only comparable within one response.
     score: float
 
@@ -452,6 +462,116 @@ class SearchHitRead(BaseModel):
 class ResolvedRead(BaseModel):
     type: EntityType
     id: uuid.UUID
+
+
+# Notes, links, backlinks, tags
+
+
+class TextRange(BaseModel):
+    """A range of a text in UTF-16 code units (as NSString and NSRange count)."""
+
+    start: NonNegativeInt
+    end: NonNegativeInt
+
+
+class NoteLinkRead(BaseModel):
+    """A link in a note body, ``[[type:uuid|Display text]]``."""
+
+    # Where the link is in the body (the whole ``[[...]]``).
+    range: TextRange
+    # The link as written.
+    raw: str
+    target_type: EntityType
+    # The UUID in the link (an MBID or an internal ID).
+    ref: uuid.UUID
+    # The display text (unescaped); null if the link has none.
+    display_text: str | None
+    # The entity it points at now; null if the link is broken (nothing has the UUID,
+    # or the target was deleted).
+    target: EntityRead | None
+
+
+class NoteRead(BaseModel):
+    """The note of an entity. An entity without a note has an empty one (``body`` "",
+    ``updated_at`` null)."""
+
+    entity_type: EntityType
+    # The entity's internal ID.
+    entity_id: uuid.UUID
+    # Markdown.
+    body: str
+    # Send this back with the next save (``NoteWrite.base_updated_at``).
+    updated_at: datetime | None
+    links: list[NoteLinkRead]
+
+
+class NoteWrite(BaseModel):
+    # Markdown; empty (or blank) deletes the note.
+    body: str
+    # ``updated_at`` of the note this edit started from (null: from an empty note). If
+    # the note changed since, the save is a 409 with the current note.
+    base_updated_at: AwareDatetime | None
+
+
+class NoteConflictRead(BaseModel):
+    """The note was changed (by another client) since the edit started."""
+
+    detail: str
+    current: NoteRead
+
+
+class SnippetRead(BaseModel):
+    """A piece of a note's text (links shown as their display text), with the parts to
+    highlight."""
+
+    text: str
+    highlights: list[TextRange]
+
+
+class BacklinkRead(BaseModel):
+    """A note that links to the entity."""
+
+    # The entity whose note it is.
+    source: EntityRead
+    note_updated_at: datetime
+    # The line around each link to the entity, in the order of the note.
+    snippets: list[SnippetRead]
+
+
+class NoteSearchHitRead(BaseModel):
+    # The entity whose note it is.
+    source: EntityRead
+    note_updated_at: datetime
+    snippet: SnippetRead
+    # Higher is better; only comparable within one response.
+    rank: float
+
+
+TagName = Annotated[
+    str,
+    AfterValidator(lambda name: " ".join(name.split())),
+    StringConstraints(min_length=1, max_length=100),
+]
+"""A tag name: trimmed, inner whitespace collapsed."""
+
+
+class TagRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    # How many entities have it.
+    count: int
+
+
+class TagAdd(BaseModel):
+    # Found ignoring case, created if new.
+    name: TagName
+
+
+class TagUpdate(BaseModel):
+    # A name another tag has (ignoring case) merges this tag into that one.
+    name: TagName
 
 
 # MusicBrainz

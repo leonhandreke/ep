@@ -20,6 +20,7 @@ from ep.api.sources import source_read
 from ep.credits import delete_artist_credit_if_unused, with_credit
 from ep.external_ids import delete_external_ids
 from ep.models import ArtistCredit, EntityType, Recording, ReleaseGroup, Source, Track, rel
+from ep.notes.store import delete_annotations
 from ep.playback import resolve_where
 
 router = APIRouter(prefix="/recordings", tags=["recordings"])
@@ -87,6 +88,7 @@ def delete_recording(id: uuid.UUID, session: SessionDep) -> None:
         raise HTTPException(status.HTTP_409_CONFLICT, "recording still has sources")
     credit = recording.artist_credit
     delete_external_ids(session, EntityType.recording, id)
+    delete_annotations(session, EntityType.recording, id)
     session.delete(recording)
     delete_artist_credit_if_unused(session, credit)
     session.commit()

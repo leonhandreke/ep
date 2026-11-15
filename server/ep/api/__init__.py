@@ -6,11 +6,13 @@ from ep.api import (
     health,
     imports,
     musicbrainz,
+    notes,
     radio,
     recordings,
     release_groups,
     search,
     sources,
+    tags,
     tracks,
     watch_dirs,
 )
@@ -26,6 +28,8 @@ router.include_router(radio.router)
 router.include_router(radio.appearances_router)
 router.include_router(covers.router)
 router.include_router(search.router)
+router.include_router(notes.router)
+router.include_router(tags.router)
 router.include_router(musicbrainz.router)
 router.include_router(imports.router)
 router.include_router(watch_dirs.router)

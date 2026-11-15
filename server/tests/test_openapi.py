@@ -24,7 +24,30 @@ def test_operation_ids_are_endpoint_names(client: TestClient) -> None:
         "dismiss_import_job",
         "create_watch_dir",
         "scan_watch_dir",
+        "get_note_of",
+        "save_note_of",
+        "search_notes",
+        "list_backlinks",
+        "list_tags",
+        "update_tag",
+        "list_tag_entities",
+        "list_entity_tags",
+        "add_entity_tag",
+        "remove_entity_tag",
     } <= set(operation_ids)
+
+
+def test_note_conflict_is_documented(client: TestClient) -> None:
+    schema = client.get("/openapi.json").json()
+    responses = schema["paths"]["/notes/{type}/{id}"]["put"]["responses"]
+    conflict = responses["409"]["content"]["application/json"]["schema"]
+    assert conflict == {"$ref": "#/components/schemas/NoteConflictRead"}
+    assert responses["200"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/NoteRead"
+    }
+    schemas = schema["components"]["schemas"]
+    assert set(schemas["NoteRead"]["required"]) == set(schemas["NoteRead"]["properties"])
+    assert {"link", "link_ref"} <= set(schemas["SearchHitRead"]["required"])
 
 
 def test_patch_schemas_do_not_make_required_fields_nullable(client: TestClient) -> None:

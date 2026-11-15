@@ -133,3 +133,66 @@ def test_import_lists_query_count(client: TestClient, session: Session, settings
             assert response.status_code == 200
             counts.append(len(statements))
     assert counts == [1, 1, 1, 1]
+
+
+def build_notes(client: TestClient, size: int) -> dict[str, str]:
+    """A target artist, and ``size`` artists, release groups and recordings (on the
+    release groups) whose notes link to it (and to each other, without display text) and
+    mention a word; all tagged with one tag."""
+    target = make_artist(client, f"Target {size}")
+    word, tag = f"word{size}", f"tag{size}"
+    tag_id = ""
+    for n in range(size):
+        artist = make_artist(client, f"Artist {size} {n}")
+        album = make_release_group(client, artist, f"Album {size} {n}")
+        song = post(client, "/recordings", {"title": f"S {n}", "artist_credit": credit(artist)})
+        make_track(client, album, song)
+        for type, entity in ("artist", artist), ("release_group", album), ("recording", song):
+            body = (
+                f"{word}: [[artist:{target['id']}|T]] [[release_group:{album['id']}]]\n"
+                f"and [[recording:{song['id']}]] [[artist:{target['id']}]]"
+            )
+            response = client.put(
+                f"/notes/{type}/{entity['id']}", json={"body": body, "base_updated_at": None}
+            )
+            assert response.status_code == 200, response.text
+            response = client.post(f"/entity-tags/{type}/{entity['id']}", json={"name": tag})
+            tag_id = response.json()[0]["id"]
+        last = song
+    return {"target": target["id"], "word": word, "tag": tag_id, "recording": last["id"]}
+
+
+NOTE_CASES: list[tuple[str, Callable[[dict[str, str]], str], int]] = [
+    # target; links + notes; owners per type (3); their covers; other link targets
+    # without display text, per type (2)
+    ("backlinks", lambda ids: f"/backlinks/artist/{ids['target']}", 8),
+    # entity; note; its links; link targets per type (3); covers
+    ("note", lambda ids: f"/notes/recording/{ids['recording']}", 7),
+    # notes; owners per type (3); covers
+    ("note_search", lambda ids: f"/notes/search?q={ids['word']}", 5),
+    ("tags", lambda ids: "/tags", 1),
+    # tag; tagged rows; entities per type (3); covers
+    ("tag_entities", lambda ids: f"/tags/{ids['tag']}/entities", 6),
+    # entity; tags with counts
+    ("entity_tags", lambda ids: f"/entity-tags/artist/{ids['target']}", 2),
+]
+
+
+@pytest.mark.parametrize(
+    ("name", "path", "expected"), NOTE_CASES, ids=[name for name, *_ in NOTE_CASES]
+)
+def test_note_and_tag_lists_query_count(
+    client: TestClient,
+    session: Session,
+    name: str,
+    path: Callable[[dict[str, str]], str],
+    expected: int,
+) -> None:
+    counts = []
+    for size in 1, 5:
+        ids = build_notes(client, size)
+        with count_selects(session) as statements:
+            response = client.get(path(ids))
+        assert response.status_code == 200, response.text
+        counts.append(len(statements))
+    assert counts == [expected, expected], "\n\n".join(statements)

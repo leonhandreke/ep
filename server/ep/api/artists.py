@@ -17,6 +17,7 @@ from ep.api.schemas import (
 from ep.credits import with_credit
 from ep.external_ids import delete_external_ids
 from ep.models import Artist, ArtistCreditName, EntityType, Recording, ReleaseGroup, Track
+from ep.notes.store import delete_annotations
 from ep.radio import visible_artists, visible_recordings
 
 router = APIRouter(prefix="/artists", tags=["artists"])
@@ -73,6 +74,7 @@ def delete_artist(id: uuid.UUID, session: SessionDep) -> None:
     if session.exec(select(ArtistCreditName.id).where(ArtistCreditName.artist_id == id)).first():
         raise HTTPException(status.HTTP_409_CONFLICT, "artist is still credited")
     delete_external_ids(session, EntityType.artist, id)
+    delete_annotations(session, EntityType.artist, id)
     session.delete(artist)
     session.commit()
 
