@@ -1,4 +1,5 @@
-"""Fuzzy search over artists, release groups and recordings, for autocomplete.
+"""Fuzzy search over artists, release groups, recordings, radio shows and radio
+episodes, for autocomplete.
 
 Query and names/titles are compared normalised by ``ep_normalize`` (the query through
 ``ep.matching.sql.trigram_queries``, names and titles in their generated
@@ -21,14 +22,15 @@ select, so that Postgres starts from whichever side is more selective. Such a hi
 by word similarity + similarity of the query to "<artist credit> <title>" or "<title>
 <artist credit>", without prefix bonus.
 
-Release groups and recordings are loaded with their artist credits (for the hit's
-subtitle).
+Release groups and recordings are loaded with their artist credits, episodes with their
+show (for the hit's subtitle). Artists and recordings only known from radio tracklists
+(``ep.radio``) are left out unless ``include_radio_only``.
 """
 
 import uuid
 from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, NamedTuple
 
 from sqlalchemy import ColumnElement, case, func, union
 from sqlalchemy.orm import Mapped, QueryableAttribute, contains_eager, joinedload
@@ -36,7 +38,18 @@ from sqlmodel import Session, col, select
 from sqlmodel.sql.expression import SelectOfScalar
 
 from ep.matching.sql import trigram_queries, word_similar
-from ep.models import Artist, ArtistCredit, Base, EntityType, Recording, ReleaseGroup, rel
+from ep.models import (
+    Artist,
+    ArtistCredit,
+    Base,
+    EntityType,
+    RadioEpisode,
+    RadioShow,
+    Recording,
+    ReleaseGroup,
+    rel,
+)
+from ep.radio import visible_artists, visible_recordings
 
 # Word similarity (0-1) a value needs to be a hit when no word starts with the query.
 SEARCH_MIN_SIMILARITY = 0.5
@@ -45,26 +58,52 @@ WORD_PREFIX_BONUS = 0.5
 # Longer queries are not split into artist and title (2 * words - 1 selects).
 COMBINED_MAX_WORDS = 6
 
-# Searched (normalised) column, display column (to order ties) and, for titles, the
-# artist credit relationship (joined and loaded).
-_COLUMNS: dict[
-    EntityType, tuple[type[Base], Mapped[str], Mapped[str], QueryableAttribute[Any] | None]
-] = {
-    EntityType.artist: (Artist, col(Artist.name_normalized), col(Artist.name), None),
-    EntityType.release_group: (
+
+class _Searched(NamedTuple):
+    model: type[Base]
+    # Searched (normalised) column, and display column (to order ties).
+    target: Mapped[str]
+    display: Mapped[str]
+    # For titles: the artist credit relationship (joined and loaded; "artist title").
+    credit: QueryableAttribute[Any] | None = None
+    # Loaded for the subtitle (a radio episode's show).
+    load: QueryableAttribute[Any] | None = None
+
+
+_COLUMNS: dict[EntityType, _Searched] = {
+    EntityType.artist: _Searched(Artist, col(Artist.name_normalized), col(Artist.name)),
+    EntityType.release_group: _Searched(
         ReleaseGroup,
         col(ReleaseGroup.title_normalized),
         col(ReleaseGroup.title),
-        rel(ReleaseGroup.artist_credit),
+        credit=rel(ReleaseGroup.artist_credit),
     ),
-    EntityType.recording: (
+    EntityType.recording: _Searched(
         Recording,
         col(Recording.title_normalized),
         col(Recording.title),
-        rel(Recording.artist_credit),
+        credit=rel(Recording.artist_credit),
+    ),
+    EntityType.radio_show: _Searched(
+        RadioShow, col(RadioShow.name_normalized), col(RadioShow.name)
+    ),
+    EntityType.radio_episode: _Searched(
+        RadioEpisode,
+        col(RadioEpisode.name_normalized),
+        col(RadioEpisode.name),
+        load=rel(RadioEpisode.show),
     ),
 }
 SEARCH_TYPES = tuple(_COLUMNS)
+
+
+def _visible(entity_type: EntityType, include_radio_only: bool) -> ColumnElement[bool] | None:
+    match entity_type:
+        case EntityType.artist:
+            return visible_artists(include_radio_only)
+        case EntityType.recording:
+            return visible_recordings(include_radio_only)
+    return None
 
 
 @dataclass(frozen=True)
@@ -75,7 +114,11 @@ class SearchHit:
 
 
 def search(
-    session: Session, query: str, types: Iterable[EntityType] = SEARCH_TYPES, limit: int = 20
+    session: Session,
+    query: str,
+    types: Iterable[EntityType] = SEARCH_TYPES,
+    limit: int = 20,
+    include_radio_only: bool = False,
 ) -> list[SearchHit]:
     """The best ``limit`` hits across ``types`` (of ``SEARCH_TYPES``), best first."""
     [normalized] = trigram_queries(session, SEARCH_MIN_SIMILARITY, query)
@@ -84,8 +127,9 @@ def search(
         return []
     best: dict[tuple[EntityType, uuid.UUID], SearchHit] = {}
     for entity_type in dict.fromkeys(types):
-        hits = _search_type(session, entity_type, words, limit)
-        hits += _search_combined(session, entity_type, words, limit)
+        visible = _visible(entity_type, include_radio_only)
+        hits = _search_type(session, entity_type, words, limit, visible)
+        hits += _search_combined(session, entity_type, words, limit, visible)
         for hit in hits:
             key = (hit.type, hit.entity.id)
             if key not in best or hit.score > best[key].score:
@@ -109,21 +153,36 @@ def _hit_and_rank(
 
 
 def _search_type(
-    session: Session, entity_type: EntityType, words: list[str], limit: int
+    session: Session,
+    entity_type: EntityType,
+    words: list[str],
+    limit: int,
+    visible: ColumnElement[bool] | None,
 ) -> list[SearchHit]:
-    model, target, display, credit = _COLUMNS[entity_type]
-    hit, rank = _hit_and_rank(" ".join(words), target)
-    statement = select(model, rank).where(hit).order_by(rank.desc(), display).limit(limit)
-    if credit is not None:
-        statement = statement.options(joinedload(credit))
+    searched = _COLUMNS[entity_type]
+    hit, rank = _hit_and_rank(" ".join(words), searched.target)
+    statement = (
+        select(searched.model, rank).where(hit).order_by(rank.desc(), searched.display).limit(limit)
+    )
+    if visible is not None:
+        statement = statement.where(visible)
+    for load in searched.credit, searched.load:
+        if load is not None:
+            statement = statement.options(joinedload(load))
     rows = session.exec(statement)
     return [SearchHit(entity_type, entity, float(score)) for entity, score in rows]
 
 
 def _search_combined(
-    session: Session, entity_type: EntityType, words: list[str], limit: int
+    session: Session,
+    entity_type: EntityType,
+    words: list[str],
+    limit: int,
+    visible: ColumnElement[bool] | None,
 ) -> list[SearchHit]:
-    model, title, display, credit_relationship = _COLUMNS[entity_type]
+    searched = _COLUMNS[entity_type]
+    model, title, display = searched.model, searched.target, searched.display
+    credit_relationship = searched.credit
     if credit_relationship is None or not 2 <= len(words) <= COMBINED_MAX_WORDS:
         return []
     credit = col(ArtistCredit.name_normalized)
@@ -147,7 +206,7 @@ def _search_combined(
         rank = func.greatest(
             rank, func.word_similarity(query, combined) + func.similarity(query, combined)
         )
-    rows = session.exec(
+    statement = (
         select(model, rank)
         .join(credit_relationship)
         .options(contains_eager(credit_relationship))
@@ -155,4 +214,7 @@ def _search_combined(
         .order_by(rank.desc(), display)
         .limit(limit)
     )
+    if visible is not None:
+        statement = statement.where(visible)
+    rows = session.exec(statement)
     return [SearchHit(entity_type, entity, float(score)) for entity, score in rows]

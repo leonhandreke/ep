@@ -5,10 +5,10 @@ from collections.abc import Collection
 from dataclasses import dataclass
 from pathlib import Path
 
-from sqlalchemy import ColumnElement
+from sqlalchemy import ColumnElement, exists
 from sqlmodel import Session, col, select
 
-from ep.models import Source, SourceKind
+from ep.models import RadioEpisodeTrack, Source, SourceKind
 
 
 class NotPlayable(Exception):
@@ -69,18 +69,28 @@ def resolve_where(
     the session instead of loading them one at a time. The ancestors are held until all
     are resolved: the session only keeps weak references.
     """
+    return [(source, playback) for source, playback, _ in resolve_where_flagged(session, where)]
+
+
+def resolve_where_flagged(
+    session: Session, where: ColumnElement[bool]
+) -> list[tuple[Source, Playback | None, bool]]:
+    """``resolve_where``, each source also flagged if it is a radio tracklist entry's slice."""
     chain = select(col(Source.id), col(Source.parent_id)).where(where).cte(recursive=True)
     chain = chain.union(
         select(col(Source.id), col(Source.parent_id)).join(
             chain, col(Source.id) == chain.c.parent_id
         )
     )
+    radio = exists().where(col(RadioEpisodeTrack.source_id) == col(Source.id))
     rows = session.exec(
-        select(Source, where)
+        select(Source, where, radio)
         .where(col(Source.id).in_(select(chain.c.id)))
         .order_by(col(Source.created_at), col(Source.id))
     ).all()
-    return [(source, try_resolve(source)) for source, matches in rows if matches]
+    return [
+        (source, try_resolve(source), is_radio) for source, matches, is_radio in rows if matches
+    ]
 
 
 def try_resolve(source: Source) -> Playback | None:
@@ -91,17 +101,48 @@ def try_resolve(source: Source) -> Playback | None:
         return None
 
 
+@dataclass(frozen=True)
+class RecordingPlayback:
+    """The ways to play a recording: from the library proper (a file, or a slice of an
+    album file), and from a radio episode (a tracklist entry's slice)."""
+
+    library: Playback | None
+    radio: Playback | None
+
+    @property
+    def best(self) -> Playback:
+        """The library's, if there is one: a proper file beats a radio recording."""
+        best = self.library or self.radio
+        assert best is not None
+        return best
+
+
+def recording_playback_choices(
+    session: Session, recording_ids: Collection[uuid.UUID]
+) -> dict[uuid.UUID, RecordingPlayback]:
+    """For each recording, its oldest playable library source and its oldest playable
+    radio slice (one query). Recordings without a playable source are left out."""
+    if not recording_ids:
+        return {}
+    library: dict[uuid.UUID, Playback] = {}
+    radio: dict[uuid.UUID, Playback] = {}
+    where = col(Source.recording_id).in_(recording_ids)
+    for source, playback, is_radio in resolve_where_flagged(session, where):
+        if playback is not None and source.recording_id is not None:
+            (radio if is_radio else library).setdefault(source.recording_id, playback)
+    return {
+        id: RecordingPlayback(library.get(id), radio.get(id))
+        for id in library.keys() | radio.keys()
+    }
+
+
 def recording_playbacks(
     session: Session, recording_ids: Collection[uuid.UUID]
 ) -> dict[uuid.UUID, Playback]:
-    """How to play each recording: its oldest source that resolves to a file.
+    """How to play each recording: its oldest source that resolves to a file, preferring
+    the library proper to radio slices (``RecordingPlayback.best``).
 
     Recordings without a playable source are left out.
     """
-    if not recording_ids:
-        return {}
-    playbacks: dict[uuid.UUID, Playback] = {}
-    for source, playback in resolve_where(session, col(Source.recording_id).in_(recording_ids)):
-        if playback is not None and source.recording_id is not None:
-            playbacks.setdefault(source.recording_id, playback)
-    return playbacks
+    choices = recording_playback_choices(session, recording_ids)
+    return {id: choice.best for id, choice in choices.items()}

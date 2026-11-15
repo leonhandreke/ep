@@ -9,23 +9,38 @@ from ep import covers
 from ep.api.deps import SessionDep, SettingsDep, get_or_404
 from ep.api.errors import NOT_FOUND, ErrorRead
 from ep.api.schemas import ReleaseGroupRead
-from ep.models import ReleaseGroup
+from ep.models import RadioEpisode, RadioShow, ReleaseGroup
 
 router = APIRouter(prefix="/covers", tags=["covers"])
 
 
-@router.get(
-    "/release-group/{id}",
-    response_class=FileResponse,
-    responses=NOT_FOUND | {status.HTTP_200_OK: {"content": {"image/*": {}}}},
-)
-def get_release_group_cover(id: uuid.UUID, session: SessionDep) -> FileResponse:
-    release_group = get_or_404(session, ReleaseGroup, id)
-    if not release_group.cover_path or not Path(release_group.cover_path).is_file():
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"release_group {id} has no cover")
-    path = Path(release_group.cover_path)
+IMAGE = NOT_FOUND | {status.HTTP_200_OK: {"content": {"image/*": {}}}}
+
+
+def _image(what: str, id: uuid.UUID, path_text: str | None) -> FileResponse:
+    if not path_text or not Path(path_text).is_file():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"{what} {id} has no image")
+    path = Path(path_text)
     media_type = mimetypes.guess_file_type(path)[0] or "application/octet-stream"
     return FileResponse(path, media_type=media_type)
+
+
+@router.get("/release-group/{id}", response_class=FileResponse, responses=IMAGE)
+def get_release_group_cover(id: uuid.UUID, session: SessionDep) -> FileResponse:
+    release_group = get_or_404(session, ReleaseGroup, id)
+    return _image("release_group", id, release_group.cover_path)
+
+
+@router.get("/radio-show/{id}", response_class=FileResponse, responses=IMAGE)
+def get_radio_show_image(id: uuid.UUID, session: SessionDep) -> FileResponse:
+    """A radio show's image (from the station)."""
+    return _image("radio_show", id, get_or_404(session, RadioShow, id).image_path)
+
+
+@router.get("/radio-episode/{id}", response_class=FileResponse, responses=IMAGE)
+def get_radio_episode_image(id: uuid.UUID, session: SessionDep) -> FileResponse:
+    """A radio episode's image (from the station)."""
+    return _image("radio_episode", id, get_or_404(session, RadioEpisode, id).image_path)
 
 
 @router.put(

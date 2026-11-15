@@ -91,7 +91,7 @@ CASES: list[tuple[str, Callable[[dict[str, str]], str], int]] = [
     ("recording_sources", lambda ids: f"/recordings/{ids['recording']}/sources", 2),
     # threshold + normalised query, then per type: by name/title, as "artist title";
     # covers of recording hits
-    ("search", lambda ids: "/search?q=nina%20song", 7),
+    ("search", lambda ids: "/search?q=nina%20song", 9),
 ]
 
 

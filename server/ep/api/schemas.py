@@ -13,6 +13,7 @@ from typing import Annotated, Any
 from pydantic import (
     MISSING,
     AfterValidator,
+    AwareDatetime,
     BaseModel,
     ConfigDict,
     Field,
@@ -29,6 +30,7 @@ from ep.models import (
     ImportKind,
     JobStage,
     JobState,
+    RadioStation,
     ReleaseGroupType,
     SourceKind,
 )
@@ -247,6 +249,110 @@ class TrackRead(Read):
     playback: PlaybackRead | None = None
 
 
+# Radio
+
+
+class RadioShowUpdate(BaseModel):
+    name: NonEmptyStr | MISSING = MISSING
+    description: str | MISSING = MISSING
+
+
+class RadioShowRead(Read):
+    station: RadioStation
+    slug: str
+    name: str
+    description: str
+    image_path: str | None = Field(exclude=True)
+
+    @computed_field
+    @property
+    def image_url(self) -> str | None:
+        """Path of the show's image (``GET /covers/radio-show/{id}``), if there is one."""
+        return f"/covers/radio-show/{self.id}" if self.image_path else None
+
+
+class RadioEpisodeUpdate(BaseModel):
+    name: NonEmptyStr | MISSING = MISSING
+    description: str | MISSING = MISSING
+    broadcast_at: AwareDatetime | MISSING | None = MISSING
+    location: NonEmptyStr | MISSING | None = MISSING
+
+
+class RadioEpisodeRead(Read):
+    show_id: uuid.UUID
+    slug: str
+    name: str
+    description: str
+    broadcast_at: datetime | None
+    location: str | None
+    # The episode page.
+    url: str
+    # The episode's audio file (a ``file`` source); null if it was not downloaded.
+    source_id: uuid.UUID | None
+    image_path: str | None = Field(exclude=True)
+
+    @computed_field
+    @property
+    def image_url(self) -> str | None:
+        """Path of the episode's image (``GET /covers/radio-episode/{id}``), if any."""
+        return f"/covers/radio-episode/{self.id}" if self.image_path else None
+
+
+class RadioEpisodeTrackRead(Read):
+    """A tracklist entry: the station's text, the time range within the episode, and the
+    recording it was matched to."""
+
+    episode_id: uuid.UUID
+    position: int
+    # As given by the station.
+    artist_text: str
+    title_text: str
+    # Within the episode (the slice ``source_id``); null if the station gave no time.
+    start_ms: int | None
+    end_ms: int | None
+    offset_is_estimate: bool
+    # The slice of the episode file that plays the entry.
+    source_id: uuid.UUID | None
+    # The matched recording; null while unmatched.
+    recording: RecordingRead | None
+    # Whether the library has the recording other than from radio (a file, or a slice
+    # of an album file), and how to play that.
+    in_library: bool
+    library_playback: PlaybackRead | None
+    # How to play the entry within the episode.
+    playback: PlaybackRead | None
+
+
+class RadioEpisodeDetail(RadioEpisodeRead):
+    show: RadioShowRead
+    # How to play the whole episode.
+    playback: PlaybackRead | None
+    tracks: list[RadioEpisodeTrackRead]
+
+
+class RadioEpisodeTrackUpdate(BaseModel):
+    # Another recording, or null: not matched.
+    recording_id: uuid.UUID | MISSING | None = MISSING
+    # Within the episode. Changing the range clears ``offset_is_estimate`` unless given.
+    start_ms: NonNegativeInt | MISSING = MISSING
+    end_ms: PositiveInt | MISSING | None = MISSING
+    offset_is_estimate: bool | MISSING = MISSING
+
+
+class RadioAppearanceRead(BaseModel):
+    """A recording played in a radio episode."""
+
+    # The tracklist entry.
+    track_id: uuid.UUID
+    position: int
+    start_ms: int | None
+    end_ms: int | None
+    offset_is_estimate: bool
+    recording: RecordingRead
+    episode: RadioEpisodeRead
+    show: RadioShowRead
+
+
 # External IDs
 
 
@@ -322,16 +428,19 @@ class SourceRead(Read):
 
 
 class SearchHitRead(BaseModel):
-    """A search hit: an artist, release group or recording."""
+    """A search hit: an artist, release group, recording, radio show or radio episode."""
 
     type: EntityType
     id: uuid.UUID
+    # Null for radio shows and episodes.
     mbid: uuid.UUID | None
-    # Artist name, or release group / recording title.
+    # Artist name, release group / recording title, or show / episode name.
     title: str
-    # Artist disambiguation, or the artist credit of a release group / recording.
+    # Artist disambiguation, the artist credit of a release group / recording, the
+    # station of a show, the show and date of an episode.
     subtitle: str | None
-    # A release group's cover; for a recording, the cover of a release group it is on.
+    # A release group's cover; for a recording, the cover of a release group it is on;
+    # a show's or episode's image.
     cover_url: str | None
     # Higher is better; only comparable within one response.
     score: float
@@ -375,7 +484,8 @@ class MusicBrainzImport(BaseModel):
 class ImportCreate(BaseModel):
     kind: ImportKind
     # ``folder``: an absolute directory path under the media roots; ``bandcamp``: an
-    # album or track page URL; ``youtube``: a video or playlist URL.
+    # album or track page URL; ``youtube``: a video or playlist URL; ``nts``: an
+    # episode page URL.
     input: NonEmptyStr
 
 

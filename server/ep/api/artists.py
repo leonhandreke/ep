@@ -5,7 +5,7 @@ from sqlmodel import col, select
 
 from ep.api.deps import PageDep, SessionDep, get_or_404
 from ep.api.errors import CONFLICT, NOT_FOUND
-from ep.api.external_ids import add_external_id_routes, delete_external_ids
+from ep.api.external_ids import add_external_id_routes
 from ep.api.release_groups import release_group_order
 from ep.api.schemas import (
     ArtistCreate,
@@ -15,7 +15,9 @@ from ep.api.schemas import (
     ReleaseGroupRead,
 )
 from ep.credits import with_credit
+from ep.external_ids import delete_external_ids
 from ep.models import Artist, ArtistCreditName, EntityType, Recording, ReleaseGroup, Track
+from ep.radio import visible_artists, visible_recordings
 
 router = APIRouter(prefix="/artists", tags=["artists"])
 
@@ -26,10 +28,17 @@ def _credit_ids(artist_id: uuid.UUID):
 
 
 @router.get("")
-def list_artists(session: SessionDep, page: PageDep) -> list[ArtistRead]:
+def list_artists(
+    session: SessionDep, page: PageDep, include_radio_only: bool = False
+) -> list[ArtistRead]:
+    """Artists by sort name. Artists only known from radio tracklists (no release group,
+    only radio-only recordings, see ``ep.radio``) are left out unless
+    ``include_radio_only``."""
+    query = select(Artist)
+    if (visible := visible_artists(include_radio_only)) is not None:
+        query = query.where(visible)
     artists = session.exec(
-        select(Artist)
-        .order_by(col(Artist.sort_name), col(Artist.name), col(Artist.id))
+        query.order_by(col(Artist.sort_name), col(Artist.name), col(Artist.id))
         .limit(page.limit)
         .offset(page.offset)
     )
@@ -87,15 +96,22 @@ def list_artist_release_groups(
 
 @router.get("/{id}/recordings", responses=NOT_FOUND)
 def list_artist_recordings(
-    id: uuid.UUID, session: SessionDep, page: PageDep, standalone: bool | None = None
+    id: uuid.UUID,
+    session: SessionDep,
+    page: PageDep,
+    standalone: bool | None = None,
+    include_radio_only: bool = False,
 ) -> list[RecordingRead]:
     """Recordings whose artist credit includes this artist, by title.
 
     ``standalone=true``: only recordings that are not a track of any release group
-    (loose tracks); ``false``: only those that are; omitted: all.
+    (loose tracks); ``false``: only those that are; omitted: all. Recordings only known
+    from radio tracklists (``ep.radio``) are left out unless ``include_radio_only``.
     """
     get_or_404(session, Artist, id)
     query = select(Recording).where(col(Recording.artist_credit_id).in_(_credit_ids(id)))
+    if (visible := visible_recordings(include_radio_only)) is not None:
+        query = query.where(visible)
     if standalone is not None:
         has_track = select(Track.id).where(Track.recording_id == Recording.id).exists()
         query = query.where(~has_track if standalone else has_track)

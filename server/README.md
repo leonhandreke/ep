@@ -75,7 +75,7 @@ uv run alembic revision --autogenerate -m "add catalogue"
 - Artist credits are shared and never edited in place; use `ep.credits`
   (`get_or_create_artist_credit`, `delete_artist_credit_if_unused`).
 - `external_id` has no foreign key: deleting an entity must call
-  `ep.api.external_ids.delete_external_ids`.
+  `ep.external_ids.delete_external_ids`.
 
 ## Sources, playback, covers
 
@@ -153,7 +153,9 @@ uv run alembic revision --autogenerate -m "add catalogue"
 - MusicBrainz test fixtures are real responses in `tests/fixtures/musicbrainz/`, served
   by `tests/mock_musicbrainz.py`. Bandcamp pages (`tests/fixtures/bandcamp/`) and yt-dlp
   output (`tests/fixtures/ytdlp/`, formats and captions left out) are served by the
-  fakes in `tests/fakes.py`; fake downloads are generated silent files.
+  fakes in `tests/fakes.py`; fake downloads are generated silent files. NTS API
+  responses (`tests/fixtures/nts/`, the episode of the plan's fixture URL and its show)
+  are served by `tests.fakes.nts_transport`.
 
 ## Jobs, imports, watcher
 
@@ -183,6 +185,15 @@ uv run alembic revision --autogenerate -m "add catalogue"
   answer to the issue it would raise. An answer that no longer fits (its candidate is not
   offered any more) is ignored and the issue asked again. An item with an open issue is
   not matched further. The review, retry and dismiss endpoints lock the job row.
+- Non-blocking issues (`Issue.blocking: false`): an issue about an `optional` track
+  (radio tracklist entries), or about an artist only optional tracks need, does not hold
+  up the job. It applies without those tracks (a timed one still gets its slice, without
+  a recording) and ends in `needs_review` instead of `done`; answering and re-running
+  adds them, reusing everything else. Tracks that map to a library recording keep its
+  credit: their incoming artists are not matched. `IncomingTrack.external_ids` (Deezer,
+  ACRCloud, NTS, ...) are matched like ISRCs and stored on the recording;
+  `min_length_ms` (a radio play) drops shorter fuzzy candidates without being taken as
+  the recording's length.
 - Downloads: an importer only describes them (`IncomingMedium.download` with an
   `origin`); after review the framework calls `Importer.download(ctx, medium, directory)`
   with a per-medium work directory under `EP_LIBRARY_DIR/.downloads/<job id>/`, kept
@@ -227,8 +238,8 @@ uv run alembic revision --autogenerate -m "add catalogue"
   (with `--flat-playlist` for playlists) for metadata; downloads with `-x` and no
   `--audio-format`, so the original codec is kept (opus, m4a, mp3), resuming `.part`
   files; progress goes to the job log. URLs are passed after `--` and must be `http(s)`
-  (`YtDlp`); importers download only canonical YouTube video and Bandcamp track URLs
-  (`ep.importers.download`). Metadata calls time out after 5 minutes, downloads after 3
+  (`YtDlp`); importers download only canonical YouTube video, Bandcamp track, SoundCloud
+  track and NTS episode URLs (`ep.importers.download.is_downloadable`). Metadata calls time out after 5 minutes, downloads after 3
   hours (a watchdog kills a silent yt-dlp). `youtube_url` / `bandcamp.canonical_url`
   canonicalise input URLs (the job input and the source `uri`).
 - Web requests other than MusicBrainz (Bandcamp pages, covers: `ep.metadata.web`) send
@@ -239,6 +250,7 @@ uv run alembic revision --autogenerate -m "add catalogue"
   job stops at `needs_review` with a `fetch_failed` issue ("Bandcamp answered with a bot
   check", `BandcampBlocked`) whose only choice is retry; EP does not try to get around
   the check.
+- NTS importer (`ep.importers.nts`, metadata `ep.metadata.nts`): see "Radio" below.
 - Watcher (`ep.jobs.watcher`): `watchfiles` polling plus periodic rescans; a watch dir's
   `baseline_at` keeps what was there at registration from being imported automatically
   (`POST /watch-dirs/{id}/scan` does that on request). "Changed" is the newest mtime or
@@ -247,6 +259,51 @@ uv run alembic revision --autogenerate -m "add catalogue"
   with old mtimes, but also moves on extended-attribute changes (opening a file from the
   Finder) and on `.DS_Store` creation: that re-offers a folder only if some of its files
   are not sources.
+
+## Radio
+
+- Tables (`ep.models.radio`), apart from the catalogue: `radio_show` (station + slug
+  unique), `radio_episode` (URL unique; `source_id` is the episode's audio file),
+  `radio_episode_track` (position, the station's raw artist/title text, the matched
+  `recording_id` or null, the `slice` source that plays the entry or null, whether the
+  time is an estimate). The entry's time range is its slice's `start_ms`/`end_ms`.
+  Show and episode names have `*_normalized` trigram columns for `/search`.
+- `ep.metadata.nts`: NTS's undocumented public API (`/api/v2/shows/{show}/episodes/
+  {episode}` with the tracklist embedded, `/api/v2/shows/{show}`), validated against
+  typed models; any other shape (or a truncated tracklist) is `NtsUnexpectedResponse`,
+  an `unexpected_response` issue with retry. A missing episode is `metadata_not_found`,
+  network/server errors `fetch_failed`. Times: the detected `offset`/`duration`, else
+  `offset_estimate`/`duration_estimate` (`offset_is_estimate`), else no slice.
+  `musicbrainz_track_id` is a **recording** MBID (checked against MusicBrainz).
+- NTS import (input: an episode page URL): the audio is downloaded once with `yt-dlp -x`
+  from the episode's SoundCloud upload (else the episode page) into
+  `_radio/NTS/<Show>/<YYYY-MM-DD Episode>.<ext>` (6 h timeout); sources `nts` (page) →
+  `soundcloud` → `file` → one `slice` per timed entry. Entries are optional loose tracks
+  matched by MBID, ISRC/Deezer/ACRCloud/NTS uid, then fuzzy artist + title (the
+  detected duration only as a lower bound): confident ones are used, clear misses become
+  new standalone recordings and artists, the uncertain ones are non-blocking issues (the
+  episode applies with them unmatched). A library recording matched by text keeps its
+  metadata (no MBID from NTS). Images go to `_covers/radio-show/`, `_covers/radio-episode/`
+  (`GET /covers/radio-show/{id}`, `/covers/radio-episode/{id}`). Re-importing updates
+  the rows; entries in the library keep their recording and range (manual edits stand).
+  Genres and moods stay in the proposal for tags. From the Docker image (2026-11) the
+  NTS API and the SoundCloud download both work; a bot check would be a
+  `fetch_failed`/`download_failed` issue with retry, never worked around.
+- Radio-only (`ep.radio`): a recording that appears in a tracklist, is no track, and
+  whose every source is an entry's slice; an artist on no release group whose (at least
+  one) recordings are all radio-only. Correlated `EXISTS` in the query
+  (`visible_artists`, `visible_recordings`); `GET /artists`, `/artists/{id}/recordings`
+  and `/search` hide them unless `include_radio_only=true`. Playback
+  (`recording_playbacks`) prefers a library source to a radio slice.
+- Endpoints: `GET /radio/shows`, `/radio/shows/{id}`, `/radio/shows/{id}/episodes`,
+  `/radio/episodes/{id}` (tracklist with raw text, range, estimate flag, recording,
+  `in_library`/`library_playback`, the slice's and the episode's `playback`), `PATCH`
+  and `DELETE` on shows and episodes, `PATCH /radio/episode-tracks/{id}` (re-point to a
+  recording or `null`, change the range; the slice follows),
+  `GET /recordings/{id}/radio-appearances`, `/artists/{id}/radio-appearances`.
+  `DELETE` an episode removes its tracklist, slices, file source and link sources, and
+  the recordings (and then uncredited artists) only it knew; the audio file only with
+  `delete_audio=true` (managed files under the library only).
 
 ## Tests
 
