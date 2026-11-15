@@ -35,6 +35,8 @@ from ep.importers.framework import (
 from ep.importers.proposal import Answer, Choice, LogEntry, Proposal
 from ep.jobs.queue import create_import, enqueue_import
 from ep.media_roots import is_within_media_roots
+from ep.metadata import bandcamp
+from ep.metadata.ytdlp import youtube_url
 from ep.models import ImportJob, ImportKind, JobState
 from ep.settings import Settings
 
@@ -92,16 +94,37 @@ def check_folder_input(path_text: str, settings: Settings, loc: tuple[str, ...])
     return path
 
 
+def check_url_input(kind: ImportKind, url: str, loc: tuple[str, ...]) -> str:
+    """The canonical URL for a Bandcamp or YouTube import (the job's input)."""
+    match kind:
+        case ImportKind.bandcamp:
+            canonical = bandcamp.canonical_url(url)
+            expected = "a Bandcamp album or track page URL (https://<name>.bandcamp.com/album/...)"
+        case ImportKind.youtube:
+            parsed = youtube_url(url)
+            canonical = parsed.url if parsed else None
+            expected = "a YouTube video or playlist URL"
+        case _:
+            message = f"{kind} imports are not available yet"
+            raise unprocessable(("kind",), message, kind, "value_error")
+    if canonical is None:
+        raise unprocessable(loc, f"must be {expected}", url, "value_error")
+    return canonical
+
+
 @router.post("", status_code=status.HTTP_201_CREATED)
 def create_import_job(
     body: ImportCreate, session: SessionDep, settings: SettingsDep
 ) -> ImportJobRead:
-    """Queue an import. ``folder``: a directory under the media roots, imported in place."""
-    if body.kind is not ImportKind.folder:
-        message = f"{body.kind} imports are not available yet"
-        raise unprocessable(("kind",), message, body.kind, "value_error")
-    path = check_folder_input(body.input, settings, ("input",))
-    job = create_import(session, body.kind, str(path))
+    """Queue an import. ``folder``: a directory under the media roots, imported in place.
+    ``bandcamp``: an album or track page; ``youtube``: a video (with chapters: a
+    single-file album) or a playlist (one release group), downloaded into the managed
+    library. URLs are stored canonical (tracking parameters dropped)."""
+    if body.kind is ImportKind.folder:
+        job_input = str(check_folder_input(body.input, settings, ("input",)))
+    else:
+        job_input = check_url_input(body.kind, body.input, ("input",))
+    job = create_import(session, body.kind, job_input)
     session.commit()
     return job_read(job)
 

@@ -474,8 +474,13 @@ def test_import_input_is_validated(client: TestClient, music: Path, tmp_path: Pa
         ({"kind": "folder", "input": str(music / "missing")}, "not a directory"),
         (
             {"kind": "youtube", "input": "https://youtu.be/x"},
-            "youtube imports are not available yet",
+            "must be a YouTube video or playlist URL",
         ),
+        (
+            {"kind": "bandcamp", "input": "https://bandcamp.com/discover"},
+            "must be a Bandcamp album or track page URL (https://<name>.bandcamp.com/album/...)",
+        ),
+        ({"kind": "nts", "input": "https://www.nts.live/"}, "nts imports are not available yet"),
     ]:
         response = create(body)
         assert response.status_code == 422

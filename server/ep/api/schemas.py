@@ -374,7 +374,8 @@ class MusicBrainzImport(BaseModel):
 
 class ImportCreate(BaseModel):
     kind: ImportKind
-    # For ``folder``: an absolute directory path under the media roots.
+    # ``folder``: an absolute directory path under the media roots; ``bandcamp``: an
+    # album or track page URL; ``youtube``: a video or playlist URL.
     input: NonEmptyStr
 
 

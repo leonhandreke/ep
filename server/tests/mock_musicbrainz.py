@@ -13,6 +13,12 @@ The fixtures are real responses, recorded once (minified):
   (``release:"Promises" AND artist:"Floating Points" AND tracks:"9"``), answering every
   such search mentioning "promises"; ``search_release_empty`` (no hits) answers the
   others
+- ``search_release_neighborhoods`` (``release:"Neighborhoods" AND artist:"Ernest
+  Hood"``, answering release searches mentioning "neighborhoods") and
+  ``release_neighborhoods``: Ernest Hood, "Neighborhoods" (8 tracks, digital release)
+- ``search_recording_empty``: a recording search without hits (``recording:"salt
+  echoes" AND artist:"aedis"``), answering recording searches that do not mention
+  "movement"
 """
 
 import json
@@ -28,6 +34,7 @@ PROMISES_RELEASE = "f27dba9d-a46e-4f41-80ac-8e43d27e1152"
 PROMISES_RELEASE_GROUP = "970f689d-1778-4953-b3ed-48d057625724"
 PROMISES_BANDCAMP = "https://floatingpoints.bandcamp.com/album/promises"
 BIG_FUN_RELEASE = "a6549c4e-6b9a-4bfa-8786-15705082a136"
+NEIGHBORHOODS_RELEASE = "811e5e0f-2d45-4917-b637-ee9108d7d561"
 FLOATING_POINTS = "69d9c5ba-7bba-4cb7-ab32-8ccc48ad4f97"
 MOVEMENT_1 = "7a98380f-91e0-4ba4-8fcb-ded1dc0c8525"
 MOVEMENT_1_ISRC = "USLB12010001"
@@ -35,12 +42,12 @@ MOVEMENT_1_ISRC = "USLB12010001"
 LOOKUPS = {
     f"/ws/2/release/{PROMISES_RELEASE}": "release_promises",
     f"/ws/2/release/{BIG_FUN_RELEASE}": "release_big_fun",
+    f"/ws/2/release/{NEIGHBORHOODS_RELEASE}": "release_neighborhoods",
     f"/ws/2/artist/{FLOATING_POINTS}": "artist_floating_points",
     f"/ws/2/release-group/{PROMISES_RELEASE_GROUP}": "release_group_promises",
     f"/ws/2/recording/{MOVEMENT_1}": "recording_movement_1",
     f"/ws/2/isrc/{MOVEMENT_1_ISRC}": "isrc_movement_1",
     "/ws/2/artist": "search_artist_bjork",
-    "/ws/2/recording": "search_recording_movement",
 }
 
 NOT_FOUND = {
@@ -57,8 +64,13 @@ def fixture_name(request: httpx2.Request) -> str | None:
     path, params = request.url.path, request.url.params
     if path == "/ws/2/url":
         return "url_promises" if params.get("resource") == PROMISES_BANDCAMP else None
+    if path == "/ws/2/recording":
+        query = params["query"].lower()
+        return "search_recording_movement" if "movement" in query else "search_recording_empty"
     if path == "/ws/2/release":
         query = params["query"]
+        if "neighborhoods" in query.lower():
+            return "search_release_neighborhoods"
         if "barcode:" in query:
             return "barcode_promises"
         if "tracks:" in query:  # the folder importer's search

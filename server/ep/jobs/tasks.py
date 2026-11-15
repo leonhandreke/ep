@@ -10,14 +10,20 @@ import uuid
 from sqlmodel import Session, col, select
 
 from ep.db import get_engine
+from ep.importers.bandcamp import BandcampImporter
 from ep.importers.folder import FolderImporter
 from ep.importers.framework import Importer, requeue, run_job
+from ep.importers.youtube import YouTubeImporter
 from ep.jobs.queue import IMPORT_QUEUE, RUN_IMPORT, app, enqueue_import
 from ep.metadata.musicbrainz import MusicBrainz
 from ep.models import ImportJob, ImportKind, JobState
 from ep.settings import get_settings
 
-IMPORTERS: dict[ImportKind, Importer] = {ImportKind.folder: FolderImporter()}
+IMPORTERS: dict[ImportKind, Importer] = {
+    ImportKind.folder: FolderImporter(),
+    ImportKind.bandcamp: BandcampImporter(),
+    ImportKind.youtube: YouTubeImporter(),
+}
 
 
 @app.task(name=RUN_IMPORT, queue=IMPORT_QUEUE)

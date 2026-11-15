@@ -151,7 +151,9 @@ uv run alembic revision --autogenerate -m "add catalogue"
   `--explain` for query plans. Before stage 4b (no indexes): 0.8–11 s per call; after:
   4–200 ms for the matcher, 8–150 ms for search (400 ms for a one-letter query).
 - MusicBrainz test fixtures are real responses in `tests/fixtures/musicbrainz/`, served
-  by `tests/mock_musicbrainz.py`.
+  by `tests/mock_musicbrainz.py`. Bandcamp pages (`tests/fixtures/bandcamp/`) and yt-dlp
+  output (`tests/fixtures/ytdlp/`, formats and captions left out) are served by the
+  fakes in `tests/fakes.py`; fake downloads are generated silent files.
 
 ## Jobs, imports, watcher
 
@@ -197,6 +199,41 @@ uv run alembic revision --autogenerate -m "add catalogue"
   recordings and sources the tracks became (`Applied`), in the apply transaction.
 - Folder importer (`ep.importers.folder`): see its docstring. Files are indexed in place
   (`managed=false`, with `sha256`); covers go through `ep.covers`.
+- Resolving to MusicBrainz is shared (`ep.importers.resolve`): `search_release` (title,
+  artist, track count; a few candidates fetched and checked by position and length;
+  otherwise-exact candidates that do not fit are an `uncertain_metadata` issue),
+  `first_fitting` (releases from a URL or barcode lookup), `align_by_title` (playlists),
+  `use_musicbrainz`. Not in MusicBrainz is a normal outcome: imported as entered.
+- Cover URLs (`UrlCover`) are fetched by the framework before downloading
+  (`Importer.fetch_cover`), into the job's work directory; a cover that cannot be
+  fetched is logged, not an issue.
+- Bandcamp importer (`ep.importers.bandcamp`, metadata `ep.metadata.bandcamp`, a port of
+  Harmony's Bandcamp provider): input an album or track page URL. The artist is the
+  release's artist field, never the page owner (a label page: `label` in the proposal);
+  Bandcamp tags are kept in the proposal (`tags`). MusicBrainz by page URL, barcode,
+  then search. One `bandcamp` source per track page, parent of the downloaded file.
+- YouTube importer (`ep.importers.youtube`): a video is a loose recording, or with
+  chapters a single-file album (slices); a playlist is one release group, one file per
+  entry. yt-dlp's artist/track/album fields, else "Artist - Title" from the title
+  without video noise (`clean_title`; YouTube only, not matching), else the channel (or
+  the playlist's artist). MusicBrainz: recording search (one fitting hit, else an
+  issue), release search (chapters by position; playlist entries by title, entries not
+  on the release are an issue each). A video whose metadata cannot be read is a
+  `metadata_not_found` issue for that entry only.
+- yt-dlp (`ep.metadata.ytdlp`) runs as `python -m yt_dlp --ignore-config` of the
+  project environment: the `yt-dlp[default,deno]` dependency brings the EJS scripts and
+  Deno, the JavaScript runtime YouTube needs (no system packages). `--dump-single-json`
+  (with `--flat-playlist` for playlists) for metadata; downloads with `-x` and no
+  `--audio-format`, so the original codec is kept (opus, m4a, mp3), resuming `.part`
+  files; progress goes to the job log. `youtube_url` / `bandcamp.canonical_url`
+  canonicalise input URLs (the job input and the source `uri`).
+- Web requests other than MusicBrainz (Bandcamp pages, covers: `ep.metadata.web`) send
+  `User-Agent: EP/<version>`, without contact details.
+- Known limitation (2026-11): Bandcamp's CDN answers requests from the Docker image
+  (Debian's OpenSSL) with a bot check instead of the page, and yt-dlp's Bandcamp
+  extractor then wants browser impersonation (`curl_cffi`). From macOS both work. The
+  job fails with "Bandcamp answered with a bot check" (`BandcampBlocked`); EP does not
+  try to get around it.
 - Watcher (`ep.jobs.watcher`): `watchfiles` polling plus periodic rescans; a watch dir's
   `baseline_at` keeps what was there at registration from being imported automatically
   (`POST /watch-dirs/{id}/scan` does that on request). "Changed" is the newest mtime or
