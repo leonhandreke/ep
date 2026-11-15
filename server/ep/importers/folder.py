@@ -181,10 +181,14 @@ class FolderImporter(Importer):
             IncomingMedium(
                 key=str(path),
                 path=str(path),
+                sha256=sha256,
                 codec=result.codec,
                 duration_ms=result.duration_ms,
                 size=result.size,
-                sha256=sha256,
+                sample_rate=result.sample_rate,
+                bit_depth=result.bit_depth,
+                bit_rate=result.bit_rate,
+                channels=result.channels,
             )
         )
         return result

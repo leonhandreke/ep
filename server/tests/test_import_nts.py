@@ -398,7 +398,7 @@ def test_radio_only_filtering_and_playback(
     assert "Nigel Peake" in names
     # Evangeline: the album track plays the album file.
     rg_tracks = client.get(f"/release-groups/{_release_group_of(client, library)}/tracks").json()
-    assert rg_tracks[0]["playback"]["source_id"] == library["album_file"]["id"]
+    assert rg_tracks[0]["playability"]["playback"]["source_id"] == library["album_file"]["id"]
 
 
 def _release_group_of(client: TestClient, library: dict[str, Any]) -> str:
@@ -415,7 +415,7 @@ def test_radio_endpoints(
     assert show["name"] == "The Early Bird Show w/ PAM"
     assert show["image_url"] == f"/covers/radio-show/{show['id']}"
     assert client.get(show["image_url"]).headers["content-type"] == "image/png"
-    assert client.get(f"/radio/shows/{show['id']}").json() == show
+    assert client.get(f"/radio/shows/{show['id']}").json() == {**show, "episode_count": 1}
     [episode] = client.get(f"/radio/shows/{show['id']}/episodes").json()
     assert episode["url"] == NTS_EPISODE and episode["location"] == "Paris"
     assert client.get(episode["image_url"]).status_code == 200
@@ -502,11 +502,13 @@ def test_radio_list_query_counts(
         (f"/radio/shows/{show.id}/episodes", 2),
         # episode + show, tracks + recordings + credits, credit names, sources + ancestors
         (f"/radio/episodes/{episode.id}", 4),
-        # recording, entries + episodes + shows + recording credits + slices, names
-        (f"/recordings/{library['ruth']['id']}/radio-appearances", 3),
-        (f"/artists/{library['kozelek']['id']}/radio-appearances", 3),
+        # recording, entries + episodes + shows + recording credits + slices, names,
+        # slices + ancestors
+        (f"/recordings/{library['ruth']['id']}/radio-appearances", 4),
+        (f"/artists/{library['kozelek']['id']}/radio-appearances", 4),
         ("/artists", 1),
-        (f"/artists/{library['kozelek']['id']}/recordings", 3),
+        # artist, recordings + credits, names, sources + ancestors
+        (f"/artists/{library['kozelek']['id']}/recordings", 4),
     ]:
         with count_selects(session) as statements:
             response = client.get(path)

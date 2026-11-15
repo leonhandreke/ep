@@ -84,14 +84,21 @@ CASES: list[tuple[str, Callable[[dict[str, str]], str], int]] = [
     ("release_group_tracks", lambda ids: f"/release-groups/{ids['release_group']}/tracks", 4),
     # artist, release groups + credits, credit names
     ("artist_release_groups", lambda ids: f"/artists/{ids['artist']}/release-groups", 3),
-    ("artist_recordings", lambda ids: f"/artists/{ids['artist']}/recordings", 3),
-    # recording + credit + tracks + release groups + their credits, names for each credit
-    ("recording_detail", lambda ids: f"/recordings/{ids['recording']}", 3),
-    # recording, sources + ancestors
-    ("recording_sources", lambda ids: f"/recordings/{ids['recording']}/sources", 2),
+    # ... and sources + ancestors (playability)
+    ("artist_recordings", lambda ids: f"/artists/{ids['artist']}/recordings", 4),
+    # artist, its counts (one statement)
+    ("artist_detail", lambda ids: f"/artists/{ids['artist']}", 2),
+    # recording + credit + tracks + release groups + their credits, names for each
+    # credit, sources + ancestors
+    ("recording_detail", lambda ids: f"/recordings/{ids['recording']}", 4),
+    # release group + credit + names, tracks + recordings, sources + ancestors
+    ("release_group_detail", lambda ids: f"/release-groups/{ids['release_group']}", 4),
+    # recording, sources + ancestors (twice: the list, and what plays)
+    ("recording_sources", lambda ids: f"/recordings/{ids['recording']}/sources", 3),
     # threshold + normalised query, then per type: by name/title, as "artist title";
-    # covers of recording hits
-    ("search", lambda ids: "/search?q=nina%20song", 9),
+    # radio entries that played hits (tracks of release group hits, entries), release
+    # groups of recording hits, track counts, artist counts (release groups, loose)
+    ("search", lambda ids: "/search?q=nina%20song", 14),
 ]
 
 
@@ -116,7 +123,8 @@ def test_list_endpoint_query_count(
 
 
 def test_import_lists_query_count(client: TestClient, session: Session, settings: Settings) -> None:
-    """One statement per list, however many jobs (with proposals) or watch dirs."""
+    """One statement per list, however many jobs (with proposals) or watch dirs; the
+    job list one more for the queue order (queued jobs)."""
     music = settings.media_roots[2]
     counts = []
     for size in (1, 5):
@@ -132,7 +140,7 @@ def test_import_lists_query_count(client: TestClient, session: Session, settings
                 response = client.get(list_path)
             assert response.status_code == 200
             counts.append(len(statements))
-    assert counts == [1, 1, 1, 1]
+    assert counts == [2, 1, 2, 1]
 
 
 def build_notes(client: TestClient, size: int) -> dict[str, str]:

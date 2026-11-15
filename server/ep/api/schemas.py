@@ -1,14 +1,16 @@
 """Request and response schemas.
 
 Create schemas list required fields without defaults. Update (PATCH) schemas default
-every field to ``MISSING``: omitted fields are left alone, and only nullable columns
-accept an explicit ``null``.
+every field to ``MISSING``: omitted fields are left alone, an explicit ``null`` clears a
+nullable field (as in JSON Merge Patch), and non-nullable fields do not accept ``null``.
+
+Timestamps in responses are ``Timestamp``: RFC 3339 in UTC with three fractional digits.
 """
 
 import uuid
-from datetime import date, datetime
+from datetime import date
 from enum import StrEnum
-from typing import Annotated, Any
+from typing import Annotated, Self
 
 from pydantic import (
     MISSING,
@@ -21,9 +23,11 @@ from pydantic import (
     PositiveInt,
     StringConstraints,
     computed_field,
+    model_validator,
 )
 
 from ep.importers.proposal import Choice, LogEntry, Proposal
+from ep.links import LinkKind
 from ep.models import (
     ArtistType,
     EntityType,
@@ -34,6 +38,9 @@ from ep.models import (
     ReleaseGroupType,
     SourceKind,
 )
+from ep.models.base import Timestamp
+from ep.notes.links import format_link
+from ep.playback import PlayState
 
 NonEmptyStr = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
@@ -67,18 +74,43 @@ class Read(BaseModel):
     )
 
     id: uuid.UUID
-    created_at: datetime
-    updated_at: datetime
+    created_at: Timestamp
+    updated_at: Timestamp
+
+
+def _link(type: EntityType, id: uuid.UUID, mbid: uuid.UUID | None, title: str) -> str:
+    return format_link(type, mbid or id, title)
 
 
 # Artist credits
 
 
+class NewArtistIn(BaseModel):
+    """An artist created with the credit (e.g. while writing a note)."""
+
+    name: NonEmptyStr
+    # Defaults to the name.
+    sort_name: NonEmptyStr | None = None
+    disambiguation: str = ""
+    type: ArtistType | None = None
+
+
 class ArtistCreditNameIn(BaseModel):
-    artist_id: uuid.UUID
+    """One artist of a credit: an existing artist (``artist_id``) or a new one
+    (``new_artist``), exactly one of the two."""
+
+    artist_id: uuid.UUID | None = None
+    new_artist: NewArtistIn | None = None
     # Defaults to the artist's name.
     credited_name: NonEmptyStr | None = None
+    # The text after this artist, e.g. " feat. " or " & ".
     join_phrase: str = ""
+
+    @model_validator(mode="after")
+    def _one_artist(self) -> Self:
+        if (self.artist_id is None) == (self.new_artist is None):
+            raise ValueError("give exactly one of artist_id and new_artist")
+        return self
 
 
 ArtistCreditIn = Annotated[list[ArtistCreditNameIn], Field(min_length=1)]
@@ -113,6 +145,8 @@ class ArtistCreate(BaseModel):
 
 
 class ArtistUpdate(BaseModel):
+    """Changes (PATCH): omitted fields stay as they are; ``null`` clears a nullable field."""
+
     mbid: uuid.UUID | MISSING | None = MISSING
     name: NonEmptyStr | MISSING = MISSING
     sort_name: NonEmptyStr | MISSING = MISSING
@@ -126,6 +160,28 @@ class ArtistRead(Read):
     sort_name: str
     disambiguation: str
     type: ArtistType | None
+
+    @computed_field
+    @property
+    def link(self) -> str:
+        """The note link to this artist, with its name as display text."""
+        return _link(EntityType.artist, self.id, self.mbid, self.name)
+
+
+class ArtistCountsRead(BaseModel):
+    # Release groups the artist is credited on.
+    release_groups: int
+    # Recordings credited to the artist that are on no release group (loose tracks),
+    # radio-only ones left out.
+    loose_recordings: int
+    # Radio episodes that played something credited to the artist.
+    radio_episodes: int
+
+
+class ArtistDetail(ArtistRead):
+    counts: ArtistCountsRead
+    # Known only from radio tracklists (``ep.radio``): hidden from lists by default.
+    radio_only: bool
 
 
 # Release groups
@@ -142,6 +198,8 @@ class ReleaseGroupCreate(BaseModel):
 
 
 class ReleaseGroupUpdate(BaseModel):
+    """Changes (PATCH): omitted fields stay as they are; ``null`` clears a nullable field."""
+
     mbid: uuid.UUID | MISSING | None = MISSING
     release_mbid: uuid.UUID | MISSING | None = MISSING
     title: NonEmptyStr | MISSING = MISSING
@@ -167,6 +225,33 @@ class ReleaseGroupRead(Read):
         """Path of the cover image (``GET /covers/release-group/{id}``), if there is one."""
         return f"/covers/release-group/{self.id}" if self.cover_path else None
 
+    @computed_field
+    @property
+    def link(self) -> str:
+        """The note link to this release group, with its title as display text."""
+        return _link(EntityType.release_group, self.id, self.mbid, self.title)
+
+
+class PlayStateCountsRead(BaseModel):
+    """How many tracks are in each ``PlayState``."""
+
+    file: int
+    slice: int
+    radio_excerpt: int
+    file_missing: int
+    link_only: int
+    no_source: int
+
+
+class ReleaseGroupDetail(ReleaseGroupRead):
+    track_count: int
+    disc_count: int
+    # Sum of the tracks' recording lengths (those known).
+    length_ms: int
+    play_states: PlayStateCountsRead
+    # The kinds of link the link-only tracks have (e.g. spotify), each once.
+    link_kinds: list[SourceKind]
+
 
 # Recordings
 
@@ -179,10 +264,15 @@ class RecordingCreate(BaseModel):
 
 
 class RecordingUpdate(BaseModel):
+    """Changes (PATCH): omitted fields stay as they are; ``null`` clears a nullable field."""
+
     mbid: uuid.UUID | MISSING | None = MISSING
     title: NonEmptyStr | MISSING = MISSING
     artist_credit: ArtistCreditIn | MISSING = MISSING
     length_ms: NonNegativeInt | MISSING | None = MISSING
+    # One of the recording's playable sources, to play instead of the default choice;
+    # null: the default (``PlayabilityRead.playback``).
+    preferred_source_id: uuid.UUID | MISSING | None = MISSING
 
 
 class RecordingRead(Read):
@@ -190,6 +280,14 @@ class RecordingRead(Read):
     title: str
     artist_credit: ArtistCreditRead
     length_ms: int | None
+    # The source chosen to play; null: the default choice.
+    preferred_source_id: uuid.UUID | None
+
+    @computed_field
+    @property
+    def link(self) -> str:
+        """The note link to this recording, with its title as display text."""
+        return _link(EntityType.recording, self.id, self.mbid, self.title)
 
 
 class RecordingTrackRead(Read):
@@ -199,29 +297,6 @@ class RecordingTrackRead(Read):
     position: int
     title: str | None
     release_group: ReleaseGroupRead
-
-
-class RecordingDetail(RecordingRead):
-    tracks: list[RecordingTrackRead]
-
-
-# Tracks
-
-
-class TrackCreate(BaseModel):
-    release_group_id: uuid.UUID
-    recording_id: uuid.UUID
-    disc: PositiveInt = 1
-    position: NonNegativeInt
-    # Overrides the recording title on this release group.
-    title: NonEmptyStr | None = None
-
-
-class TrackUpdate(BaseModel):
-    recording_id: uuid.UUID | MISSING = MISSING
-    disc: PositiveInt | MISSING = MISSING
-    position: NonNegativeInt | MISSING = MISSING
-    title: NonEmptyStr | MISSING | None = MISSING
 
 
 class PlaybackRead(BaseModel):
@@ -237,22 +312,118 @@ class PlaybackRead(BaseModel):
     file_source_id: uuid.UUID
     start_ms: int
     end_ms: int | None
+    # Length of the whole file, if known (the scale of a scrubber over the file).
+    file_duration_ms: int | None
+
+
+class LinkRead(BaseModel):
+    """A link source: somewhere else the recording can be found."""
+
+    source_id: uuid.UUID
+    kind: SourceKind
+    url: str
+
+
+class RadioEntryRefRead(BaseModel):
+    """A radio tracklist entry (``GET /radio/episodes/{episode_id}`` has it)."""
+
+    track_id: uuid.UUID
+    episode_id: uuid.UUID
+
+
+class PlayabilityRead(BaseModel):
+    """How a recording plays here (``ep.playback.playabilities``)."""
+
+    state: PlayState
+    # What plays: for ``file``, ``slice`` and ``radio_excerpt``; for ``file_missing`` a
+    # radio excerpt if there is one; null otherwise.
+    playback: PlaybackRead | None
+    # The radio entry ``playback`` plays, if it is a radio excerpt.
+    radio_entry: RadioEntryRefRead | None
+    # The recording's oldest link (in any state; for ``link_only`` the one to open).
+    link: LinkRead | None
+    # ``file_missing``: the file source not found on disk (give it a new ``uri`` with
+    # ``PATCH /sources/{id}`` to locate it).
+    missing_file_source_id: uuid.UUID | None
+
+
+class PlayableRecordingRead(RecordingRead):
+    playability: PlayabilityRead
+
+
+class RecordingDetail(PlayableRecordingRead):
+    tracks: list[RecordingTrackRead]
+
+
+# Tracks
+
+
+class NewRecordingIn(BaseModel):
+    """A recording created with the track."""
+
+    title: NonEmptyStr
+    # Defaults to the release group's credit.
+    artist_credit: ArtistCreditIn | None = None
+    length_ms: NonNegativeInt | None = None
+
+
+class TrackCreate(BaseModel):
+    """A track: of an existing recording (``recording_id``) or of a new one
+    (``new_recording``), exactly one of the two."""
+
+    release_group_id: uuid.UUID
+    recording_id: uuid.UUID | None = None
+    new_recording: NewRecordingIn | None = None
+    disc: PositiveInt = 1
+    # Defaults to after the last track of the disc.
+    position: NonNegativeInt | None = None
+    # Overrides the recording title on this release group.
+    title: NonEmptyStr | None = None
+
+    @model_validator(mode="after")
+    def _one_recording(self) -> Self:
+        if (self.recording_id is None) == (self.new_recording is None):
+            raise ValueError("give exactly one of recording_id and new_recording")
+        return self
+
+
+class TrackPlace(BaseModel):
+    id: uuid.UUID
+    disc: PositiveInt
+    position: NonNegativeInt
+
+
+class TrackOrderWrite(BaseModel):
+    """Every track of the release group with its new disc and position."""
+
+    tracks: list[TrackPlace]
+
+
+class TrackUpdate(BaseModel):
+    """Changes (PATCH): omitted fields stay as they are; ``null`` clears a nullable field."""
+
+    recording_id: uuid.UUID | MISSING = MISSING
+    disc: PositiveInt | MISSING = MISSING
+    position: NonNegativeInt | MISSING = MISSING
+    title: NonEmptyStr | MISSING | None = MISSING
 
 
 class TrackRead(Read):
     release_group_id: uuid.UUID
     disc: int
     position: int
+    # The title on this release group, if it differs from the recording's.
     title: str | None
     recording: RecordingRead
-    # The recording's first playable source; null if it has none.
-    playback: PlaybackRead | None = None
+    playability: PlayabilityRead
 
 
 # Radio
 
 
 class RadioShowUpdate(BaseModel):
+    """Changes (PATCH): omitted fields stay as they are; ``null`` clears a nullable field."""
+
     name: NonEmptyStr | MISSING = MISSING
     description: str | MISSING = MISSING
 
@@ -270,8 +441,20 @@ class RadioShowRead(Read):
         """Path of the show's image (``GET /covers/radio-show/{id}``), if there is one."""
         return f"/covers/radio-show/{self.id}" if self.image_path else None
 
+    @computed_field
+    @property
+    def link(self) -> str:
+        """The note link to this show, with its name as display text."""
+        return _link(EntityType.radio_show, self.id, None, self.name)
+
+
+class RadioShowDetail(RadioShowRead):
+    episode_count: int
+
 
 class RadioEpisodeUpdate(BaseModel):
+    """Changes (PATCH): omitted fields stay as they are; ``null`` clears a nullable field."""
+
     name: NonEmptyStr | MISSING = MISSING
     description: str | MISSING = MISSING
     broadcast_at: AwareDatetime | MISSING | None = MISSING
@@ -283,7 +466,7 @@ class RadioEpisodeRead(Read):
     slug: str
     name: str
     description: str
-    broadcast_at: datetime | None
+    broadcast_at: Timestamp | None
     location: str | None
     # The episode page.
     url: str
@@ -296,6 +479,20 @@ class RadioEpisodeRead(Read):
     def image_url(self) -> str | None:
         """Path of the episode's image (``GET /covers/radio-episode/{id}``), if any."""
         return f"/covers/radio-episode/{self.id}" if self.image_path else None
+
+    @computed_field
+    @property
+    def link(self) -> str:
+        """The note link to this episode, with its name as display text."""
+        return _link(EntityType.radio_episode, self.id, None, self.name)
+
+
+class RadioEntryState(StrEnum):
+    # Matched to a recording the library has other than from radio.
+    in_library = "in_library"
+    # Matched to a recording known only from radio (this excerpt plays it).
+    excerpt_only = "excerpt_only"
+    not_matched = "not_matched"
 
 
 class RadioEpisodeTrackRead(Read):
@@ -321,6 +518,7 @@ class RadioEpisodeTrackRead(Read):
     library_playback: PlaybackRead | None
     # How to play the entry within the episode.
     playback: PlaybackRead | None
+    state: RadioEntryState
 
 
 class RadioEpisodeDetail(RadioEpisodeRead):
@@ -334,6 +532,8 @@ class RadioEpisodeDetail(RadioEpisodeRead):
 
 
 class RadioEpisodeTrackUpdate(BaseModel):
+    """Changes (PATCH): omitted fields stay as they are; ``null`` clears a nullable field."""
+
     # Another recording, or null: not matched.
     recording_id: uuid.UUID | MISSING | None = MISSING
     # Within the episode. Changing the range clears ``offset_is_estimate`` unless given.
@@ -354,6 +554,9 @@ class RadioAppearanceRead(BaseModel):
     recording: RecordingRead
     episode: RadioEpisodeRead
     show: RadioShowRead
+    # How to play the entry within the episode; null if it has no time or the episode
+    # no file.
+    playback: PlaybackRead | None
 
 
 # External IDs
@@ -379,7 +582,8 @@ Sha256 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 
 class SourceCreate(BaseModel):
     kind: SourceKind
-    # Absolute path for file (must exist), URL/URI for remote kinds, omitted for slice.
+    # Absolute path for file (must exist; a host path under ``EP_HOST_PATHS`` is mapped
+    # to the server's), URL/URI for remote kinds, omitted for slice.
     uri: NonEmptyStr | None = None
     parent_id: uuid.UUID | None = None
     # Slice only: range within the parent. No end: to the end of the parent.
@@ -392,10 +596,11 @@ class SourceCreate(BaseModel):
     duration_ms: NonNegativeInt | None = None
     size: NonNegativeInt | None = None
     sha256: Sha256 | None = None
-    meta: dict[str, Any] = Field(default_factory=dict)
 
 
 class SourceUpdate(BaseModel):
+    """Changes (PATCH): omitted fields stay as they are; ``null`` clears a nullable field."""
+
     kind: SourceKind | MISSING = MISSING
     uri: NonEmptyStr | MISSING | None = MISSING
     parent_id: uuid.UUID | MISSING | None = MISSING
@@ -407,7 +612,6 @@ class SourceUpdate(BaseModel):
     duration_ms: NonNegativeInt | MISSING | None = MISSING
     size: NonNegativeInt | MISSING | None = MISSING
     sha256: Sha256 | MISSING | None = MISSING
-    meta: dict[str, Any] | MISSING = MISSING
 
 
 class SourceRead(Read):
@@ -422,9 +626,69 @@ class SourceRead(Read):
     duration_ms: int | None
     size: int | None
     sha256: str | None
-    meta: dict[str, Any]
+    # Stream facts of a file: sample rate (Hz), bits per sample (lossless formats),
+    # bit rate (bit/s), channels.
+    sample_rate: int | None
+    bit_depth: int | None
+    bit_rate: int | None
+    channels: int | None
+    # A file's path on the host running the server (``EP_HOST_PATHS``), for showing it
+    # in a file manager; null for other kinds, or a path outside the mapped directories.
+    host_path: str | None = None
     # Null if the source does not resolve to a file (e.g. a remote-only link).
     playback: PlaybackRead | None = None
+
+
+class SourceRole(StrEnum):
+    """What a source of a recording is, as a way to play it."""
+
+    # A file of the recording's own.
+    file = "file"
+    # A time range of a file shared with other recordings (single-file album).
+    slice = "slice"
+    # A radio tracklist entry's range of the episode file.
+    radio_excerpt = "radio_excerpt"
+    # A link to elsewhere (not playable here).
+    link = "link"
+
+
+class FileRead(BaseModel):
+    """The file a source plays from."""
+
+    source_id: uuid.UUID
+    path: str
+    host_path: str | None
+    exists: bool
+    codec: str | None
+    sample_rate: int | None
+    bit_depth: int | None
+    bit_rate: int | None
+    duration_ms: int | None
+
+
+class RadioSliceRead(BaseModel):
+    """The radio entry a slice plays."""
+
+    track_id: uuid.UUID
+    episode: RadioEpisodeRead
+    show: RadioShowRead
+    offset_is_estimate: bool
+
+
+class RecordingSourceRead(BaseModel):
+    """A source of a recording, as the sources list shows it."""
+
+    source: SourceRead
+    role: SourceRole
+    # Where it came from: its parent sources, nearest first (a file's download link).
+    ancestors: list[SourceRead]
+    # The file it plays from; null for links (and broken chains).
+    file: FileRead | None
+    radio: RadioSliceRead | None
+    # The user chose it (``RecordingUpdate.preferred_source_id``).
+    preferred: bool
+    # It is what plays (``PlayabilityRead.playback``).
+    plays: bool
 
 
 # Search and resolve
@@ -446,10 +710,25 @@ class EntityRead(BaseModel):
     # A release group's cover; for a recording, the cover of a release group it is on;
     # a show's or episode's image.
     cover_url: str | None
+    # Facts for a second line: a release group's type and date; a recording's length
+    # and the (oldest) release group it is on; an episode's broadcast date (YYYY-MM-DD).
+    release_group_type: ReleaseGroupType | None
+    date: str | None
+    length_ms: int | None
+    release_group_title: str | None
     # For writing a link to it: the UUID to use (the MBID if there is one, else the
     # id), and the whole link with the title as display text.
     link_ref: uuid.UUID
     link: str
+
+
+class RadioMatchRead(BaseModel):
+    """Where a radio episode plays what the search matched."""
+
+    track_id: uuid.UUID
+    recording: EntityRead
+    start_ms: int | None
+    offset_is_estimate: bool
 
 
 class SearchHitRead(EntityRead):
@@ -457,6 +736,14 @@ class SearchHitRead(EntityRead):
 
     # Higher is better; only comparable within one response.
     score: float
+    # Release groups: their track count. Artists: their release groups and loose
+    # recordings (``ArtistCountsRead``). Null for other types.
+    track_count: int | None
+    release_group_count: int | None
+    loose_recording_count: int | None
+    # Episodes found because they played a matching recording (or a track of a
+    # matching release group): which entry, and when.
+    radio_match: RadioMatchRead | None
 
 
 class ResolvedRead(BaseModel):
@@ -508,7 +795,7 @@ class NoteRead(BaseModel):
     # Markdown.
     body: str
     # Send this back with the next save (``NoteWrite.base_updated_at``).
-    updated_at: datetime | None
+    updated_at: Timestamp | None
     links: list[NoteLinkRead]
 
 
@@ -543,7 +830,7 @@ class BacklinkRead(BaseModel):
 
     # The entity whose note it is.
     source: EntityRead
-    note_updated_at: datetime
+    note_updated_at: Timestamp
     # The line around each link to the entity, in the order of the note.
     snippets: list[SnippetRead]
 
@@ -553,7 +840,7 @@ class NoteSearchHitRead(BaseModel):
 
     # The entity whose note it is.
     source: EntityRead
-    note_updated_at: datetime
+    note_updated_at: Timestamp
     snippet: SnippetRead
     # Higher is better; only comparable within one response.
     rank: float
@@ -595,7 +882,8 @@ class EntityDetailsRead(BaseModel):
     tags: list[TagRead]
     backlinks: list[BacklinkRead]
     # For a recording, the episodes that played it; for an artist, the episodes that
-    # played anything credited to them; empty for other types.
+    # played anything credited to them; for a release group, the episodes that played
+    # any of its tracks; empty for radio shows and episodes.
     radio_appearances: list[RadioAppearanceRead]
 
 
@@ -623,7 +911,11 @@ class MusicBrainzHitRead(BaseModel):
 
 
 class MusicBrainzImport(BaseModel):
-    release_mbid: uuid.UUID
+    """What to add from MusicBrainz (metadata only): an artist, a release (as a release
+    group with its tracks) or a recording."""
+
+    type: MusicBrainzSearchType
+    mbid: uuid.UUID
 
 
 # Imports (the proposal and issue structure is ``ep.importers.proposal``)
@@ -631,10 +923,21 @@ class MusicBrainzImport(BaseModel):
 
 class ImportCreate(BaseModel):
     kind: ImportKind
-    # ``folder``: an absolute directory path under the media roots; ``bandcamp``: an
-    # album or track page URL; ``youtube``: a video or playlist URL; ``nts``: an
-    # episode page URL.
+    # ``folder``: an absolute directory path under the media roots (or the host path of
+    # one, ``EP_HOST_PATHS``); ``bandcamp``: an album or track page URL; ``youtube``: a
+    # video or playlist URL; ``nts``: an episode page URL.
     input: NonEmptyStr
+
+
+class LinkInfoRead(BaseModel):
+    """What a URL is: the kind of link, the source kind it would be stored as, and the
+    import that takes it (null: not importable). All null for an unknown URL."""
+
+    link_kind: LinkKind | None
+    source_kind: SourceKind | None
+    import_kind: ImportKind | None
+    # The canonical form (tracking parameters dropped), as imports and sources store it.
+    url: str | None
 
 
 class JobAction(StrEnum):
@@ -646,25 +949,99 @@ class JobAction(StrEnum):
     retry = "retry"
     # Remove it from the inbox: ``POST /imports/{id}/dismiss``.
     dismiss = "dismiss"
+    # Stop it (queued or running) and remove it: ``POST /imports/{id}/cancel``.
+    cancel = "cancel"
+
+
+class ImportStep(StrEnum):
+    """The user-facing steps of an import, in order; each covers pipeline stages."""
+
+    # Fetching and resolving metadata (stages fetch, resolve).
+    metadata = "metadata"
+    # Matching against the library (match, propose).
+    matching = "matching"
+    # Downloading audio (download); skipped by imports that do not download.
+    downloading = "downloading"
+    # Writing to the library (apply).
+    applying = "applying"
 
 
 class ProgressRead(BaseModel):
     # The stage the job is in (or stopped in); null before it starts.
     stage: JobStage | None
+    # The step that stage belongs to.
+    step: ImportStep | None
     # Items of this stage done, out of ``total`` (null if not known yet).
     done: int
     total: int | None
+    # How far the stage is, 0-1, counting the item in progress (a download) partly;
+    # null if ``total`` is not known.
+    fraction: float | None
+
+
+class ImportCountsRead(BaseModel):
+    # Incoming tracks (radio tracklist entries included) that are not skipped.
+    tracks: int
+    # Open issues that are failures (download failed, unreadable file, fetch failed):
+    # what a retry would try again.
+    failed: int
+
+
+class CreatedCountsRead(BaseModel):
+    """Rows the last apply created."""
+
+    artists: int
+    release_groups: int
+    recordings: int
+    tracks: int
+    sources: int
 
 
 class ImportJobSummary(Read):
     kind: ImportKind
     input: str
+    # ``folder``: the input's path on the host (``EP_HOST_PATHS``).
+    input_host_path: str | None
+    # URL inputs: what the link is.
+    link_kind: LinkKind | None
+    # The watched directory whose watcher queued it; null if queued by hand.
+    watch_dir_id: uuid.UUID | None
     state: JobState
     progress: ProgressRead
     error: str | None
+    # "Artist — Title" of what is imported (the release, the loose track, or the
+    # radio show and episode), once the proposal is built; null before.
+    title: str | None
+    # The incoming cover or image: a URL elsewhere (before it is fetched) or a path on
+    # this server (``/covers/...``, once imported); null if none or not known yet.
+    cover_url: str | None
+    # What the job is stuck on, for one line: the error, else the first open issue.
+    message: str | None
     # Issues waiting for an answer.
     open_issues: int
+    counts: ImportCountsRead
+    created: CreatedCountsRead
+    # A release conflict: the release group in the library that conflicts.
+    existing: EntityRead | None
+    # A queued job: the job it waits for (the running one, or the one queued before
+    # it); null if it is next.
+    waiting_for: uuid.UUID | None
     actions: list[JobAction]
+
+
+class ImportsSummaryRead(BaseModel):
+    """The import queue at a glance (cheap to poll)."""
+
+    queued: int
+    running: int
+    needs_review: int
+    failed: int
+    # Progress of the running job (``ProgressRead.fraction``); null if none runs.
+    running_fraction: float | None
+    # Enabled watched directories.
+    watching: int
+    # The latest change to any job: poll this, and reload the job list when it moves.
+    changed_at: Timestamp | None
 
 
 class ImportJobRead(ImportJobSummary):
@@ -679,7 +1056,9 @@ class IssueAnswer(BaseModel):
     issue_id: NonEmptyStr
     # One of the issue's ``choices``.
     choice: Choice
-    # Required for ``pick_candidate``: the ``id`` of one of the issue's candidates.
+    # Required for ``pick_candidate``: the ``id`` of one of the issue's candidates or,
+    # for an uncertain artist, release group or recording, of any library row of that
+    # type (found by searching the library).
     candidate_id: uuid.UUID | None = None
 
 
@@ -691,22 +1070,69 @@ class ReviewRequest(BaseModel):
 
 
 class WatchDirCreate(BaseModel):
-    # Absolute directory path under the media roots, e.g. /watch/Library.
+    # Absolute directory path under the media roots, e.g. /watch/Library, or its host
+    # path (``EP_HOST_PATHS``).
     path: NonEmptyStr
     enabled: bool = True
 
 
 class WatchDirUpdate(BaseModel):
+    """Changes (PATCH): omitted fields stay as they are; ``null`` clears a nullable field."""
+
     enabled: bool | MISSING = MISSING
+
+
+class WatchDirStatus(StrEnum):
+    # Not watched (disabled).
+    paused = "paused"
+    # An import of a folder in it is queued or running.
+    importing = "importing"
+    idle = "idle"
 
 
 class WatchDirRead(Read):
     path: str
+    # The path on the host running the server (``EP_HOST_PATHS``).
+    host_path: str | None
     enabled: bool
     # Folders that last changed before this are imported only by an explicit scan.
-    baseline_at: datetime
+    baseline_at: Timestamp
+    status: WatchDirStatus
+    # When its watcher last queued an import.
+    last_import_at: Timestamp | None
 
 
 class WatchDirScan(BaseModel):
-    # A directory inside the watch dir to limit the scan to; null scans all of it.
+    # A directory inside the watch dir (or its host path) to limit the scan to;
+    # omitted: all of it.
     path: NonEmptyStr | None = None
+
+
+# The server
+
+
+class ServerPathRead(BaseModel):
+    # As the server sees it.
+    path: str
+    # On the host running the server (``EP_HOST_PATHS``); null if not mapped.
+    host_path: str | None
+
+
+class LibraryCountsRead(BaseModel):
+    # Artists shown by default, and those known only from radio (hidden by default).
+    artists: int
+    radio_only_artists: int
+    release_groups: int
+    recordings: int
+    tracks: int
+    radio_shows: int
+    radio_episodes: int
+
+
+class ServerRead(BaseModel):
+    version: str
+    counts: LibraryCountsRead
+    # The managed library (``EP_LIBRARY_DIR``).
+    library_dir: ServerPathRead
+    # The directories file sources and imports may point into (``EP_MEDIA_ROOTS``).
+    media_roots: list[ServerPathRead]

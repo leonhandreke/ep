@@ -7,6 +7,7 @@ is completed or explicitly dismissed. The job queue itself (Procrastinate, ``ep.
 only carries "run import job <id>"; everything the user sees is here.
 """
 
+import uuid
 from datetime import datetime
 from enum import StrEnum
 from typing import Any
@@ -70,6 +71,15 @@ class ImportJob(Base, table=True):
     # Items of the current stage done so far, out of ``progress_total`` (if known).
     progress_done: int = 0
     progress_total: int | None = None
+    # How far the item being worked on is (a download), 0-1; null if not known.
+    progress_item: float | None = None
+    # The watched directory whose watcher queued the job (null: queued by hand, or the
+    # directory is no longer watched).
+    watch_dir_id: uuid.UUID | None = Field(
+        default=None, foreign_key="watch_dir.id", ondelete="SET NULL", index=True
+    )
+    # Rows applying created, by table name (``artist``, ``recording``, ...).
+    created: dict[str, int] = Field(default_factory=dict, sa_type=JSONB)
     # ``ep.importers.proposal.Proposal`` as JSON: what applying will do, and the issues.
     proposal: dict[str, Any] | None = Field(default=None, sa_type=JSONB)
     # The user's answers to issues: issue id -> ``ep.importers.proposal.Answer`` as JSON.

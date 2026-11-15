@@ -17,7 +17,7 @@ def test_upload_get_replace_and_delete_cover(client: TestClient, library_dir: Pa
     assert "cover_path" not in release_group
     assert client.get(url).status_code == 404
 
-    response = client.put(url, files={"file": ("front.png", PNG, "image/png")})
+    response = client.put(url, content=PNG, headers={"Content-Type": "image/png"})
     assert response.status_code == 200
     assert response.json()["cover_url"] == url
     assert client.get(f"/release-groups/{id}").json()["cover_url"] == url
@@ -30,7 +30,7 @@ def test_upload_get_replace_and_delete_cover(client: TestClient, library_dir: Pa
     assert response.content == PNG
 
     # Replacing with another format removes the old file.
-    assert client.put(url, files={"file": ("front.jpg", JPEG, "image/jpeg")}).status_code == 200
+    assert client.put(url, content=JPEG, headers={"Content-Type": "image/jpeg"}).status_code == 200
     assert not stored.exists()
     assert client.get(url).headers["content-type"] == "image/jpeg"
 
@@ -43,16 +43,21 @@ def test_upload_get_replace_and_delete_cover(client: TestClient, library_dir: Pa
 def test_cover_upload_must_be_an_image(client: TestClient) -> None:
     release_group = make_release_group(client, make_artist(client))
     url = f"/covers/release-group/{release_group['id']}"
-    response = client.put(url, files={"file": ("x.png", b"not an image", "image/png")})
+    response = client.put(url, content=b"not an image", headers={"Content-Type": "image/png"})
     assert response.status_code == 415
     assert (
-        client.put(f"/covers/release-group/{uuid.uuid4()}", files={"file": PNG}).status_code == 404
+        client.put(
+            f"/covers/release-group/{uuid.uuid4()}",
+            content=PNG,
+            headers={"Content-Type": "image/png"},
+        ).status_code
+        == 404
     )
 
 
 def test_deleting_release_group_deletes_its_cover(client: TestClient, library_dir: Path) -> None:
     release_group = make_release_group(client, make_artist(client))
     url = f"/covers/release-group/{release_group['id']}"
-    client.put(url, files={"file": ("front.png", PNG, "image/png")})
+    client.put(url, content=PNG, headers={"Content-Type": "image/png"})
     assert client.delete(f"/release-groups/{release_group['id']}").status_code == 204
     assert list((library_dir / "_covers" / "release-group").iterdir()) == []

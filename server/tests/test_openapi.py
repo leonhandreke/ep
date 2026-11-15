@@ -1,4 +1,8 @@
+import json
+
 from fastapi.testclient import TestClient
+
+from ep.openapi import PATH, document
 
 
 def test_operation_ids_are_endpoint_names(client: TestClient) -> None:
@@ -16,7 +20,13 @@ def test_operation_ids_are_endpoint_names(client: TestClient) -> None:
         "resolve_entity",
         "get_health",
         "search_musicbrainz",
-        "import_musicbrainz_release",
+        "import_from_musicbrainz",
+        "get_server",
+        "classify_link",
+        "get_imports_summary",
+        "cancel_import_job",
+        "stream_import_track",
+        "set_release_group_track_order",
         "create_import_job",
         "list_import_jobs",
         "get_import_job",
@@ -82,7 +92,8 @@ def test_stream_is_documented_as_audio(client: TestClient) -> None:
 def test_response_fields_with_defaults_are_required(client: TestClient) -> None:
     schemas = client.get("/openapi.json").json()["components"]["schemas"]
     assert "playback" in schemas["SourceRead"]["required"]
-    assert "playback" in schemas["TrackRead"]["required"]
+    assert "playability" in schemas["TrackRead"]["required"]
+    assert "host_path" in schemas["SourceRead"]["required"]
     assert "cover_url" in schemas["ReleaseGroupRead"]["required"]
 
 
@@ -147,3 +158,32 @@ def test_text_ranges_say_utf16_and_note_base_is_optional(client: TestClient) -> 
     assert schemas["NoteWrite"]["required"] == ["body"]
     details = schemas["EntityDetailsRead"]
     assert set(details["required"]) == set(details["properties"])
+
+
+def test_committed_document_is_current(client: TestClient) -> None:
+    """``server/openapi.json`` is what the server serves: regenerate it with
+    ``uv run python -m ep.openapi`` after changing the API."""
+    assert PATH.read_text() == document(), "openapi.json is stale: uv run python -m ep.openapi"
+    assert json.loads(PATH.read_text()) == client.get("/openapi.json").json()
+
+
+def test_no_generated_names_or_inline_bodies(client: TestClient) -> None:
+    schema = client.get("/openapi.json").json()
+    assert not [name for name in schema["components"]["schemas"] if name.startswith("Body_")]
+    for path, operations in schema["paths"].items():
+        for method, operation in operations.items():
+            assert operation["operationId"], (method, path)
+            for media_type, content in operation.get("requestBody", {}).get("content", {}).items():
+                if media_type == "application/json":
+                    assert "$ref" in content["schema"], (method, path)
+    cover = schema["paths"]["/covers/release-group/{id}"]["put"]["requestBody"]["content"]
+    assert set(cover) == {"image/jpeg", "image/png", "image/webp"}
+
+
+def test_timestamps_and_clearing_are_described(client: TestClient) -> None:
+    schemas = client.get("/openapi.json").json()["components"]["schemas"]
+    created_at = schemas["ArtistRead"]["properties"]["created_at"]
+    assert (created_at["type"], created_at["format"]) == ("string", "date-time")
+    assert "null" in schemas["RecordingUpdate"]["description"]
+    preferred = schemas["RecordingUpdate"]["properties"]["preferred_source_id"]
+    assert {"type": "null"} in preferred["anyOf"]

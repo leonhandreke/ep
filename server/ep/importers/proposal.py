@@ -32,13 +32,13 @@ catalogue rows (the radio episode and its tracklist, ``radio``) are further fiel
 """
 
 import uuid
-from datetime import datetime
 from enum import StrEnum
 from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ep.models import ArtistType, RadioStation, ReleaseGroupType, SourceKind
+from ep.models.base import Timestamp
 
 
 class Model(BaseModel):
@@ -151,6 +151,10 @@ class IncomingMedium(Model):
     duration_ms: int | None = None
     size: int | None = None
     sha256: str | None = None
+    sample_rate: int | None = None
+    bit_depth: int | None = None
+    bit_rate: int | None = None
+    channels: int | None = None
 
     @model_validator(mode="after")
     def _download_has_origin(self) -> Self:
@@ -379,7 +383,7 @@ class IncomingRadioEpisode(Model):
     slug: str
     name: str
     description: str = ""
-    broadcast_at: datetime | None = None
+    broadcast_at: Timestamp | None = None
     location: str | None = None
     # The episode page.
     url: str
@@ -449,6 +453,6 @@ class LogLevel(StrEnum):
 
 
 class LogEntry(Model):
-    at: datetime
+    at: Timestamp
     level: LogLevel
     message: str

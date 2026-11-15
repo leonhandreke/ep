@@ -16,7 +16,12 @@ def test_create_and_get_artist(client: TestClient) -> None:
 
     response = client.get(f"/artists/{artist['id']}")
     assert response.status_code == 200
-    assert response.json() == artist
+    assert response.json() == {
+        **artist,
+        "counts": {"release_groups": 0, "loose_recordings": 0, "radio_episodes": 0},
+        "radio_only": False,
+    }
+    assert artist["link"] == f"[[artist:{mbid}|Nina Simone]]"
 
 
 def test_create_artist_validation(client: TestClient) -> None:

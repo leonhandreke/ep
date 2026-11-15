@@ -37,6 +37,7 @@ files; `server/`: ruff, ty, `uv lock --check`).
 | `EP_WATCH_POLL_SECONDS` | `30` | watcher: seconds between polls of the watched dirs |
 | `EP_WATCH_SETTLE_SECONDS` | `60` | watcher: quiet time before a changed folder is imported |
 | `EP_WATCH_RESCAN_SECONDS` | `900` | watcher: seconds between full rescans |
+| `EP_HOST_PATHS` | `{}` | JSON object: server directory → its path on the host (`ep.host_paths`; compose sets the two mounts). Empty: the server runs on the host |
 
 ## Start, migrate
 
@@ -63,18 +64,28 @@ uv run alembic revision --autogenerate -m "add catalogue"
   joins on (Postgres does not index foreign keys) unless a unique constraint starts
   with it.
 
-- OpenAPI operation IDs are the endpoint function names (`list_artists`, ...), for the
-  generated Swift client. Keep endpoint function names unique.
-- `PATCH` bodies default every field to `pydantic.MISSING`: omitted fields are left
-  alone; only nullable columns accept `null`.
+- The OpenAPI document is committed as `openapi.json` (clients are generated from it):
+  `uv run python -m ep.openapi` rewrites it, `--check` tells whether it is current, and
+  `tests/test_openapi.py` fails when it is stale. Operation IDs are the endpoint function
+  names (`list_artists`, ...): keep them unique. Request and response bodies are named
+  schemas (no generated `Body_...`); uploads are the raw file
+  (`PUT /covers/release-group/{id}` with `Content-Type: image/png`, ...).
+- `PATCH` bodies default every field to `pydantic.MISSING`: an omitted field is left
+  alone, an explicit `null` clears a nullable field (as in JSON Merge Patch), and a
+  non-nullable field rejects `null` (422). The schema says which fields are nullable
+  (`anyOf` with `null`); clients must be able to send an explicit `null`.
+- Timestamps in responses (`ep.models.base.Timestamp`) are RFC 3339 in UTC with exactly
+  three fractional digits (`2026-11-15T21:02:07.123Z`): configure the client's date
+  decoding for fractional seconds (e.g. `.iso8601WithFractionalSeconds` in
+  swift-openapi-runtime). Timestamps in requests may have any precision and offset.
+  Partial dates (release dates) are strings `YYYY[-MM[-DD]]`.
 - Constraint violations (`IntegrityError` on flush or commit) become `409` through an app
   exception handler (`ep.api.errors`); endpoints just call `session.commit()`. Document
   expected errors per route with `responses=NOT_FOUND | CONFLICT` (body `ErrorRead`).
   A value the database cannot store (`DataError`: a NUL character, a number out of
   range) is a `422` in the `HTTPValidationError` shape, never a 500.
-- Request bodies have no required nullable fields: a generated Swift client leaves out
-  `nil` fields, so a field that may be null has a default (`NoteWrite.base_updated_at`).
-  (The exception is clearing a field with `PATCH`, which needs an explicit `null`.)
+- Request bodies have no required nullable fields: a field that may be null has a
+  default, so clients may leave it out (`NoteWrite.base_updated_at`).
 - Text ranges in responses (`TextRange`: note links, snippet highlights) are in UTF-16
   code units, `end` exclusive, as NSString/NSRange count; the schema says so.
 - A body that references a missing row is a `422` in FastAPI's `HTTPValidationError`
@@ -87,8 +98,94 @@ uv run alembic revision --autogenerate -m "add catalogue"
   Deleting as a side effect (radio clean-up) must spare annotated entities
   (`ep.notes.store.annotated`).
 - Entities named in a path by "MBID or ID" (`/notes`, `/backlinks`, `/entity-tags`,
-  `/entity-details`, `/resolve`) go through `ep.entities.resolve_ref`; mixed-type lists render entities
+  `/entity-details`, `/resolve/{type}/{id}`) go through `ep.entities.resolve_ref`; mixed-type lists render entities
   with `ep.api.entities.entity_reads` (`EntityRead`: title, subtitle, cover, link).
+
+## What clients read (the app's stage 0, `plans/frontend.md`)
+
+- `GET /server`: version, library counts (artists shown by default and radio-only ones,
+  release groups, recordings, tracks, shows, episodes), the library dir and media roots
+  with their host paths.
+- Host paths (`ep.host_paths`, `EP_HOST_PATHS`): responses carry `host_path` next to
+  server paths (file sources, `FileRead`, watch dirs, folder job inputs) for a file
+  manager; inputs (folder imports, watch dirs and their scans, a file source's `uri` on
+  create and patch: "Locate…") accept a host path in a mapped directory and store the
+  server path.
+- Play states (`ep.playback.playabilities`, `PlayabilityRead` on tracks and recordings):
+  `file`, `slice` (range of a shared file), `radio_excerpt`, `file_missing` (not at its
+  path: `missing_file_source_id` to locate, a radio excerpt as `playback` if there is
+  one), `link_only` (`link` to open), `no_source`. What plays: the recording's
+  `preferred_source_id` if it plays, else the oldest library source whose file is
+  there, else the oldest radio excerpt. One query for a whole list, plus a `stat` per
+  file tried. `PlaybackRead.file_duration_ms` is a scrubber's scale.
+- `GET /recordings/{id}/sources` (`RecordingSourceRead`): each source's role, its
+  ancestors (where a file came from), the file it plays from (codec, sample rate, bit
+  depth, bit rate, host path, whether it is there), the radio entry of an excerpt,
+  whether it is preferred and whether it plays. `PATCH /recordings/{id}`
+  `{"preferred_source_id": ...}` chooses (null: the default). `SourceRead` has typed
+  stream facts; the extractor leftovers (`source.meta`) are not in the API.
+- Details with counts: `GET /artists/{id}` (release groups, loose recordings, radio
+  episodes, radio-only), `GET /release-groups/{id}` (tracks, discs, length, tracks per
+  play state, kinds of link of link-only tracks), `GET /radio/shows/{id}` (episodes).
+  `GET /artists?q=` filters by name (index-backed `LIKE` on the normalised columns, in
+  sort order; `/search` ranks).
+- Edits: `PUT /release-groups/{id}/track-order` (every track's disc and position in
+  one request), `POST /tracks` with `new_recording` (credited like the release group
+  unless given) and an optional position (default: last on its disc), credits with
+  `new_artist` parts (an artist created with the credit), `link` (the note link) on
+  every entity read, `POST /musicbrainz/import` for an artist, release or recording
+  (returns an `EntityRead`).
+- `/search`: hits carry typed facts (release group type and date, recording length and
+  release group, episode date) and counts (tracks of a release group; release groups
+  and loose recordings of an artist); `per_type` caps each type (for results grouped
+  by type), `tag_id` keeps tagged entities; episodes that played a recording hit (or a
+  track of a release group hit) are hits with `radio_match` (entry, recording, time).
+- Radio entries have `state` (`in_library`, `excerpt_only`, `not_matched`); radio
+  appearances have `playback`; `GET /entity-details` of a release group lists the radio
+  entries that played its tracks.
+- Imports: job summaries carry `title`, `cover_url`, `link_kind`, `watch_dir_id`,
+  `input_host_path`, `message` (the error or first open issue), `counts` (tracks;
+  failures a retry tries again), `created` (rows the last apply created), `existing`
+  (a release conflict's release group), `waiting_for` (the job ahead in the queue) and
+  `progress` with the user-facing `step` (metadata, matching, downloading, applying)
+  and `fraction` (a running download counted partly: `import_job.progress_item`).
+  `GET /imports/summary` is the cheap poll (counts per state, running fraction, watched
+  dirs, `changed_at`). `POST /imports/{id}/cancel` stops a queued or running job (the
+  worker checks on every commit of the job's progress, killing a running download; an
+  `applying` job finishes): it becomes `dismissed`. Failed downloads do not hold up a
+  job when something else was downloaded: the rest is applied and the job stays in
+  `needs_review` (a retry adds the others; their partial downloads are kept).
+  `GET /imports/{id}/stream?track_key=` serves an incoming track's file, to preview it
+  in review (once the file is there). An uncertain artist, release group or recording
+  may be answered with any library row of that type (`pick_candidate`), not only a
+  candidate. `GET /links/classify?url=` says what a link is (kind, source kind, import
+  kind, canonical URL) without fetching it.
+- Watch dirs have `status` (`paused`, `importing`, `idle`) and `last_import_at` (jobs
+  record the watch dir whose watcher queued them).
+
+## Audio formats and AVPlayer
+
+`/sources/{id}/stream` is a `FileResponse`: `Content-Type` from the extension
+(`audio/mpeg`, `audio/mp4`, `audio/flac`, `audio/ogg`, ...), `Content-Length`,
+`Accept-Ranges: bytes`, and `206` with `Content-Range` for ranges, including AVPlayer's
+first `bytes=0-1` probe (`tests/test_app_fit.py`); AVPlayer sends no `HEAD`.
+AVFoundation plays MP3, AAC/ALAC in MP4/M4A, FLAC, WAV and AIFF. It does **not** play
+Ogg (Opus or Vorbis) or WebM: that is what yt-dlp keeps from YouTube (`-x` keeps the
+original codec), and SoundCloud/NTS downloads may be Opus too. EP does not transcode.
+
+## Demo data
+
+```sh
+uv run python -m ep.seed --database-url postgresql+psycopg://ep:ep@localhost:5432/ep_demo \
+    --library-dir /tmp/ep-demo/library      # the database must exist and be empty
+```
+
+`ep/seed.py` migrates, refuses a database with data and a non-empty directory or one
+under `~/Music`, and writes a small fixed library (every play state, a multi-disc and
+a single-file album, a radio show with two episodes, notes with links and a broken
+one, tags, jobs in each state) with generated audio and covers. It prints the
+`EP_LIBRARY_DIR` and `EP_MEDIA_ROOTS` to run the server with. Run no worker against it
+(the demo jobs are rows only). `tests/test_seed.py` seeds a scratch database.
 
 ## Sources, playback, covers
 
@@ -101,15 +198,16 @@ uv run alembic revision --autogenerate -m "add catalogue"
   again on every stream (403). The API is unauthenticated; this keeps `/stream` from
   serving arbitrary files.
 - `ep.playback.resolve` walks `parent_id` up to the nearest `file`, summing slice offsets
-  (nested slices are clipped to their parent). `playback` on `SourceRead` and `TrackRead`
-  is the result: stream `GET /sources/{id}/stream` (whole file, HTTP Range) and play
+  (nested slices are clipped to their parent). `playback` on `SourceRead` (and in
+  `TrackRead.playability`) is the result: stream `GET /sources/{id}/stream` (whole file, HTTP Range) and play
   `start_ms`..`end_ms`. Remote-only sources have `playback: null` and stream as a 409.
   For lists, `ep.playback.resolve_where` / `recording_playbacks` load the sources and
   all their ancestors in one recursive-CTE query and resolve them in memory.
 - `ep.probe.probe(path)` reads codec/duration (`ffprobe`, in the image) and tags plus the
   embedded cover (`mutagen`). It never writes. `POST /sources` uses it to fill in a new
   file source's codec, duration and size.
-- Covers are uploaded with `PUT /covers/release-group/{id}` and stored in
+- Covers are uploaded with `PUT /covers/release-group/{id}` (the image file as the
+  body) and stored in
   `EP_LIBRARY_DIR/_covers/` (`ep.covers`), never next to files in watched directories.
 
 ## MusicBrainz, matching, search
@@ -144,7 +242,7 @@ uv run alembic revision --autogenerate -m "add catalogue"
 - `GET /search?q=` (autocomplete) ranks by trigram word similarity of the normalised
   text plus a prefix bonus, so short prefixes work ("bjo" finds "Björk"); a query of
   several words also matches "artist title" of recordings and release groups ("nina
-  simone sinnerman"). `GET /resolve/{type}/{uuid}` finds an entity by internal ID or
+  simone sinnerman"). `GET /resolve/{type}/{id}` finds an entity by internal ID or
   MBID (or a release group by its release MBID).
 - Matching and search run in Postgres on indexes: `artist.name`, `artist.sort_name`, `artist_credit.name`,
   `release_group.title` and `recording.title` each have a stored generated

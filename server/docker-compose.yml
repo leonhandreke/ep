@@ -6,6 +6,8 @@ x-app: &app
   environment:
     EP_DATABASE_URL: postgresql+psycopg://ep:ep@db:5432/ep
     EP_LIBRARY_DIR: /library
+    # The mounts below, as the host sees them (paths in API responses for host clients).
+    EP_HOST_PATHS: '{"/library": "${HOME}/Music/ep-Library", "/watch/Library": "${HOME}/Music/Library"}'
   volumes:
     - ${HOME}/Music/ep-Library:/library
     - ${HOME}/Music/Library:/watch/Library:ro

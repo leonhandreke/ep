@@ -215,18 +215,40 @@ def test_failed_track_download_does_not_lose_the_rest(
     trash = "https://knotwilg.bandcamp.com/track/trash"
     ytdlp.failing_downloads.add(trash)
     job = post_url(client, "bandcamp", KNOTWILG)
+    # The other four are imported; the job stays in the inbox for the failed one.
     assert run() == {uuid.UUID(job["id"]): JobState.needs_review}
-    [issue] = get_job(client, job["id"])["proposal"]["issues"]
+    read = get_job(client, job["id"])
+    [issue] = read["proposal"]["issues"]
     assert issue["kind"] == "download_failed"
     assert issue["subject"]["key"] == trash
     assert "not made this video available in your country" in issue["message"]
     assert issue["choices"] == ["retry", "skip"]
-    assert count(session, Recording) == 0
+    assert issue["blocking"] is False
+    assert (read["counts"]["failed"], read["created"]["recordings"]) == (1, 4)
+    assert read["actions"] == ["review", "retry", "dismiss"]
+    titles = session.exec(select(Recording.title)).all()
+    assert sorted(titles) == sorted(t for t in KNOTWILG_TRACKS if t != "Trash")
 
-    # Skip it: the other four are imported, from the downloads made already.
+    # Retried: the failed one is downloaded and added to the same release group.
+    ytdlp.failing_downloads.clear()
+    assert client.post(f"/imports/{job['id']}/retry").status_code == 200
+    assert run() == {uuid.UUID(job["id"]): JobState.done}
+    assert len(ytdlp.downloads) == 6  # 5, then the retried one
+    assert count(session, ReleaseGroup) == 1
+    assert sorted(session.exec(select(Recording.title)).all()) == sorted(KNOTWILG_TRACKS)
+    assert get_job(client, job["id"])["counts"]["failed"] == 0
+
+
+def test_failed_track_download_skipped(
+    client: TestClient, session: Session, run: Any, ytdlp: FakeYtDlp
+) -> None:
+    trash = "https://knotwilg.bandcamp.com/track/trash"
+    ytdlp.failing_downloads.add(trash)
+    job = post_url(client, "bandcamp", KNOTWILG)
+    run()
+    [issue] = get_job(client, job["id"])["proposal"]["issues"]
     review(client, job["id"], {"issue_id": issue["id"], "choice": "skip"})
     assert run() == {uuid.UUID(job["id"]): JobState.done}
-    assert len(ytdlp.downloads) == 5
     titles = session.exec(select(Recording.title)).all()
     assert sorted(titles) == sorted(t for t in KNOTWILG_TRACKS if t != "Trash")
 

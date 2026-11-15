@@ -33,6 +33,14 @@ def test_search_short_prefix_finds_accented_name(client: TestClient) -> None:
         "title": "Björk",
         "subtitle": "Icelandic singer",
         "cover_url": None,
+        "release_group_type": None,
+        "date": None,
+        "length_ms": None,
+        "release_group_title": None,
+        "track_count": None,
+        "release_group_count": 0,
+        "loose_recording_count": 0,
+        "radio_match": None,
         # What the client writes into a note for it.
         "link_ref": bjork["id"],
         "link": f"[[artist:{bjork['id']}|Björk]]",
@@ -55,7 +63,9 @@ def test_search_across_types_with_subtitles_and_covers(client: TestClient) -> No
     pastel = make_release_group(client, nina, "Pastel Blues")
     assert (
         client.put(
-            f"/covers/release-group/{pastel['id']}", files={"file": ("c.png", COVER)}
+            f"/covers/release-group/{pastel['id']}",
+            content=COVER,
+            headers={"Content-Type": "image/png"},
         ).status_code
         == 200
     )

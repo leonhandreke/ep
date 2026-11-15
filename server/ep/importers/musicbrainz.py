@@ -405,3 +405,9 @@ class _ArtistResolver:
             artist.mbid = mb_artist.id
         self.resolved[mb_artist.id] = artist
         return artist
+
+
+def import_artist(session: Session, mb_artist: MBArtist) -> Artist:
+    """The library artist for a MusicBrainz artist: the row with its MBID, a confident
+    match without MBID (which gains it), or a new artist. Flushes nothing."""
+    return _ArtistResolver(session, {}).artist(mb_artist)

@@ -88,7 +88,7 @@ def test_links_resolve_by_mbid_or_id_with_chips(client: TestClient) -> None:
     song = make_recording(client, nina)
     make_track(client, album, song)
     cover = client.put(
-        f"/covers/release-group/{album['id']}", files={"file": ("c.png", COVER, "image/png")}
+        f"/covers/release-group/{album['id']}", content=COVER, headers={"Content-Type": "image/png"}
     )
     assert cover.status_code == 200, cover.text
     missing = uuid.uuid4()
@@ -110,6 +110,10 @@ def test_links_resolve_by_mbid_or_id_with_chips(client: TestClient) -> None:
         "title": "Sinnerman",
         "subtitle": "Nina Simone",
         "cover_url": f"/covers/release-group/{album['id']}",
+        "release_group_type": None,
+        "date": None,
+        "length_ms": None,
+        "release_group_title": "Pastel Blues",
         "link_ref": song["id"],
         "link": f"[[recording:{song['id']}|Sinnerman]]",
     }

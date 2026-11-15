@@ -182,7 +182,7 @@ def test_confident_job_applies_directly(
         (1, "Sinnerman"),
         (2, "Feeling Good"),
     ]
-    assert all(t["playback"] for t in tracks)
+    assert all(t["playability"]["state"] == "file" for t in tracks)
     feeling_good = tracks[1]["recording"]["id"]
     ids = client.get(f"/recordings/{feeling_good}/external-ids").json()
     assert [(i["scheme"], i["value"]) for i in ids] == [("isrc", "USPR36500001")]
@@ -425,7 +425,8 @@ def test_retrying_a_done_job_creates_nothing_new(
 def test_only_queued_jobs_run(
     client: TestClient, job: ImportJob, run: Any, fake: FakeImporter
 ) -> None:
-    assert client.post(f"/imports/{job.id}/dismiss").json()["state"] == "dismissed"
+    assert client.post(f"/imports/{job.id}/dismiss").status_code == 409  # cancel it instead
+    assert client.post(f"/imports/{job.id}/cancel").json()["state"] == "dismissed"
     assert run() == {job.id: None}
     assert fake.builds == 0
 
@@ -435,7 +436,16 @@ def test_list_import_jobs(client: TestClient, session: Session, job: ImportJob, 
     session.commit()
     listed = client.get("/imports").json()
     assert [j["id"] for j in listed] == [str(second.id), str(job.id)]
-    assert listed[0]["progress"] == {"stage": None, "done": 0, "total": None}
+    assert listed[0]["progress"] == {
+        "stage": None,
+        "step": None,
+        "done": 0,
+        "total": None,
+        "fraction": None,
+    }
+    # Waiting behind the first one; actions: cancel.
+    assert (listed[0]["waiting_for"], listed[1]["waiting_for"]) == (str(job.id), None)
+    assert listed[0]["actions"] == ["cancel"]
     assert client.get("/imports", params={"kind": "folder"}).json() == []
     assert client.get("/imports", params={"state": "done"}).json() == []
     run()

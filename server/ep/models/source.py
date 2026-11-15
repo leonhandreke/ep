@@ -51,6 +51,12 @@ class Source(Base, table=True):
     duration_ms: int | None = None
     size: int | None = Field(default=None, sa_type=sa.BigInteger)
     sha256: str | None = None
+    # Stream facts of a ``file`` (``ep.probe``): sample rate (Hz), bits per sample
+    # (lossless formats), bit rate (bit/s), channel count.
+    sample_rate: int | None = None
+    bit_depth: int | None = None
+    bit_rate: int | None = None
+    channels: int | None = None
     # Extractor leftovers (yt-dlp, tags, ...).
     meta: dict[str, Any] = Field(default_factory=dict, sa_type=JSONB)
 

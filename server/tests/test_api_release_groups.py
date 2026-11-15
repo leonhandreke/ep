@@ -33,7 +33,17 @@ def test_create_release_group_with_credit(client: TestClient) -> None:
         {"artist_id": garfunkel["id"], "credited_name": "Garfunkel", "join_phrase": ""},
     ]
     assert release_group["date"] == "1968-04-03"
-    assert client.get(f"/release-groups/{release_group['id']}").json() == release_group
+    detail = client.get(f"/release-groups/{release_group['id']}").json()
+    assert detail == {
+        **release_group,
+        "track_count": 0,
+        "disc_count": 0,
+        "length_ms": 0,
+        "play_states": dict.fromkeys(
+            ["file", "slice", "radio_excerpt", "file_missing", "link_only", "no_source"], 0
+        ),
+        "link_kinds": [],
+    }
 
 
 def test_credit_defaults_to_artist_name_and_is_shared(client: TestClient, session: Session) -> None:

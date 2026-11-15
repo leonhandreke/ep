@@ -17,7 +17,15 @@ def test_create_and_get_recording(client: TestClient) -> None:
 
     response = client.get(f"/recordings/{recording['id']}")
     assert response.status_code == 200
-    assert response.json() == {**recording, "tracks": []}  # a standalone recording
+    no_source = {
+        "state": "no_source",
+        "playback": None,
+        "radio_entry": None,
+        "link": None,
+        "missing_file_source_id": None,
+    }
+    # A standalone recording, metadata only.
+    assert response.json() == {**recording, "tracks": [], "playability": no_source}
     assert client.get(f"/recordings/{uuid.uuid4()}").status_code == 404
 
 

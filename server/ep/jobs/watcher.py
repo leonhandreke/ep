@@ -125,8 +125,16 @@ def folders_to_import(
     return folders
 
 
-def queue_folders(session: Session, folders: Iterable[Path]) -> list[ImportJob]:
-    return [create_import(session, ImportKind.folder, str(folder)) for folder in folders]
+def queue_folders(
+    session: Session, folders: Iterable[Path], watch_dir: WatchDir
+) -> list[ImportJob]:
+    """Queue folder imports, recording the watch dir they come from."""
+    jobs = []
+    for folder in folders:
+        job = create_import(session, ImportKind.folder, str(folder))
+        job.watch_dir_id = watch_dir.id
+        jobs.append(job)
+    return jobs
 
 
 class Watcher:
@@ -173,7 +181,7 @@ class Watcher:
                 continue
             del self.dirty[folder]
             folders = folders_to_import(session, watch_dir, now, self.settle, under=folder)
-            jobs += queue_folders(session, folders)
+            jobs += queue_folders(session, folders, watch_dir)
         session.commit()
         return jobs
 
@@ -182,9 +190,8 @@ class Watcher:
         jobs = []
         for watch_dir in self.watch_dirs(session):
             if Path(watch_dir.path).is_dir():
-                jobs += queue_folders(
-                    session, folders_to_import(session, watch_dir, now, self.settle)
-                )
+                folders = folders_to_import(session, watch_dir, now, self.settle)
+                jobs += queue_folders(session, folders, watch_dir)
             else:
                 logger.warning("watched directory %s is missing", watch_dir.path)
         session.commit()

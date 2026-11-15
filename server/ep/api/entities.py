@@ -3,6 +3,7 @@ tagged entities), and finding an entity named in a path by MBID or ID."""
 
 import uuid
 from collections.abc import Iterable
+from dataclasses import dataclass
 
 from fastapi import HTTPException, status
 from sqlmodel import Session, col, select
@@ -33,43 +34,61 @@ def _release_group_cover(id: uuid.UUID) -> str:
     return f"/covers/release-group/{id}"
 
 
-def recording_covers(session: Session, recording_ids: Iterable[uuid.UUID]) -> dict[uuid.UUID, str]:
-    """A cover URL for each recording that is on a release group with a cover (the
-    oldest such release group), in one query."""
+@dataclass(frozen=True)
+class RecordingAlbum:
+    """For a recording's summary: the (oldest) release group it is on, and a cover."""
+
+    title: str | None = None
+    cover_url: str | None = None
+
+
+def recording_albums(
+    session: Session, recording_ids: Iterable[uuid.UUID]
+) -> dict[uuid.UUID, RecordingAlbum]:
+    """For each recording on a release group: the oldest one's title, and the cover of
+    the oldest one with a cover (one query)."""
     ids = set(recording_ids)
-    covers: dict[uuid.UUID, str] = {}
+    albums: dict[uuid.UUID, RecordingAlbum] = {}
     if not ids:
-        return covers
+        return albums
     rows = session.exec(
-        select(Track.recording_id, ReleaseGroup.id)
+        select(Track.recording_id, ReleaseGroup.id, ReleaseGroup.title, ReleaseGroup.cover_path)
         .join(ReleaseGroup, col(Track.release_group_id) == ReleaseGroup.id)
-        .where(col(Track.recording_id).in_(ids), col(ReleaseGroup.cover_path).is_not(None))
+        .where(col(Track.recording_id).in_(ids))
         .order_by(col(ReleaseGroup.date).asc().nulls_last(), col(ReleaseGroup.id))
     )
-    for recording_id, release_group_id in rows:
-        covers.setdefault(recording_id, _release_group_cover(release_group_id))
-    return covers
+    for recording_id, release_group_id, title, cover_path in rows:
+        album = albums.get(recording_id) or RecordingAlbum(title=title)
+        if album.cover_url is None and cover_path:
+            album = RecordingAlbum(album.title, _release_group_cover(release_group_id))
+        albums[recording_id] = album
+    return albums
 
 
-def entity_read(entity: Base, covers: dict[uuid.UUID, str]) -> EntityRead:
-    """``covers``: recording covers (``recording_covers``). Release groups and
+def entity_read(entity: Base, albums: dict[uuid.UUID, RecordingAlbum]) -> EntityRead:
+    """``albums``: of recordings (``recording_albums``). Release groups and
     recordings need their artist credit loaded, episodes their show
     (``ep.entities.SUMMARY_OPTIONS``)."""
+    release_group_type = date = length = album_title = None
     match entity:
         case Artist():
             title, subtitle, cover = entity.name, entity.disambiguation or None, None
         case ReleaseGroup():
             title, subtitle = entity.title, entity.artist_credit.name
             cover = _release_group_cover(entity.id) if entity.cover_path else None
+            release_group_type, date = entity.type, entity.date
         case Recording():
-            title, subtitle, cover = entity.title, entity.artist_credit.name, covers.get(entity.id)
+            album = albums.get(entity.id, RecordingAlbum())
+            title, subtitle, cover = entity.title, entity.artist_credit.name, album.cover_url
+            length, album_title = entity.length_ms, album.title
         case RadioShow():
             title, subtitle = entity.name, entity.station.upper()
             cover = f"/covers/radio-show/{entity.id}" if entity.image_path else None
         case RadioEpisode():
             title, subtitle = entity.name, entity.show.name
             if entity.broadcast_at is not None:
-                subtitle += f", {entity.broadcast_at:%Y-%m-%d}"
+                date = f"{entity.broadcast_at:%Y-%m-%d}"
+                subtitle += f", {date}"
             cover = f"/covers/radio-episode/{entity.id}" if entity.image_path else None
         case _:
             raise TypeError(f"unexpected entity {entity!r}")
@@ -82,13 +101,17 @@ def entity_read(entity: Base, covers: dict[uuid.UUID, str]) -> EntityRead:
         title=title,
         subtitle=subtitle,
         cover_url=cover,
+        release_group_type=release_group_type,
+        date=date,
+        length_ms=length,
+        release_group_title=album_title,
         link_ref=ref,
         link=format_link(entity_type, ref, title),
     )
 
 
 def entity_reads(session: Session, entities: Iterable[Base]) -> dict[uuid.UUID, EntityRead]:
-    """``EntityRead`` of each entity, by ID (one query for recording covers)."""
+    """``EntityRead`` of each entity, by ID (one query for recordings' release groups)."""
     entities = list(entities)
-    covers = recording_covers(session, (e.id for e in entities if isinstance(e, Recording)))
-    return {entity.id: entity_read(entity, covers) for entity in entities}
+    albums = recording_albums(session, (e.id for e in entities if isinstance(e, Recording)))
+    return {entity.id: entity_read(entity, albums) for entity in entities}

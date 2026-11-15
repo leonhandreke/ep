@@ -138,10 +138,15 @@ class DownloadError(Exception):
     """A pending download failed: becomes a ``download_failed`` issue."""
 
 
+class JobCancelled(Exception):
+    """The user cancelled the running job (``POST /imports/{id}/cancel``)."""
+
+
 # Transitions the user can make (the worker makes the others).
 REVIEWABLE = frozenset({JobState.needs_review, JobState.failed})
 RETRYABLE = frozenset({JobState.needs_review, JobState.failed, JobState.done})
-DISMISSABLE = frozenset({JobState.queued, JobState.needs_review, JobState.failed})
+DISMISSABLE = frozenset({JobState.needs_review, JobState.failed})
+CANCELLABLE = frozenset({JobState.queued, JobState.running})
 
 
 def job_work_dir(library_dir: Path, job_id: uuid.UUID) -> Path:
@@ -188,9 +193,12 @@ class JobContext:
         return job_work_dir(self.settings.library_dir, self.job.id)
 
     def save(self) -> None:
-        """Commit the job's state, log and progress (not while applying)."""
+        """Commit the job's state, log and progress (not while applying); raise
+        ``JobCancelled`` if the job was cancelled meanwhile (the commit reloads it)."""
         if not self.in_transaction:
             self.session.commit()
+            if self.job.state is JobState.dismissed:
+                raise JobCancelled
 
     def log(self, message: str, level: LogLevel = LogLevel.info) -> None:
         entry = LogEntry(at=utcnow(), level=level, message=message)
@@ -199,10 +207,17 @@ class JobContext:
 
     def stage(self, stage: JobStage, total: int | None = None) -> None:
         self.job.stage, self.job.progress_done, self.job.progress_total = stage, 0, total
+        self.job.progress_item = None
         self.save()
 
     def advance(self, done: int = 1) -> None:
         self.job.progress_done += done
+        self.job.progress_item = None
+        self.save()
+
+    def item_progress(self, fraction: float) -> None:
+        """How far the item being worked on (a download) is, 0-1."""
+        self.job.progress_item = min(max(fraction, 0.0), 1.0)
         self.save()
 
     def raise_issue(self, issue: Issue) -> Answer | None:
@@ -210,7 +225,7 @@ class JobContext:
         answer that no longer fits (e.g. the candidate it picked is not offered any more)
         is ignored and the issue is open again."""
         answer = self.answers.get(issue.id)
-        if answer is not None and not answer_fits(issue, answer):
+        if answer is not None and not answer_fits(issue, answer, self.session):
             self.log(f"answer to {issue.id} no longer fits; asking again", LogLevel.warning)
             answer = None
         self.issues = [*(i for i in self.issues if i.id != issue.id), issue]
@@ -228,11 +243,30 @@ class JobContext:
         return self.mb_releases[mbid]
 
 
-def answer_fits(issue: Issue, answer: Answer) -> bool:
+# Issues whose ``pick_candidate`` answer may name any library row of the type, not
+# only a candidate (the user searched the library for another).
+PICK_ANY: dict[IssueKind, type[Base]] = {
+    IssueKind.uncertain_artist: Artist,
+    IssueKind.uncertain_release_group: ReleaseGroup,
+    IssueKind.uncertain_recording: Recording,
+}
+
+
+def answer_fits(issue: Issue, answer: Answer, session: Session | None = None) -> bool:
+    """Whether the answer is one of the issue's choices; a picked candidate must be one
+    of its candidates or (``PICK_ANY``, given a session) a library row of that type."""
     if answer.choice not in issue.choices or answer.choice is Choice.retry:
         return False
     if answer.choice is Choice.pick_candidate:
-        return any(candidate.id == answer.candidate_id for candidate in issue.candidates)
+        if any(candidate.id == answer.candidate_id for candidate in issue.candidates):
+            return True
+        model = PICK_ANY.get(issue.kind)
+        return (
+            model is not None
+            and session is not None
+            and answer.candidate_id is not None
+            and session.get(model, answer.candidate_id) is not None
+        )
     return True
 
 
@@ -301,6 +335,7 @@ def claim(session: Session, job_id: uuid.UUID) -> ImportJob | None:
             stage=None,
             progress_done=0,
             progress_total=None,
+            progress_item=None,
             error=None,
             updated_at=utcnow(),
         )
@@ -346,14 +381,24 @@ def run_job(
         job.state, job.stage = JobState.done, None
         ctx.log(summary)
         if waiting := proposal.open_issues():
-            # Only optional tracks are open: applied without them, back in the inbox.
+            # Only non-blocking issues are open (optional tracks, failed downloads):
+            # applied without them, back in the inbox.
             job.state = JobState.needs_review
             ctx.log(f"applied; needs review: {len(waiting)} open issue(s) left out for now")
         session.commit()
+    except JobCancelled:
+        session.rollback()
+        job = session.get_one(ImportJob, job_id)
+        job.stage, job.progress_item = None, None
+        job.log = [*job.log, _entry(LogLevel.info, "cancelled")]
+        session.commit()
+        discard_work(settings.library_dir, job_id)
     except Exception as e:  # the job fails; it stays in the inbox for a retry
         _fail(ctx, job_id, e)
     else:
-        discard_work(settings.library_dir, job_id)
+        # Failed downloads keep their partial files for the retry.
+        if not any(i.kind is IssueKind.download_failed for i in proposal.open_issues()):
+            discard_work(settings.library_dir, job_id)
     return session.get_one(ImportJob, job_id).state
 
 
@@ -407,6 +452,7 @@ def _download(ctx: JobContext, importer: Importer, proposal: Proposal) -> None:
     if not pending:
         return
     ctx.stage(JobStage.download, len(pending))
+    failed: list[Issue] = []
     for medium in pending:
         subject = Subject(type=SubjectType.medium, key=medium.key, label=_medium_label(medium))
         issue = Issue(
@@ -429,7 +475,13 @@ def _download(ctx: JobContext, importer: Importer, proposal: Proposal) -> None:
             except DownloadError as e:
                 issue.message = f"download failed: {e}"
                 ctx.raise_issue(issue)
+                failed.append(issue)
         ctx.advance()
+    # With anything else to import, failed downloads do not hold the job up: it applies
+    # without their tracks (a retry downloads and adds them).
+    if failed and any(not medium.download for medium in proposal.media if medium.key in used):
+        for issue in failed:
+            issue.blocking = False
 
 
 def fetch_image(ctx: JobContext, importer: Importer, url: str) -> Path | None:
@@ -491,7 +543,8 @@ def _download_medium(ctx: JobContext, importer: Importer, medium: IncomingMedium
         done.unlink(missing_ok=True)  # download it again on retry
         raise DownloadError(f"the downloaded file cannot be read as audio: {e}") from e
     medium.path, medium.download, medium.managed = str(done), False, True
-    medium.codec, medium.duration_ms, medium.size = result.codec, result.duration_ms, result.size
+    for name, value in result.audio_facts().items():
+        setattr(medium, name, value)
     medium.sha256 = sha256
 
 
@@ -673,8 +726,9 @@ def decide[T: Base](
         match answer.choice:
             case Choice.pick_candidate:
                 entity = next(
-                    c.entity for c in result.candidates if c.entity.id == answer.candidate_id
-                )
+                    (c.entity for c in result.candidates if c.entity.id == answer.candidate_id),
+                    None,
+                ) or ctx.session.get_one(PICK_ANY[kind], answer.candidate_id)
                 target = existing(entity)
             case Choice.create_new:
                 target = new
@@ -1096,6 +1150,9 @@ class _Applier:
         if track.optional and self._waiting(track):
             self.ctx.log(f"left out until reviewed: {track_label(track)}")
             return None
+        if track.medium_key and self.proposal.medium(track.medium_key).download:
+            self.ctx.log(f"left out until downloaded: {track_label(track)}")
+            return None
         match target:
             case SkipTarget():
                 return None
@@ -1394,6 +1451,10 @@ class _Applier:
             duration_ms=medium.duration_ms,
             size=medium.size,
             sha256=medium.sha256,
+            sample_rate=medium.sample_rate,
+            bit_depth=medium.bit_depth,
+            bit_rate=medium.bit_rate,
+            channels=medium.channels,
             meta={"import_job_id": str(self.ctx.job.id)},
         )
         self.session.add(source)
@@ -1452,6 +1513,7 @@ def apply_proposal(ctx: JobContext, importer: Importer, proposal: Proposal) -> s
     finally:
         event.remove(ctx.session, "before_flush", count_new)
     tables = ("artist", "release_group", "recording", "track", "source", "external_id")
+    ctx.job.created = {table: created[table] for table in tables if created[table]}
     summary = ", ".join(f"{table} {created[table]}" for table in tables if created[table])
     return f"done, created: {summary}" if summary else "done: nothing new to import"
 
@@ -1468,6 +1530,7 @@ def sha256_file(path: Path, chunk_size: int = 1 << 20) -> str:
 
 
 __all__ = [
+    "CANCELLABLE",
     "DISMISSABLE",
     "RETRYABLE",
     "REVIEWABLE",
@@ -1476,6 +1539,7 @@ __all__ = [
     "ImportFailed",
     "Importer",
     "IncomingArtist",
+    "JobCancelled",
     "JobContext",
     "answer_fits",
     "apply_proposal",

@@ -1,24 +1,44 @@
 import uuid
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, status
-from sqlmodel import col, select
+from fastapi import APIRouter, HTTPException, Query, status
+from sqlalchemy import exists, literal
+from sqlmodel import col, func, select
 
 from ep.api.deps import PageDep, SessionDep, get_or_404
 from ep.api.errors import CONFLICT, NOT_FOUND
 from ep.api.external_ids import add_external_id_routes
 from ep.api.release_groups import release_group_order
 from ep.api.schemas import (
+    ArtistCountsRead,
     ArtistCreate,
+    ArtistDetail,
     ArtistRead,
     ArtistUpdate,
+    PlayableRecordingRead,
     RecordingRead,
     ReleaseGroupRead,
 )
+from ep.api.tracks import playability_read
 from ep.credits import with_credit
 from ep.external_ids import delete_external_ids
-from ep.models import Artist, ArtistCreditName, EntityType, Recording, ReleaseGroup, Track
+from ep.models import (
+    Artist,
+    ArtistCreditName,
+    EntityType,
+    RadioEpisodeTrack,
+    Recording,
+    ReleaseGroup,
+    Track,
+)
 from ep.notes.store import delete_annotations
-from ep.radio import visible_artists, visible_recordings
+from ep.playback import playabilities
+from ep.radio import (
+    radio_only_artist,
+    radio_only_recording,
+    visible_artists,
+    visible_recordings,
+)
 
 router = APIRouter(prefix="/artists", tags=["artists"])
 
@@ -30,14 +50,25 @@ def _credit_ids(artist_id: uuid.UUID):
 
 @router.get("")
 def list_artists(
-    session: SessionDep, page: PageDep, include_radio_only: bool = False
+    session: SessionDep,
+    page: PageDep,
+    include_radio_only: bool = False,
+    q: Annotated[str | None, Query(min_length=1)] = None,
 ) -> list[ArtistRead]:
     """Artists by sort name. Artists only known from radio tracklists (no release group,
     only radio-only recordings, see ``ep.radio``) are left out unless
-    ``include_radio_only``."""
+    ``include_radio_only``. ``q`` filters (still by sort name): artists whose name or
+    sort name contains it, ignoring case, accents and punctuation (index-backed; for
+    ranked fuzzy matching use ``/search``). Totals: ``GET /server``."""
     query = select(Artist)
     if (visible := visible_artists(include_radio_only)) is not None:
         query = query.where(visible)
+    if q is not None:
+        needle = func.ep_normalize(q)
+        query = query.where(
+            col(Artist.name_normalized).contains(needle)
+            | col(Artist.sort_name_normalized).contains(needle)
+        )
     artists = session.exec(
         query.order_by(col(Artist.sort_name), col(Artist.name), col(Artist.id))
         .limit(page.limit)
@@ -55,8 +86,43 @@ def create_artist(body: ArtistCreate, session: SessionDep) -> ArtistRead:
 
 
 @router.get("/{id}", responses=NOT_FOUND)
-def get_artist(id: uuid.UUID, session: SessionDep) -> ArtistRead:
-    return ArtistRead.model_validate(get_or_404(session, Artist, id))
+def get_artist(id: uuid.UUID, session: SessionDep) -> ArtistDetail:
+    """An artist with counts: release groups, loose recordings (not radio-only), radio
+    episodes that played them; and whether the artist is known only from radio."""
+    credits = _credit_ids(id)
+    loose = select(func.count(col(Recording.id))).where(
+        col(Recording.artist_credit_id).in_(credits),
+        ~exists().where(col(Track.recording_id) == col(Recording.id)),
+        ~radio_only_recording(col(Recording.id)),
+    )
+    episodes = (
+        select(func.count(func.distinct(col(RadioEpisodeTrack.episode_id))))
+        .join(Recording, col(RadioEpisodeTrack.recording_id) == col(Recording.id))
+        .where(col(Recording.artist_credit_id).in_(credits))
+    )
+    release_groups = select(func.count(col(ReleaseGroup.id))).where(
+        col(ReleaseGroup.artist_credit_id).in_(credits)
+    )
+    artist = get_or_404(session, Artist, id)
+    n_release_groups, n_loose, n_episodes, radio_only = session.exec(
+        select(
+            release_groups.scalar_subquery(),
+            loose.scalar_subquery(),
+            episodes.scalar_subquery(),
+            radio_only_artist(literal(id)),
+        )
+    ).one()
+    return ArtistDetail.model_validate(
+        {
+            **ArtistRead.model_validate(artist).model_dump(),
+            "counts": ArtistCountsRead(
+                release_groups=n_release_groups,
+                loose_recordings=n_loose,
+                radio_episodes=n_episodes,
+            ),
+            "radio_only": radio_only,
+        }
+    )
 
 
 @router.patch("/{id}", responses=NOT_FOUND | CONFLICT)
@@ -103,12 +169,13 @@ def list_artist_recordings(
     page: PageDep,
     standalone: bool | None = None,
     include_radio_only: bool = False,
-) -> list[RecordingRead]:
+) -> list[PlayableRecordingRead]:
     """Recordings whose artist credit includes this artist, by title.
 
     ``standalone=true``: only recordings that are not a track of any release group
     (loose tracks); ``false``: only those that are; omitted: all. Recordings only known
     from radio tracklists (``ep.radio``) are left out unless ``include_radio_only``.
+    Each with how it plays.
     """
     get_or_404(session, Artist, id)
     query = select(Recording).where(col(Recording.artist_credit_id).in_(_credit_ids(id)))
@@ -122,8 +189,17 @@ def list_artist_recordings(
         .limit(page.limit)
         .offset(page.offset)
         .options(with_credit(Recording.artist_credit))
-    )
-    return [RecordingRead.model_validate(recording) for recording in recordings]
+    ).all()
+    found = playabilities(session, recordings)
+    return [
+        PlayableRecordingRead.model_validate(
+            {
+                **RecordingRead.model_validate(recording).model_dump(),
+                "playability": playability_read(found[recording.id]),
+            }
+        )
+        for recording in recordings
+    ]
 
 
 add_external_id_routes(router, Artist, EntityType.artist, "")

@@ -32,7 +32,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any, NamedTuple
 
-from sqlalchemy import ColumnElement, case, func, union
+from sqlalchemy import ColumnElement, and_, case, exists, func, union
 from sqlalchemy.orm import Mapped, QueryableAttribute, contains_eager, joinedload
 from sqlmodel import Session, col, select
 from sqlmodel.sql.expression import SelectOfScalar
@@ -42,6 +42,7 @@ from ep.models import (
     Artist,
     ArtistCredit,
     Base,
+    EntityTag,
     EntityType,
     RadioEpisode,
     RadioShow,
@@ -119,22 +120,40 @@ def search(
     types: Iterable[EntityType] = SEARCH_TYPES,
     limit: int = 20,
     include_radio_only: bool = False,
+    per_type: int | None = None,
+    tag_id: uuid.UUID | None = None,
 ) -> list[SearchHit]:
-    """The best ``limit`` hits across ``types`` (of ``SEARCH_TYPES``), best first."""
+    """The best ``limit`` hits across ``types`` (of ``SEARCH_TYPES``), best first; at
+    most ``per_type`` of each type; only entities with the tag ``tag_id``."""
     [normalized] = trigram_queries(session, SEARCH_MIN_SIMILARITY, query)
     words = normalized.split()
     if not words:
         return []
-    best: dict[tuple[EntityType, uuid.UUID], SearchHit] = {}
+    found: list[SearchHit] = []
     for entity_type in dict.fromkeys(types):
-        visible = _visible(entity_type, include_radio_only)
-        hits = _search_type(session, entity_type, words, limit, visible)
-        hits += _search_combined(session, entity_type, words, limit, visible)
+        conditions = [_visible(entity_type, include_radio_only)]
+        if tag_id is not None:
+            conditions.append(_tagged(entity_type, tag_id))
+        present = [c for c in conditions if c is not None]
+        where = and_(*present) if present else None
+        type_limit = min(limit, per_type) if per_type else limit
+        hits = _search_type(session, entity_type, words, type_limit, where)
+        hits += _search_combined(session, entity_type, words, type_limit, where)
+        best: dict[uuid.UUID, SearchHit] = {}
         for hit in hits:
-            key = (hit.type, hit.entity.id)
-            if key not in best or hit.score > best[key].score:
-                best[key] = hit
-    return sorted(best.values(), key=lambda hit: hit.score, reverse=True)[:limit]
+            if hit.entity.id not in best or hit.score > best[hit.entity.id].score:
+                best[hit.entity.id] = hit
+        found += sorted(best.values(), key=lambda hit: hit.score, reverse=True)[:type_limit]
+    return sorted(found, key=lambda hit: hit.score, reverse=True)[:limit]
+
+
+def _tagged(entity_type: EntityType, tag_id: uuid.UUID) -> ColumnElement[bool]:
+    model = _COLUMNS[entity_type].model
+    return exists().where(
+        col(EntityTag.tag_id) == tag_id,
+        col(EntityTag.entity_type) == entity_type,
+        col(EntityTag.entity_id) == col(model.id),
+    )
 
 
 def _hit_and_rank(

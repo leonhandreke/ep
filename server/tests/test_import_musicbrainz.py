@@ -265,11 +265,14 @@ def mb(client: TestClient) -> Iterator[MockMusicBrainz]:
 
 
 def test_import_endpoint(client: TestClient, mb: MockMusicBrainz) -> None:
-    response = client.post("/musicbrainz/import", json={"release_mbid": PROMISES_RELEASE})
+    response = client.post(
+        "/musicbrainz/import", json={"type": "release", "mbid": PROMISES_RELEASE}
+    )
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["mbid"] == PROMISES_RELEASE_GROUP
-    assert body["release_mbid"] == PROMISES_RELEASE
+    assert (body["type"], body["mbid"]) == ("release_group", PROMISES_RELEASE_GROUP)
+    assert body["link"] == f"[[release_group:{PROMISES_RELEASE_GROUP}|{body['title']}]]"
+    assert client.get(f"/release-groups/{body['id']}").json()["release_mbid"] == PROMISES_RELEASE
     tracks = client.get(f"/release-groups/{body['id']}/tracks").json()
     assert len(tracks) == 9
     recording = tracks[0]["recording"]
@@ -278,7 +281,9 @@ def test_import_endpoint(client: TestClient, mb: MockMusicBrainz) -> None:
 
 
 def test_import_endpoint_errors(client: TestClient, mb: MockMusicBrainz) -> None:
-    response = client.post("/musicbrainz/import", json={"release_mbid": str(uuid.uuid4())})
+    response = client.post(
+        "/musicbrainz/import", json={"type": "release", "mbid": str(uuid.uuid4())}
+    )
     assert response.status_code == 404
     artist = make_artist(client)
     make_release_group(
@@ -287,7 +292,9 @@ def test_import_endpoint_errors(client: TestClient, mb: MockMusicBrainz) -> None
         mbid=PROMISES_RELEASE_GROUP,
         release_mbid=str(uuid.uuid4()),
     )
-    response = client.post("/musicbrainz/import", json={"release_mbid": PROMISES_RELEASE})
+    response = client.post(
+        "/musicbrainz/import", json={"type": "release", "mbid": PROMISES_RELEASE}
+    )
     assert response.status_code == 409
     assert "already imported" in response.json()["detail"]
 
@@ -296,7 +303,7 @@ def test_import_endpoint_conflicting_release_mbid(client: TestClient, mb: MockMu
     # Another release group (of another MusicBrainz release group) claims this release.
     artist = make_artist(client)
     make_release_group(client, artist, mbid=str(uuid.uuid4()), release_mbid=BIG_FUN_RELEASE)
-    response = client.post("/musicbrainz/import", json={"release_mbid": BIG_FUN_RELEASE})
+    response = client.post("/musicbrainz/import", json={"type": "release", "mbid": BIG_FUN_RELEASE})
     assert response.status_code == 409
     assert "already imported" in response.json()["detail"]
 
@@ -306,7 +313,7 @@ def test_import_endpoint_attaches_release_group_without_mbid(
 ) -> None:
     # A release group made by hand for this release: it gains the release group's MBID.
     local = make_release_group(client, make_artist(client), release_mbid=BIG_FUN_RELEASE)
-    response = client.post("/musicbrainz/import", json={"release_mbid": BIG_FUN_RELEASE})
+    response = client.post("/musicbrainz/import", json={"type": "release", "mbid": BIG_FUN_RELEASE})
     assert response.status_code == 200, response.text
     assert response.json()["id"] == local["id"]
     assert response.json()["mbid"] is not None

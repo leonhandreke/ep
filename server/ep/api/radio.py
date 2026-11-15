@@ -13,22 +13,24 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import MISSING
 from sqlalchemy import ColumnElement, or_
 from sqlalchemy.orm import contains_eager, joinedload, selectinload
-from sqlmodel import Session, col, select
+from sqlmodel import Session, col, func, select
 
 from ep.api.deps import PageDep, SessionDep, SettingsDep, get_or_404, get_or_422
 from ep.api.errors import CONFLICT, NOT_FOUND, unprocessable
 from ep.api.schemas import (
-    PlaybackRead,
     RadioAppearanceRead,
+    RadioEntryState,
     RadioEpisodeDetail,
     RadioEpisodeRead,
     RadioEpisodeTrackRead,
     RadioEpisodeTrackUpdate,
     RadioEpisodeUpdate,
+    RadioShowDetail,
     RadioShowRead,
     RadioShowUpdate,
     RecordingRead,
 )
+from ep.api.tracks import playback_read
 from ep.models import (
     Artist,
     ArtistCredit,
@@ -39,10 +41,11 @@ from ep.models import (
     Recording,
     Source,
     SourceKind,
+    Track,
     WatchDir,
     rel,
 )
-from ep.playback import Playback, resolve_where_flagged
+from ep.playback import Playback, resolve_where, resolve_where_flagged
 from ep.radio import delete_episode, delete_show, delete_unused_recordings, radio_only_ids
 from ep.settings import Settings
 
@@ -57,8 +60,7 @@ _episode_order = (
 )
 
 
-def _playback(playback: Playback | None) -> PlaybackRead | None:
-    return PlaybackRead.model_validate(playback) if playback is not None else None
+_playback = playback_read
 
 
 def _remove_files(files: Sequence[Path]) -> None:
@@ -90,8 +92,20 @@ def list_radio_shows(session: SessionDep, page: PageDep) -> list[RadioShowRead]:
 
 
 @router.get("/shows/{id}", responses=NOT_FOUND)
-def get_radio_show(id: uuid.UUID, session: SessionDep) -> RadioShowRead:
-    return RadioShowRead.model_validate(get_or_404(session, RadioShow, id))
+def get_radio_show(id: uuid.UUID, session: SessionDep) -> RadioShowDetail:
+    """A show with its number of episodes."""
+    count = select(func.count(col(RadioEpisode.id))).where(RadioEpisode.show_id == id)
+    row = session.exec(select(RadioShow, count.scalar_subquery()).where(RadioShow.id == id)).first()
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"radio_show {id} not found")
+    show, episode_count = row
+    return RadioShowDetail.model_validate(
+        {
+            **RadioShowRead.model_validate(show).model_dump(),
+            "image_path": show.image_path,
+            "episode_count": episode_count,
+        }
+    )
 
 
 @router.patch("/shows/{id}", responses=NOT_FOUND | CONFLICT)
@@ -180,17 +194,25 @@ class _Playbacks:
         self.library: dict[uuid.UUID, Playback] = {}
         if not conditions:
             return
-        for source, playback, radio in resolve_where_flagged(session, or_(*conditions)):
+        for resolved in resolve_where_flagged(session, or_(*conditions)):
+            source, playback = resolved.source, resolved.playback
             if playback is None:
                 continue
             self.by_source[source.id] = playback
-            if not radio and source.recording_id is not None:
+            if resolved.radio is None and source.recording_id is not None:
                 self.library.setdefault(source.recording_id, playback)
 
     def track(self, track: RadioEpisodeTrack) -> RadioEpisodeTrackRead:
         source = track.source
         library = self.library.get(track.recording_id) if track.recording_id else None
+        if library is not None:
+            state = RadioEntryState.in_library
+        elif track.recording_id is not None:
+            state = RadioEntryState.excerpt_only
+        else:
+            state = RadioEntryState.not_matched
         return RadioEpisodeTrackRead(
+            state=state,
             id=track.id,
             created_at=track.created_at,
             updated_at=track.updated_at,
@@ -319,6 +341,8 @@ def _new_slice(session: Session, track: RadioEpisodeTrack, start_ms: int | objec
 
 
 def _appearances(session: Session, recordings: ColumnElement[bool]) -> list[RadioAppearanceRead]:
+    """Tracklist entries of the recordings matching ``recordings``, newest episode
+    first, each with how to play it (one query for all playbacks)."""
     tracks = (
         session.exec(
             select(RadioEpisodeTrack)
@@ -340,6 +364,13 @@ def _appearances(session: Session, recordings: ColumnElement[bool]) -> list[Radi
         .unique()
         .all()
     )
+    slice_ids = [track.source_id for track in tracks if track.source_id is not None]
+    playbacks = {
+        source.id: playback
+        for source, playback in (
+            resolve_where(session, col(Source.id).in_(slice_ids)) if slice_ids else []
+        )
+    }
     reads = []
     for track in tracks:
         assert track.recording is not None
@@ -354,6 +385,7 @@ def _appearances(session: Session, recordings: ColumnElement[bool]) -> list[Radi
                 recording=RecordingRead.model_validate(track.recording),
                 episode=RadioEpisodeRead.model_validate(track.episode),
                 show=RadioShowRead.model_validate(track.episode.show),
+                playback=_playback(playbacks.get(track.source_id) if track.source_id else None),
             )
         )
     return reads
@@ -382,3 +414,9 @@ def list_artist_radio_appearances(id: uuid.UUID, session: SessionDep) -> list[Ra
 def artist_appearances(session: Session, id: uuid.UUID) -> list[RadioAppearanceRead]:
     credits = select(ArtistCreditName.artist_credit_id).where(ArtistCreditName.artist_id == id)
     return _appearances(session, col(Recording.artist_credit_id).in_(credits))
+
+
+def release_group_appearances(session: Session, id: uuid.UUID) -> list[RadioAppearanceRead]:
+    """The radio entries that played a track of the release group."""
+    on_it = select(Track.recording_id).where(Track.release_group_id == id)
+    return _appearances(session, col(Recording.id).in_(on_it))

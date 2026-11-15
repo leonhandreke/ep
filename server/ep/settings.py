@@ -21,6 +21,10 @@ class Settings(BaseSettings):
     # Directories file sources may point into (``ep.media_roots``); JSON list in the
     # environment. Default: the managed library and the parent of the watched mounts.
     media_roots: list[Path] = Field(default_factory=_default_media_roots)
+    # Where the server's directories are on the host (``ep.host_paths``), server path ->
+    # host path, JSON in the environment: e.g. {"/library": "/Users/me/Music/ep-Library"}
+    # for the Docker mounts. Empty: the server runs on the host, paths are the same.
+    host_paths: dict[Path, Path] = Field(default_factory=dict)
     # Watcher (``ep.jobs.watcher``): seconds between polls of the watched directories
     # (watchfiles in polling mode), quiet time before a changed folder is imported, and
     # seconds between full rescans.

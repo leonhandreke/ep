@@ -255,7 +255,8 @@ def test_chaptered_video_is_a_single_file_album(
     assert [(s.start_ms, s.end_ms) for s in slices[:2]] == [(0, 315000), (315000, 510000)]
     assert slices[-1].end_ms == 3977000
     response = client.get(f"/tracks/{tracks[1].id}")
-    assert response.json()["playback"]["start_ms"] == 315000
+    playability = response.json()["playability"]
+    assert (playability["state"], playability["playback"]["start_ms"]) == ("slice", 315000)
 
 
 # A playlist
@@ -309,13 +310,14 @@ def test_failed_playlist_entries_do_not_lose_the_rest(
     assert "This video has been removed" in gone["message"]
     assert ytdlp.downloads == []  # nothing is downloaded while metadata is open
 
-    # Skipped: the others are downloaded; one of them fails.
+    # Skipped: the others are downloaded and imported; one of them fails.
     review(client, job["id"], {"issue_id": gone["id"], "choice": "skip"})
     assert run() == {uuid.UUID(job["id"]): JobState.needs_review}
     [failed] = [i for i in issues(client, job) if i["answer"] is None]
     assert (failed["kind"], failed["subject"]["key"]) == ("download_failed", blocked)
     assert "available in your country" in failed["message"]
-    assert count(session, Recording) == 0
+    assert failed["blocking"] is False
+    assert len(session.exec(select(Source).where(Source.kind == SourceKind.file)).all()) == 6
 
     review(client, job["id"], {"issue_id": failed["id"], "choice": "skip"})
     assert run() == {uuid.UUID(job["id"]): JobState.done}

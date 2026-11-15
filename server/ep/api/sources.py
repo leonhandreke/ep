@@ -11,10 +11,12 @@ from sqlmodel import Session
 from ep.api.deps import SessionDep, SettingsDep, get_or_404, get_or_422
 from ep.api.errors import CONFLICT, NOT_FOUND, ErrorRead, unprocessable
 from ep.api.schemas import PlaybackRead, SourceCreate, SourceRead, SourceUpdate
+from ep.host_paths import from_host, to_host
 from ep.media_roots import is_within_media_roots
 from ep.models import Recording, Source, SourceKind
 from ep.playback import NotPlayable, Playback, resolve, try_resolve
 from ep.probe import ProbeError, probe
+from ep.settings import Settings
 
 router = APIRouter(prefix="/sources", tags=["sources"])
 
@@ -54,10 +56,14 @@ def audio_media_type(path: Path) -> str:
     )
 
 
-def source_read(source: Source, playback: Playback | None) -> SourceRead:
+def source_read(source: Source, playback: Playback | None, settings: Settings) -> SourceRead:
     """A source with how to play it (``try_resolve``, or ``resolve_where`` for lists)."""
+    host_path = to_host(source.uri, settings) if source.kind is SourceKind.file else None
     return SourceRead.model_validate(source).model_copy(
-        update={"playback": playback and PlaybackRead.model_validate(playback)}
+        update={
+            "playback": playback and PlaybackRead.model_validate(playback),
+            "host_path": host_path,
+        }
     )
 
 
@@ -105,42 +111,50 @@ def _fill_file_facts(source: Source) -> None:
         facts = probe(Path(source.uri or ""))
     except ProbeError as e:
         raise unprocessable(("uri",), str(e), source.uri, type="value_error") from None
-    source.codec = source.codec or facts.codec
-    source.duration_ms = source.duration_ms if source.duration_ms is not None else facts.duration_ms
-    source.size = source.size if source.size is not None else facts.size
+    for name, value in facts.audio_facts().items():
+        if getattr(source, name) is None:
+            setattr(source, name, value)
 
 
 @router.post("", status_code=status.HTTP_201_CREATED, responses=CONFLICT)
 def create_source(body: SourceCreate, session: SessionDep, settings: SettingsDep) -> SourceRead:
     """Create a source of any kind: a file (must exist), a slice of a source, a remote link.
 
-    A file must lie under one of the media roots (``EP_MEDIA_ROOTS``).
+    A file must lie under one of the media roots (``EP_MEDIA_ROOTS``); a host path in a
+    directory of ``EP_HOST_PATHS`` is taken as the server path it maps to. Its codec,
+    duration, size and stream facts are read from the file.
     """
     source = Source.model_validate(body)
+    if source.kind is SourceKind.file and source.uri:
+        source.uri = from_host(source.uri, settings)
     _check_source(session, source, settings.media_roots)
     if source.kind == SourceKind.file:
         _fill_file_facts(source)
     session.add(source)
     session.commit()
-    return source_read(source, try_resolve(source))
+    return source_read(source, try_resolve(source), settings)
 
 
 @router.get("/{id}", responses=NOT_FOUND)
-def get_source(id: uuid.UUID, session: SessionDep) -> SourceRead:
+def get_source(id: uuid.UUID, session: SessionDep, settings: SettingsDep) -> SourceRead:
     source = get_or_404(session, Source, id)
-    return source_read(source, try_resolve(source))
+    return source_read(source, try_resolve(source), settings)
 
 
 @router.patch("/{id}", responses=NOT_FOUND | CONFLICT)
 def update_source(
     id: uuid.UUID, body: SourceUpdate, session: SessionDep, settings: SettingsDep
 ) -> SourceRead:
+    """Change a source; a file's new ``uri`` (to locate a moved file) may be a host path
+    (``EP_HOST_PATHS``)."""
     source = get_or_404(session, Source, id)
     with session.no_autoflush:
         source.sqlmodel_update(body.model_dump())
+        if source.kind is SourceKind.file and source.uri:
+            source.uri = from_host(source.uri, settings)
         _check_source(session, source, settings.media_roots)
     session.commit()
-    return source_read(source, try_resolve(source))
+    return source_read(source, try_resolve(source), settings)
 
 
 @router.delete("/{id}", status_code=status.HTTP_204_NO_CONTENT, responses=NOT_FOUND | CONFLICT)

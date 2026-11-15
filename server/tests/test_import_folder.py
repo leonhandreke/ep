@@ -148,7 +148,7 @@ def test_folder_with_musicbrainz_ids(
     assert rg.artist_credit.name == PROMISES_ARTIST
     tracks = client.get(f"/release-groups/{rg.id}/tracks").json()
     assert [t["recording"]["title"] for t in tracks] == [t.recording.title for t in PROMISES_TRACKS]
-    assert all(t["playback"] and t["playback"]["start_ms"] == 0 for t in tracks)
+    assert all(t["playability"]["playback"]["start_ms"] == 0 for t in tracks)
     sources = session.exec(select(Source).order_by(Source.uri)).all()
     assert len(sources) == 9
     for source in sources:
@@ -311,7 +311,11 @@ def test_cue_sheet_album(client: TestClient, session: Session, music: Path, run:
     assert file.recording_id is None and file.uri == str(album / "live.flac")
     tracks = client.get(f"/release-groups/{rg.id}/tracks").json()
     played = [
-        (t["recording"]["title"], t["recording"]["artist_credit"]["name"], t["playback"])
+        (
+            t["recording"]["title"],
+            t["recording"]["artist_credit"]["name"],
+            t["playability"]["playback"],
+        )
         for t in tracks
     ]
     assert [(title, artist, p["start_ms"], p["end_ms"]) for title, artist, p in played] == [
@@ -324,7 +328,7 @@ def test_cue_sheet_album(client: TestClient, session: Session, music: Path, run:
     slices = session.exec(select(Source).where(Source.kind == SourceKind.slice)).all()
     assert {s.parent_id for s in slices} == {file.id}
     # Streaming a slice serves the whole file.
-    stream = client.get(f"/sources/{tracks[1]['playback']['source_id']}/stream")
+    stream = client.get(f"/sources/{tracks[1]['playability']['playback']['source_id']}/stream")
     assert stream.status_code == 200
     assert stream.content == (album / "live.flac").read_bytes()
 
@@ -361,7 +365,7 @@ def test_attaches_to_existing_loose_recording(
     assert count(session, Recording) == 3
     assert count(session, Artist) == 1
     sources = client.get(f"/recordings/{loose['id']}/sources").json()
-    assert [s["uri"] for s in sources] == [str(music / "Sine Waves" / "2.mp3")]
+    assert [s["source"]["uri"] for s in sources] == [str(music / "Sine Waves" / "2.mp3")]
 
 
 def test_uncertain_release_group_and_recording(

@@ -15,6 +15,8 @@ from ep.metadata.ytdlp import (
 
 # Progress is logged at these fractions of a download.
 PROGRESS_STEPS = (0.25, 0.5, 0.75)
+# Item progress (``import_job.progress_item``, not logged) is saved this often.
+PROGRESS_INTERVAL = 0.02
 
 
 def _size(n: int) -> str:
@@ -49,6 +51,7 @@ def ytdlp_download(
     if not is_downloadable(url):
         raise DownloadError(f"not a canonical YouTube, Bandcamp, SoundCloud or NTS URL: {url!r}")
     steps = list(PROGRESS_STEPS)
+    reported = [0.0]
 
     def progress(update: Progress) -> None:
         if not update.total_bytes:
@@ -57,7 +60,13 @@ def ytdlp_download(
         if steps and fraction >= steps[0]:
             while steps and fraction >= steps[0]:
                 steps.pop(0)
+            ctx.job.progress_item = fraction
             ctx.log(f"downloading {url}: {fraction:.0%} of {_size(update.total_bytes)}")
+        elif fraction - reported[0] >= PROGRESS_INTERVAL:
+            ctx.item_progress(fraction)
+        else:
+            return
+        reported[0] = fraction
 
     ctx.log(f"downloading {url}")
     try:

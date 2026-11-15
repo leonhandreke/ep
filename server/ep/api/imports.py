@@ -7,37 +7,61 @@ from the start (keeping the answers), ``dismiss`` takes it out of the inbox.
 """
 
 import uuid
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, status
-from sqlmodel import Session, col, select
+from fastapi.responses import FileResponse
+from sqlalchemy import select as sa_select
+from sqlmodel import Session, col, func, select
 
 from ep.api.deps import PageDep, SessionDep, SettingsDep, get_or_404
-from ep.api.errors import CONFLICT, NOT_FOUND, unprocessable
+from ep.api.entities import entity_reads
+from ep.api.errors import CONFLICT, NOT_FOUND, ErrorRead, unprocessable
 from ep.api.schemas import (
+    CreatedCountsRead,
+    ImportCountsRead,
     ImportCreate,
     ImportJobRead,
     ImportJobSummary,
+    ImportsSummaryRead,
+    ImportStep,
     JobAction,
     ProgressRead,
     ReviewRequest,
 )
+from ep.api.sources import audio_media_type
+from ep.entities import load_entities
+from ep.host_paths import from_host, to_host
 from ep.importers.framework import (
+    CANCELLABLE,
     DISMISSABLE,
+    PICK_ANY,
     RETRYABLE,
     REVIEWABLE,
     answer_fits,
+    credit_name,
     discard_work,
+    job_work_dir,
     record_answers,
     requeue,
 )
-from ep.importers.proposal import Answer, Choice, LogEntry, Proposal
+from ep.importers.proposal import (
+    Answer,
+    Choice,
+    IssueKind,
+    LogEntry,
+    Proposal,
+    TargetKind,
+    UrlCover,
+)
 from ep.jobs.queue import create_import, enqueue_import
+from ep.links import classify
 from ep.media_roots import is_within_media_roots
 from ep.metadata import bandcamp, nts
 from ep.metadata.ytdlp import youtube_url
-from ep.models import ImportJob, ImportKind, JobState
+from ep.models import EntityType, ImportJob, ImportKind, JobStage, JobState, WatchDir
 from ep.settings import Settings
 
 router = APIRouter(prefix="/imports", tags=["imports"])
@@ -47,8 +71,119 @@ def _proposal(job: ImportJob) -> Proposal | None:
     return Proposal.model_validate(job.proposal) if job.proposal is not None else None
 
 
-def _summary_fields(job: ImportJob, proposal: Proposal | None) -> dict:
-    open_issues = len(proposal.open_issues()) if proposal else 0
+_STEPS = {
+    JobStage.fetch: ImportStep.metadata,
+    JobStage.resolve: ImportStep.metadata,
+    JobStage.match: ImportStep.matching,
+    JobStage.propose: ImportStep.matching,
+    JobStage.download: ImportStep.downloading,
+    JobStage.apply: ImportStep.applying,
+}
+# Issues a retry tries again.
+_FAILURES = frozenset(
+    {
+        IssueKind.download_failed,
+        IssueKind.unreadable_file,
+        IssueKind.fetch_failed,
+        IssueKind.unexpected_response,
+    }
+)
+_ACTIVE = (JobState.running, JobState.applying, JobState.queued)
+
+
+def progress_read(job: ImportJob) -> ProgressRead:
+    fraction = None
+    if job.progress_total:
+        done = job.progress_done + (job.progress_item or 0.0)
+        fraction = min(done / job.progress_total, 1.0)
+    return ProgressRead(
+        stage=job.stage,
+        step=_STEPS.get(job.stage) if job.stage else None,
+        done=job.progress_done,
+        total=job.progress_total,
+        fraction=fraction,
+    )
+
+
+def _title(proposal: Proposal | None) -> str | None:
+    if proposal is None:
+        return None
+    if proposal.radio is not None:
+        return f"{proposal.radio.show.name} — {proposal.radio.episode.name}"
+    for release in proposal.releases:
+        if release.target.kind is not TargetKind.skip:
+            return f"{credit_name(release.credit)} — {release.title}"
+    tracks = [t for t in proposal.loose_tracks if t.target.kind is not TargetKind.skip]
+    if tracks:
+        return f"{credit_name(tracks[0].credit)} — {tracks[0].title}"
+    return None
+
+
+def _cover_url(proposal: Proposal | None) -> str | None:
+    if proposal is None:
+        return None
+    if proposal.radio is not None:
+        image = proposal.radio.episode.image or proposal.radio.show.image
+        return image.url if image is not None else None
+    for release in proposal.releases:
+        if isinstance(release.cover, UrlCover):
+            return release.cover.url
+    return None
+
+
+def _conflict_id(proposal: Proposal | None) -> uuid.UUID | None:
+    for issue in proposal.open_issues() if proposal else []:
+        if issue.kind is IssueKind.release_conflict and issue.candidates:
+            return issue.candidates[0].id
+    return None
+
+
+def _queue_order(session: Session) -> list[uuid.UUID]:
+    """Active jobs in the order the worker takes them: the running one, then queued
+    ones by when they were queued (their last state change)."""
+    rows = session.exec(
+        select(ImportJob.id, ImportJob.state)
+        .where(col(ImportJob.state).in_(_ACTIVE))
+        .order_by(col(ImportJob.updated_at), col(ImportJob.id))
+    ).all()
+    running = [id for id, state in rows if state is not JobState.queued]
+    return running + [id for id, state in rows if state is JobState.queued]
+
+
+def job_summaries(
+    session: Session, settings: Settings, jobs: Sequence[ImportJob]
+) -> list[ImportJobSummary]:
+    """Summaries of jobs (a fixed number of queries)."""
+    proposals = {job.id: _proposal(job) for job in jobs}
+    order = _queue_order(session) if any(j.state is JobState.queued for j in jobs) else []
+    conflicts = {job.id: _conflict_id(proposals[job.id]) for job in jobs}
+    ids = {id for id in conflicts.values() if id is not None}
+    existing = (
+        entity_reads(
+            session, load_entities(session, {(EntityType.release_group, i) for i in ids}).values()
+        )
+        if ids
+        else {}
+    )
+    summaries = []
+    for job in jobs:
+        conflict = conflicts[job.id]
+        waiting_for = None
+        if job.state is JobState.queued and job.id in order:
+            position = order.index(job.id)
+            waiting_for = order[position - 1] if position > 0 else None
+        summaries.append(
+            ImportJobSummary(
+                **_summary_fields(job, proposals[job.id], settings),
+                existing=existing.get(conflict) if conflict else None,
+                waiting_for=waiting_for,
+            )
+        )
+    return summaries
+
+
+def _summary_fields(job: ImportJob, proposal: Proposal | None, settings: Settings) -> dict:
+    open_issues = proposal.open_issues() if proposal else []
     actions = []
     if job.state in REVIEWABLE and open_issues:
         actions.append(JobAction.review)
@@ -56,30 +191,49 @@ def _summary_fields(job: ImportJob, proposal: Proposal | None) -> dict:
         actions.append(JobAction.retry)
     if job.state in DISMISSABLE:
         actions.append(JobAction.dismiss)
+    if job.state in CANCELLABLE:
+        actions.append(JobAction.cancel)
+    blocking = [i for i in open_issues if i.blocking] + [i for i in open_issues if not i.blocking]
+    tracks = proposal.all_tracks() if proposal else []
+    link = classify(job.input) if job.kind is not ImportKind.folder else None
+    created = job.created or {}
     return {
         "id": job.id,
         "created_at": job.created_at,
         "updated_at": job.updated_at,
         "kind": job.kind,
         "input": job.input,
+        "input_host_path": to_host(job.input, settings) if job.kind is ImportKind.folder else None,
+        "link_kind": link.link_kind if link else None,
+        "watch_dir_id": job.watch_dir_id,
         "state": job.state,
-        "progress": ProgressRead(stage=job.stage, done=job.progress_done, total=job.progress_total),
+        "progress": progress_read(job),
         "error": job.error,
-        "open_issues": open_issues,
+        "title": _title(proposal),
+        "cover_url": _cover_url(proposal),
+        "message": job.error or (blocking[0].message if blocking else None),
+        "open_issues": len(open_issues),
+        "counts": ImportCountsRead(
+            tracks=sum(1 for t in tracks if t.target.kind is not TargetKind.skip),
+            failed=sum(1 for i in open_issues if i.kind in _FAILURES),
+        ),
+        "created": CreatedCountsRead(
+            artists=created.get("artist", 0),
+            release_groups=created.get("release_group", 0),
+            recordings=created.get("recording", 0),
+            tracks=created.get("track", 0),
+            sources=created.get("source", 0),
+        ),
         "actions": actions,
     }
 
 
-def job_summary(job: ImportJob) -> ImportJobSummary:
-    return ImportJobSummary(**_summary_fields(job, _proposal(job)))
-
-
-def job_read(job: ImportJob) -> ImportJobRead:
-    proposal = _proposal(job)
+def job_read(session: Session, settings: Settings, job: ImportJob) -> ImportJobRead:
+    [summary] = job_summaries(session, settings, [job])
     return ImportJobRead(
-        **_summary_fields(job, proposal),
+        **summary.model_dump(),
         log=[LogEntry.model_validate(entry) for entry in job.log],
-        proposal=proposal,
+        proposal=_proposal(job),
     )
 
 
@@ -126,22 +280,73 @@ def create_import_job(
     (the episode with its tracklist matched against the library); downloaded into the
     managed library. URLs are stored canonical (tracking parameters dropped)."""
     if body.kind is ImportKind.folder:
-        job_input = str(check_folder_input(body.input, settings, ("input",)))
+        job_input = str(check_folder_input(from_host(body.input, settings), settings, ("input",)))
     else:
         job_input = check_url_input(body.kind, body.input, ("input",))
     job = create_import(session, body.kind, job_input)
     session.commit()
-    return job_read(job)
+    return job_read(session, settings, job)
+
+
+@router.get("/summary")
+def get_imports_summary(session: SessionDep) -> ImportsSummaryRead:
+    """How many jobs are in each active state, how far the running one is, how many
+    directories are watched, and when any job last changed: cheap to poll (an aggregate);
+    reload ``GET /imports`` when ``changed_at`` moves."""
+    counts = {
+        state: func.count(col(ImportJob.id)).filter(col(ImportJob.state) == state)
+        for state in (JobState.queued, JobState.needs_review, JobState.failed)
+    }
+    running = func.count(col(ImportJob.id)).filter(
+        col(ImportJob.state).in_((JobState.running, JobState.applying))
+    )
+    watching = select(func.count(col(WatchDir.id))).where(col(WatchDir.enabled)).scalar_subquery()
+    row = (
+        session.connection()
+        .execute(
+            sa_select(
+                counts[JobState.queued],
+                running,
+                counts[JobState.needs_review],
+                counts[JobState.failed],
+                func.max(ImportJob.updated_at),
+                watching,
+            )
+        )
+        .one()
+    )
+    queued, n_running, needs_review, failed, changed_at, n_watching = row
+    fraction = None
+    if n_running:
+        job = session.exec(
+            select(ImportJob)
+            .where(col(ImportJob.state).in_((JobState.running, JobState.applying)))
+            .order_by(col(ImportJob.updated_at))
+            .limit(1)
+        ).first()
+        fraction = progress_read(job).fraction if job else None
+    return ImportsSummaryRead(
+        queued=queued,
+        running=n_running,
+        needs_review=needs_review,
+        failed=failed,
+        running_fraction=fraction,
+        watching=n_watching,
+        changed_at=changed_at,
+    )
 
 
 @router.get("")
 def list_import_jobs(
     session: SessionDep,
+    settings: SettingsDep,
     page: PageDep,
     state: Annotated[list[JobState] | None, Query()] = None,
     kind: ImportKind | None = None,
 ) -> list[ImportJobSummary]:
-    """Jobs, newest first. The inbox: ``state=needs_review&state=failed``."""
+    """Jobs, newest first. The inbox: ``state=needs_review&state=failed``. Each with
+    what it imports (title, cover, counts), its progress, what it is stuck on and the
+    job a queued one waits for."""
     statement = select(ImportJob)
     if state:
         statement = statement.where(col(ImportJob.state).in_(state))
@@ -152,13 +357,13 @@ def list_import_jobs(
         .limit(page.limit)
         .offset(page.offset)
     ).all()
-    return [job_summary(job) for job in jobs]
+    return job_summaries(session, settings, jobs)
 
 
 @router.get("/{id}", responses=NOT_FOUND)
-def get_import_job(id: uuid.UUID, session: SessionDep) -> ImportJobRead:
+def get_import_job(id: uuid.UUID, session: SessionDep, settings: SettingsDep) -> ImportJobRead:
     """State, progress, log and proposal (with its issues) of a job."""
-    return job_read(get_or_404(session, ImportJob, id))
+    return job_read(session, settings, get_or_404(session, ImportJob, id))
 
 
 def _job_in(session: Session, id: uuid.UUID, states: frozenset[JobState], action: str) -> ImportJob:
@@ -173,7 +378,9 @@ def _job_in(session: Session, id: uuid.UUID, states: frozenset[JobState], action
 
 
 @router.post("/{id}/review", responses=NOT_FOUND | CONFLICT)
-def review_import_job(id: uuid.UUID, body: ReviewRequest, session: SessionDep) -> ImportJobRead:
+def review_import_job(
+    id: uuid.UUID, body: ReviewRequest, session: SessionDep, settings: SettingsDep
+) -> ImportJobRead:
     """Answer issues by id, then run the job again with the answers.
 
     Each answer must be one of its issue's ``choices`` (and, for ``pick_candidate``, name
@@ -192,12 +399,14 @@ def review_import_job(id: uuid.UUID, body: ReviewRequest, session: SessionDep) -
         fits = (
             Choice.retry in issue.choices
             if answer.choice is Choice.retry
-            else answer_fits(issue, answer)
+            else answer_fits(issue, answer, session)
         )
         if not fits:
             message = f"not one of the issue's choices ({', '.join(issue.choices)})"
             if answer.choice is Choice.pick_candidate:
                 message = "candidate_id must be the id of one of the issue's candidates"
+                if issue.kind in PICK_ANY:
+                    message += " or of a library row of their type"
             raise unprocessable(
                 ("answers", index), message, given.model_dump(mode="json"), "value_error"
             )
@@ -205,27 +414,85 @@ def review_import_job(id: uuid.UUID, body: ReviewRequest, session: SessionDep) -
     record_answers(job, answers)
     enqueue_import(session, job.id)
     session.commit()
-    return job_read(job)
+    return job_read(session, settings, job)
 
 
 @router.post("/{id}/retry", responses=NOT_FOUND | CONFLICT)
-def retry_import_job(id: uuid.UUID, session: SessionDep) -> ImportJobRead:
+def retry_import_job(id: uuid.UUID, session: SessionDep, settings: SettingsDep) -> ImportJobRead:
     """Run a ``needs_review``, ``failed`` or ``done`` job again from the start, with its
-    answers. A done job creates nothing new: files already imported are left out."""
+    answers: failed downloads and reads are tried again (``ImportCountsRead.failed``).
+    A done job creates nothing new: files already imported are left out."""
     job = _job_in(session, id, RETRYABLE, "retried")
     requeue(job)
     enqueue_import(session, job.id)
     session.commit()
-    return job_read(job)
+    return job_read(session, settings, job)
 
 
 @router.post("/{id}/dismiss", responses=NOT_FOUND | CONFLICT)
 def dismiss_import_job(id: uuid.UUID, session: SessionDep, settings: SettingsDep) -> ImportJobRead:
-    """Take a ``queued``, ``needs_review`` or ``failed`` job out of the inbox. Nothing is
+    """Take a ``needs_review`` or ``failed`` job out of the inbox. Nothing more is
     imported, and its downloads are deleted; the watcher does not queue the folder again
     until it changes."""
     job = _job_in(session, id, DISMISSABLE, "dismissed")
     job.state = JobState.dismissed
     session.commit()
     discard_work(settings.library_dir, job.id)
-    return job_read(job)
+    return job_read(session, settings, job)
+
+
+@router.post("/{id}/cancel", responses=NOT_FOUND | CONFLICT)
+def cancel_import_job(id: uuid.UUID, session: SessionDep, settings: SettingsDep) -> ImportJobRead:
+    """Stop a ``queued`` or ``running`` job and take it out of the queue (it becomes
+    ``dismissed``). A running job stops at its next step (a running download is
+    killed); what it fetched is deleted and nothing is imported. A job already writing
+    to the library (``applying``) finishes: 409."""
+    job = _job_in(session, id, CANCELLABLE, "cancelled")
+    running = job.state is JobState.running
+    job.state = JobState.dismissed
+    session.commit()
+    if not running:  # a running job's worker deletes them once it stops
+        discard_work(settings.library_dir, job.id)
+    return job_read(session, settings, job)
+
+
+@router.get(
+    "/{id}/stream",
+    response_class=FileResponse,
+    responses=NOT_FOUND
+    | {
+        status.HTTP_409_CONFLICT: {
+            "model": ErrorRead,
+            "description": "The track's audio is not available (not downloaded yet)",
+        },
+        status.HTTP_200_OK: {"content": {"audio/*": {}}, "description": "The whole audio file"},
+        status.HTTP_206_PARTIAL_CONTENT: {
+            "content": {"audio/*": {}},
+            "description": "The requested byte range (Range header)",
+        },
+    },
+)
+def stream_import_track(
+    id: uuid.UUID,
+    track_key: Annotated[str, Query(min_length=1)],
+    session: SessionDep,
+    settings: SettingsDep,
+) -> FileResponse:
+    """The audio file of an incoming track (``IncomingTrack.key``), to preview it in
+    review: the whole file of its medium, with HTTP Range; play the track's
+    ``start_ms``..``end_ms``. 409 while the medium is not downloaded (or has no audio)."""
+    job = get_or_404(session, ImportJob, id)
+    proposal = _proposal(job) or Proposal()
+    track = next((t for t in proposal.all_tracks() if t.key == track_key), None)
+    if track is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, f"import_job {id} has no track {track_key!r}"
+        )
+    medium = next((m for m in proposal.media if m.key == track.medium_key), None)
+    if medium is None or medium.path is None or medium.download:
+        raise HTTPException(status.HTTP_409_CONFLICT, "the track's audio is not available")
+    path = Path(medium.path)
+    allowed = [*settings.media_roots, job_work_dir(settings.library_dir, job.id)]
+    if not is_within_media_roots(path, allowed) or not path.is_file():
+        raise HTTPException(status.HTTP_409_CONFLICT, "the track's audio is not available")
+    return FileResponse(path, media_type=audio_media_type(path))

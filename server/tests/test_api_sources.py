@@ -24,12 +24,16 @@ def test_create_file_source_reads_facts_from_the_file(client: TestClient, audio_
     assert 5900 < source["duration_ms"] < 6100
     assert source["size"] == path.stat().st_size
     assert source["managed"] is False
-    assert source["meta"] == {}
+    assert (source["sample_rate"], source["bit_depth"], source["channels"]) == (44100, 16, 1)
+    assert source["bit_rate"] > 0
+    assert source["host_path"] == str(path)  # no EP_HOST_PATHS: the same
+    assert "meta" not in source
     assert source["playback"] == {
         "source_id": source["id"],
         "file_source_id": source["id"],
         "start_ms": 0,
         "end_ms": None,
+        "file_duration_ms": source["duration_ms"],
     }
     assert client.get(f"/sources/{source['id']}").json() == source
 
@@ -83,10 +87,9 @@ def test_remote_link_is_stored_but_not_playable(client: TestClient) -> None:
         "spotify",
         uri="spotify:track:4uLU6hMCjMI75M1A2tKUQC",
         recording_id=recording["id"],
-        meta={"popularity": 3},
     )
     assert link["playback"] is None
-    assert link["meta"] == {"popularity": 3}
+    assert link["host_path"] is None
     response = client.get(f"/sources/{link['id']}/stream")
     assert response.status_code == 409
     assert "no file to play" in response.json()["detail"]
@@ -143,16 +146,10 @@ def test_update_source(client: TestClient, audio_dir: Path) -> None:
     child = make_source(client, "slice", parent_id=piece["id"], start_ms=0)
     url = f"/sources/{piece['id']}"
 
-    response = client.patch(
-        url, json={"recording_id": recording["id"], "end_ms": None, "meta": {"a": 1}}
-    )
+    response = client.patch(url, json={"recording_id": recording["id"], "end_ms": None})
     assert response.status_code == 200
     updated = response.json()
-    assert (updated["recording_id"], updated["end_ms"], updated["meta"]) == (
-        recording["id"],
-        None,
-        {"a": 1},
-    )
+    assert (updated["recording_id"], updated["end_ms"]) == (recording["id"], None)
     assert updated["start_ms"] == 0
 
     assert client.patch(url, json={"parent_id": piece["id"]}).status_code == 422
@@ -191,16 +188,36 @@ def test_recording_sources_and_track_playback(client: TestClient, audio_dir: Pat
     )
 
     sources = client.get(f"/recordings/{first['id']}/sources").json()
-    assert [s["id"] for s in sources] == [link["id"], piece["id"]]
+    assert [s["source"]["id"] for s in sources] == [link["id"], piece["id"]]
+    assert [s["role"] for s in sources] == ["link", "slice"]
+    assert [s["plays"] for s in sources] == [False, True]
+    assert sources[0]["file"] is None
+    assert sources[1]["file"]["source_id"] == album["id"]
+    assert sources[1]["file"]["exists"] is True
+    assert sources[1]["ancestors"][0]["id"] == album["id"]
     assert client.get(f"/recordings/{second['id']}/sources").json() == []
     assert client.get(f"/recordings/{uuid.uuid4()}/sources").status_code == 404
 
     tracks = client.get(f"/release-groups/{release_group['id']}/tracks").json()
-    assert [t["playback"] for t in tracks] == [
-        {"source_id": piece["id"], "file_source_id": album["id"], "start_ms": 2000, "end_ms": 4000},
+    duration = album["duration_ms"]
+    assert [t["playability"]["playback"] for t in tracks] == [
+        {
+            "source_id": piece["id"],
+            "file_source_id": album["id"],
+            "start_ms": 2000,
+            "end_ms": 4000,
+            "file_duration_ms": duration,
+        },
         None,
     ]
-    assert client.get(f"/tracks/{tracks[0]['id']}").json()["playback"] == tracks[0]["playback"]
+    assert [t["playability"]["state"] for t in tracks] == ["slice", "no_source"]
+    assert tracks[0]["playability"]["link"] == {
+        "source_id": link["id"],
+        "kind": "bandcamp",
+        "url": "https://b.example/t",
+    }
+    track = client.get(f"/tracks/{tracks[0]['id']}").json()
+    assert track["playability"] == tracks[0]["playability"]
 
 
 def test_delete_recording_with_sources_is_a_conflict(client: TestClient) -> None:

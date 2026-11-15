@@ -2,14 +2,17 @@ import mimetypes
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, UploadFile, status
+from fastapi import APIRouter, HTTPException, Request, status
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
+from sqlmodel import Session
 
 from ep import covers
 from ep.api.deps import SessionDep, SettingsDep, get_or_404
 from ep.api.errors import NOT_FOUND, ErrorRead
 from ep.api.schemas import ReleaseGroupRead
 from ep.models import RadioEpisode, RadioShow, ReleaseGroup
+from ep.settings import Settings
 
 router = APIRouter(prefix="/covers", tags=["covers"])
 
@@ -43,6 +46,9 @@ def get_radio_episode_image(id: uuid.UUID, session: SessionDep) -> FileResponse:
     return _image("radio_episode", id, get_or_404(session, RadioEpisode, id).image_path)
 
 
+_IMAGE_BODY = {"schema": {"type": "string", "format": "binary"}}
+
+
 @router.put(
     "/release-group/{id}",
     responses=NOT_FOUND
@@ -52,17 +58,34 @@ def get_radio_episode_image(id: uuid.UUID, session: SessionDep) -> FileResponse:
             "description": "Not a JPEG, PNG or WebP image",
         }
     },
+    openapi_extra={
+        "requestBody": {
+            "required": True,
+            "description": "The image file itself.",
+            "content": {
+                media_type: _IMAGE_BODY for media_type in ("image/jpeg", "image/png", "image/webp")
+            },
+        }
+    },
 )
-def set_release_group_cover(
-    id: uuid.UUID, file: UploadFile, session: SessionDep, settings: SettingsDep
+async def set_release_group_cover(
+    id: uuid.UUID, request: Request, session: SessionDep, settings: SettingsDep
 ) -> ReleaseGroupRead:
-    """Upload a cover image (JPEG, PNG or WebP), replacing any existing one.
+    """Upload a cover image (the request body is the JPEG, PNG or WebP file), replacing
+    any existing one. The type is read from the image itself.
 
     Stored under the managed library (``EP_LIBRARY_DIR/_covers``).
     """
+    data = await request.body()
+    return await run_in_threadpool(_set_cover, id, data, session, settings)
+
+
+def _set_cover(
+    id: uuid.UUID, data: bytes, session: Session, settings: Settings
+) -> ReleaseGroupRead:
     release_group = get_or_404(session, ReleaseGroup, id)
     try:
-        covers.set_release_group_cover(release_group, file.file.read(), settings.library_dir)
+        covers.set_release_group_cover(release_group, data, settings.library_dir)
     except ValueError as e:
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(e)) from None
     session.commit()

@@ -174,6 +174,17 @@ class Recording(Base, table=True):
     # Indexed for search ("artist title").
     artist_credit_id: uuid.UUID = Field(foreign_key="artist_credit.id", index=True)
     length_ms: int | None = None
+    # The source the user chose to play (``ep.playability``); null: the best one. The
+    # foreign key is added after the source table (``use_alter``: they refer to each
+    # other); deleting the source clears it.
+    preferred_source_id: uuid.UUID | None = Field(
+        default=None,
+        sa_column=sa.Column(
+            sa.Uuid,
+            sa.ForeignKey("source.id", ondelete="SET NULL", use_alter=True),
+            nullable=True,
+        ),
+    )
 
     artist_credit: ArtistCredit = Relationship()
     tracks: list[Track] = Relationship(back_populates="recording")

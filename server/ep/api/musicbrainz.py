@@ -1,4 +1,5 @@
-"""MusicBrainz search and release import (metadata only), for trying imports by hand."""
+"""MusicBrainz search, and adding artists, releases and recordings from it (metadata
+only): entities created by hand while writing a note, or imports tried by hand."""
 
 from collections.abc import Iterator
 from typing import Annotated
@@ -6,14 +7,20 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from ep.api.deps import SessionDep
+from ep.api.entities import entity_reads
 from ep.api.errors import BAD_GATEWAY, CONFLICT, NOT_FOUND
 from ep.api.schemas import (
+    EntityRead,
     MusicBrainzHitRead,
     MusicBrainzImport,
     MusicBrainzSearchType,
-    ReleaseGroupRead,
 )
-from ep.importers.musicbrainz import ReleaseConflict, import_release
+from ep.importers.musicbrainz import (
+    ReleaseConflict,
+    import_artist,
+    import_recording,
+    import_release,
+)
 from ep.metadata.musicbrainz import (
     MusicBrainz,
     MusicBrainzError,
@@ -21,6 +28,7 @@ from ep.metadata.musicbrainz import (
     escape_lucene,
     render_artist_credit,
 )
+from ep.models import Artist, Recording, ReleaseGroup
 
 router = APIRouter(prefix="/musicbrainz", tags=["musicbrainz"])
 
@@ -89,24 +97,34 @@ def search_musicbrainz(
 
 
 @router.post("/import", responses=NOT_FOUND | CONFLICT | BAD_GATEWAY)
-def import_musicbrainz_release(
+def import_from_musicbrainz(
     body: MusicBrainzImport, session: SessionDep, musicbrainz: MusicBrainzDep
-) -> ReleaseGroupRead:
-    """Import a release into the catalogue: artists, release group, recordings, tracks, ISRCs.
+) -> EntityRead:
+    """Add an artist, a release or a recording from MusicBrainz to the catalogue, as
+    metadata only (no files, no cover), and return it (with the link to write for it).
 
-    Metadata only (no files, no cover). Rows with known MBIDs are reused; importing the
-    same release again adds only what is missing. 409 if the release group was already
-    imported from a different release.
+    An artist or recording with the MBID in the library is returned as it is. A
+    release becomes a release group with its artists, recordings, tracks and ISRCs; rows
+    with known MBIDs are reused, and importing the same release again adds only what is
+    missing (409 if the release group was imported from a different release). A
+    recording becomes a standalone recording (no track) with its artists and ISRCs.
     """
+    entity: Artist | ReleaseGroup | Recording
     try:
-        release = musicbrainz.get_release(body.release_mbid)
+        match body.type:
+            case MusicBrainzSearchType.artist:
+                entity = import_artist(session, musicbrainz.get_artist(body.mbid))
+            case MusicBrainzSearchType.recording:
+                entity = import_recording(session, musicbrainz.get_recording(body.mbid))
+            case MusicBrainzSearchType.release:
+                release = musicbrainz.get_release(body.mbid)
+                try:
+                    entity = import_release(session, release)
+                except ReleaseConflict as e:
+                    raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from e
     except MusicBrainzNotFound as e:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(e)) from e
     except MusicBrainzError as e:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(e)) from e
-    try:
-        release_group = import_release(session, release)
-    except ReleaseConflict as e:
-        raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from e
     session.commit()
-    return ReleaseGroupRead.model_validate(release_group)
+    return entity_reads(session, [entity])[entity.id]

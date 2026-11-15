@@ -73,6 +73,24 @@ class ProbeResult:
     format: str
     tags: Tags
     cover: Cover | None
+    # Stream facts (null when the format does not state them): sample rate in Hz, bits
+    # per sample (lossless formats), bit rate in bit/s, channel count.
+    sample_rate: int | None = None
+    bit_depth: int | None = None
+    bit_rate: int | None = None
+    channels: int | None = None
+
+    def audio_facts(self) -> dict[str, int | str | None]:
+        """The columns of a ``file`` source (and ``IncomingMedium``) read from the file."""
+        return {
+            "codec": self.codec,
+            "duration_ms": self.duration_ms,
+            "size": self.size,
+            "sample_rate": self.sample_rate,
+            "bit_depth": self.bit_depth,
+            "bit_rate": self.bit_rate,
+            "channels": self.channels,
+        }
 
 
 def probe(path: Path) -> ProbeResult:
@@ -91,6 +109,10 @@ def probe(path: Path) -> ProbeResult:
         format=info["format"]["format_name"],
         tags=tags,
         cover=cover,
+        sample_rate=_int(stream.get("sample_rate")),
+        bit_depth=_int(stream.get("bits_per_raw_sample")) or _int(stream.get("bits_per_sample")),
+        bit_rate=_int(stream.get("bit_rate")) or _int(info["format"].get("bit_rate")),
+        channels=stream.get("channels"),
     )
 
 
@@ -103,7 +125,9 @@ def _ffprobe(path: Path) -> dict:
             "-select_streams",
             "a:0",
             "-show_entries",
-            "format=format_name,duration:stream=codec_name,duration",
+            "format=format_name,duration,bit_rate:"
+            "stream=codec_name,duration,sample_rate,bits_per_raw_sample,bits_per_sample,"
+            "bit_rate,channels",
             "-of",
             "json",
             str(path),
@@ -165,11 +189,13 @@ def _number_pair(value: str | None) -> tuple[int | None, int | None]:
     return _int(number), _int(total)
 
 
-def _int(value: str | None) -> int | None:
+def _int(value: str | int | None) -> int | None:
+    """A positive integer from a tag or ffprobe value; None for missing, 0 or junk."""
     try:
-        return int(value.strip()) if value else None
+        number = int(value.strip() if isinstance(value, str) else value) if value else None
     except ValueError:
         return None
+    return number or None
 
 
 def _cover(file: mutagen.FileType | None) -> Cover | None:

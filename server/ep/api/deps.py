@@ -34,9 +34,25 @@ def get_or_422[T: SQLModel](
     return row
 
 
-def artist_credit_from_input(session: Session, names: Sequence[ArtistCreditNameIn]) -> ArtistCredit:
+def artist_credit_from_input(
+    session: Session,
+    names: Sequence[ArtistCreditNameIn],
+    loc: Sequence[str | int] = ("artist_credit",),
+) -> ArtistCredit:
+    """The credit for these names (shared if it exists); new artists are created."""
     parts = []
     for i, name in enumerate(names):
-        artist = get_or_422(session, Artist, name.artist_id, ("artist_credit", i, "artist_id"))
+        if name.artist_id is not None:
+            artist = get_or_422(session, Artist, name.artist_id, (*loc, i, "artist_id"))
+        else:
+            assert name.new_artist is not None
+            new = name.new_artist
+            artist = Artist(
+                name=new.name,
+                sort_name=new.sort_name or new.name,
+                disambiguation=new.disambiguation,
+                type=new.type,
+            )
+            session.add(artist)
         parts.append(CreditPart(artist, name.credited_name or artist.name, name.join_phrase))
     return get_or_create_artist_credit(session, parts)

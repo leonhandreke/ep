@@ -109,7 +109,7 @@ def test_imported_and_dismissed_folders_are_left_alone(
 
     other = new_album(library, "Other Album")
     [job] = watcher.rescan(session, later())
-    assert client.post(f"/imports/{job.id}/dismiss").status_code == 200
+    assert client.post(f"/imports/{job.id}/cancel").status_code == 200
     assert watcher.rescan(session, later()) == []
     # Until the folder changes again.
     write_audio(other / "3.flac", 1, {"title": "Three", "album": "Other Album"})
