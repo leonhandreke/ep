@@ -72,6 +72,7 @@ def test_import_schemas_describe_issues_and_choices(client: TestClient) -> None:
         "release_conflict",
         "metadata_not_found",
         "fetch_failed",
+        "unexpected_response",
         "unreadable_file",
         "download_failed",
     }
@@ -106,3 +107,7 @@ def test_import_schemas_describe_issues_and_choices(client: TestClient) -> None:
     cover = schemas["IncomingCover"]
     assert set(cover["discriminator"]["mapping"]) == {"embedded", "file", "url"}
     assert set(schemas["UrlCover"]["required"]) == {"kind", "url"}
+    # The radio part of the proposal (NTS).
+    radio = schemas["IncomingRadio"]
+    assert set(radio["required"]) == {"show", "episode", "medium_key", "entries"}
+    assert "radio" in schemas["Proposal"]["required"]

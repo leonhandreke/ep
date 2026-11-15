@@ -35,7 +35,7 @@ from ep.importers.framework import (
 from ep.importers.proposal import Answer, Choice, LogEntry, Proposal
 from ep.jobs.queue import create_import, enqueue_import
 from ep.media_roots import is_within_media_roots
-from ep.metadata import bandcamp
+from ep.metadata import bandcamp, nts
 from ep.metadata.ytdlp import youtube_url
 from ep.models import ImportJob, ImportKind, JobState
 from ep.settings import Settings
@@ -95,7 +95,7 @@ def check_folder_input(path_text: str, settings: Settings, loc: tuple[str, ...])
 
 
 def check_url_input(kind: ImportKind, url: str, loc: tuple[str, ...]) -> str:
-    """The canonical URL for a Bandcamp or YouTube import (the job's input)."""
+    """The canonical URL for a Bandcamp, YouTube or NTS import (the job's input)."""
     match kind:
         case ImportKind.bandcamp:
             canonical = bandcamp.canonical_url(url)
@@ -104,6 +104,10 @@ def check_url_input(kind: ImportKind, url: str, loc: tuple[str, ...]) -> str:
             parsed = youtube_url(url)
             canonical = parsed.url if parsed else None
             expected = "a YouTube video or playlist URL"
+        case ImportKind.nts:
+            ref = nts.episode_ref(url)
+            canonical = ref.url if ref else None
+            expected = "an NTS episode URL (https://www.nts.live/shows/<show>/episodes/<episode>)"
         case _:
             message = f"{kind} imports are not available yet"
             raise unprocessable(("kind",), message, kind, "value_error")
@@ -118,8 +122,9 @@ def create_import_job(
 ) -> ImportJobRead:
     """Queue an import. ``folder``: a directory under the media roots, imported in place.
     ``bandcamp``: an album or track page; ``youtube``: a video (with chapters: a
-    single-file album) or a playlist (one release group), downloaded into the managed
-    library. URLs are stored canonical (tracking parameters dropped)."""
+    single-file album) or a playlist (one release group); ``nts``: an NTS episode page
+    (the episode with its tracklist matched against the library); downloaded into the
+    managed library. URLs are stored canonical (tracking parameters dropped)."""
     if body.kind is ImportKind.folder:
         job_input = str(check_folder_input(body.input, settings, ("input",)))
     else:

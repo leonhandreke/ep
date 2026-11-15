@@ -3,21 +3,12 @@
 import uuid
 
 from fastapi import APIRouter, HTTPException, status
-from sqlmodel import Session, SQLModel, col, delete, select
+from sqlmodel import SQLModel, col, select
 
 from ep.api.deps import SessionDep, get_or_404
 from ep.api.errors import CONFLICT, NOT_FOUND
 from ep.api.schemas import ExternalIdCreate, ExternalIdRead
 from ep.models import EntityType, ExternalId
-
-
-def delete_external_ids(session: Session, entity_type: EntityType, entity_id: uuid.UUID) -> None:
-    """Delete the external IDs of an entity (call this when deleting the entity)."""
-    session.exec(
-        delete(ExternalId).where(
-            col(ExternalId.entity_type) == entity_type, col(ExternalId.entity_id) == entity_id
-        )
-    )
 
 
 def add_external_id_routes(

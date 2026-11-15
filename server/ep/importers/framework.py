@@ -8,9 +8,12 @@ framework does the rest, identically for every kind:
   with ``ep.matching`` (auto match, new, or an issue for the user). Releases resolved to
   MusicBrainz are matched too: by MBID, else against library rows without an MBID
   (which gain it on apply), and so are their artists;
-- ``run_job``: the job state machine. A job with open issues stops at ``needs_review``;
-  answers (``record_answers``) re-run it from the start, each stage consulting the
-  answers by issue id, until nothing is open. Then it downloads and applies;
+- ``run_job``: the job state machine. A job with open (blocking) issues stops at
+  ``needs_review``; answers (``record_answers``) re-run it from the start, each stage
+  consulting the answers by issue id, until nothing is open. Then it downloads and
+  applies. Issues about ``optional`` tracks (radio tracklist entries) do not block: the
+  job applies without those tracks and stays in ``needs_review`` until they are
+  answered (re-running it then adds them; everything else is reused);
 - downloads (``_download``): cover URLs are fetched (``Importer.fetch_cover``) and
   each pending medium is downloaded into its own work
   directory of the job (``job_work_dir``), which survives failures and re-runs: a
@@ -27,6 +30,7 @@ State machine::
 
     queued → running → needs_review ─(review / retry)→ queued
                      → applying → done ─(retry: creates nothing new)→ queued
+                                → needs_review (optional tracks still open)
                      → failed ─(retry / review)→ queued
     queued, needs_review, failed ─(dismiss)→ dismissed
 
@@ -70,6 +74,7 @@ from ep.importers.proposal import (
     FileCover,
     IncomingArtist,
     IncomingCreditPart,
+    IncomingImage,
     IncomingMedium,
     IncomingRelease,
     IncomingTrack,
@@ -117,6 +122,7 @@ from ep.models import (
     rel,
 )
 from ep.models.base import utcnow
+from ep.models.catalogue import EntityType, ExternalId
 from ep.probe import ProbeError, probe
 from ep.settings import Settings
 
@@ -337,6 +343,10 @@ def run_job(
         job.proposal = proposal.model_dump(mode="json")  # with the downloads' final paths
         job.state, job.stage = JobState.done, None
         ctx.log(summary)
+        if waiting := proposal.open_issues():
+            # Only optional tracks are open: applied without them, back in the inbox.
+            job.state = JobState.needs_review
+            ctx.log(f"applied; needs review: {len(waiting)} open issue(s) left out for now")
         session.commit()
     except Exception as e:  # the job fails; it stays in the inbox for a retry
         _fail(ctx, job_id, e)
@@ -348,9 +358,9 @@ def run_job(
 def _stop_for_review(ctx: JobContext, proposal: Proposal) -> bool:
     proposal.issues = ctx.issues
     ctx.job.proposal = proposal.model_dump(mode="json")
-    if open_issues := proposal.open_issues():
+    if blocking := proposal.blocking_issues():
         ctx.job.state = JobState.needs_review
-        ctx.log(f"needs review: {len(open_issues)} open issue(s)")
+        ctx.log(f"needs review: {len(blocking)} open issue(s)")
         return True
     ctx.save()
     return False
@@ -390,7 +400,8 @@ def _download(ctx: JobContext, importer: Importer, proposal: Proposal) -> None:
     pending = [medium for medium in proposal.media if medium.download and medium.key in used]
     for release in proposal.releases:
         if isinstance(release.cover, UrlCover) and release.target.kind is not TargetKind.skip:
-            release.cover = _fetch_cover(ctx, importer, release.cover)
+            path = fetch_image(ctx, importer, release.cover.url)
+            release.cover = FileCover(path=str(path)) if path else None
     if not pending:
         return
     ctx.stage(JobStage.download, len(pending))
@@ -419,29 +430,36 @@ def _download(ctx: JobContext, importer: Importer, proposal: Proposal) -> None:
         ctx.advance()
 
 
-def _fetch_cover(ctx: JobContext, importer: Importer, cover: UrlCover) -> FileCover | None:
-    """A cover image from the web, saved in the job's work directory (reused by later
-    runs); None (logged) if it cannot be fetched or is not an image: the import goes on
-    without it."""
+def fetch_image(ctx: JobContext, importer: Importer, url: str) -> Path | None:
+    """A cover image from the web (``Importer.fetch_cover``), saved in the job's work
+    directory (reused by later runs); None (logged) if it cannot be fetched or is not an
+    image: the import goes on without it."""
     directory = ctx.work_dir / "covers"
-    name = hashlib.sha256(cover.url.encode()).hexdigest()[:16]
+    name = hashlib.sha256(url.encode()).hexdigest()[:16]
     if found := sorted(directory.glob(f"{name}.*")):
-        return FileCover(path=str(found[0]))
+        return found[0]
     try:
-        data = importer.fetch_cover(cover.url)
+        data = importer.fetch_cover(url)
     except WebError as e:
         ctx.log(f"cover not fetched: {e}", LogLevel.warning)
         return None
     if (extension := covers.image_extension(data)) is None:
-        ctx.log(f"cover {cover.url} is not a JPEG, PNG or WebP image", LogLevel.warning)
+        ctx.log(f"cover {url} is not a JPEG, PNG or WebP image", LogLevel.warning)
         return None
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f"{name}{extension}"
     partial = path.with_name(path.name + ".part")
     partial.write_bytes(data)
     partial.replace(path)
-    ctx.log(f"cover fetched: {cover.url}")
-    return FileCover(path=str(path))
+    ctx.log(f"cover fetched: {url}")
+    return path
+
+
+def fetch_incoming_image(ctx: JobContext, importer: Importer, image: IncomingImage) -> None:
+    """Fetch an ``IncomingImage`` (if not fetched yet) and set its ``path``."""
+    if image.path is None or not Path(image.path).is_file():
+        path = fetch_image(ctx, importer, image.url)
+        image.path = str(path) if path else None
 
 
 def _medium_dir(ctx: JobContext, medium: IncomingMedium) -> Path:
@@ -609,12 +627,14 @@ def decide[T: Base](
     new: Target,
     can_skip: bool,
     taken: set[uuid.UUID] | None = None,
+    blocking: bool = True,
 ) -> Target:
     """The target for a match result: the automatic match, ``new``, or what the user
     answered to the issue raised for an uncertain match (UNDECIDED while open).
 
     ``taken``: library rows already used by other incoming items of this job: they are
     not candidates (if the automatic match is one, the others need review).
+    ``blocking``: whether the issue, while open, holds up the job (``Issue.blocking``).
     """
     decision = result.decision
     if taken and any(c.entity.id in taken for c in result.candidates):
@@ -643,6 +663,7 @@ def decide[T: Base](
                 Choice.create_new,
                 *([Choice.skip] if can_skip else []),
             ],
+            blocking=blocking,
         )
         answer = ctx.raise_issue(issue)
         if answer is None:
@@ -743,18 +764,30 @@ def match_proposal(ctx: JobContext, proposal: Proposal) -> None:
     _match_artists(ctx, proposal)
 
 
-def _used_artist_keys(ctx: JobContext, proposal: Proposal) -> set[str]:
-    used: set[str] = set()
+def _used_artist_keys(ctx: JobContext, proposal: Proposal) -> dict[str, bool]:
+    """The incoming artists something imported credits, each with whether that is only
+    ``optional`` tracks (an issue about the artist then does not block the job).
+    Tracks that map to a library recording keep its credit: their artists are not
+    needed."""
+    used: dict[str, bool] = {}
+
+    def use(keys: Iterable[str], optional: bool = False) -> None:
+        for key in keys:
+            used[key] = used.get(key, True) and optional
+
     for release in proposal.releases:
         if release.target.kind is TargetKind.skip:
             continue
-        used |= {part.artist_key for part in release.credit}
+        use(part.artist_key for part in release.credit)
         if release.release_mbid is not None and release.release_mbid in ctx.mb_releases:
             mb_release = ctx.mb_releases[release.release_mbid]
-            used |= {mb_artist_key(artist.id) for artist in mb_release_artists(mb_release)}
+            use(mb_artist_key(artist.id) for artist in mb_release_artists(mb_release))
     for track in proposal.all_tracks():
-        if track.target.kind is not TargetKind.skip:
-            used |= {part.artist_key for part in track.credit}
+        if track.target.kind is TargetKind.skip or isinstance(track.target, ExistingTarget):
+            continue
+        if track.optional and track.target.kind is TargetKind.undecided:
+            continue  # waits for an answer; its artists are matched once it has one
+        use((part.artist_key for part in track.credit), track.optional)
     return used
 
 
@@ -773,6 +806,7 @@ def _match_artists(ctx: JobContext, proposal: Proposal) -> None:
                 subject=Subject(type=SubjectType.artist, key=artist.key, label=label),
                 new=_mb_or_new(artist.mbid, label),
                 can_skip=False,
+                blocking=not used[artist.key],
             )
         ctx.advance()
 
@@ -974,8 +1008,12 @@ def _match_track(
         artist=credit_name(track.credit),
         artist_names=_artist_names(proposal, track.credit),
         length_ms=track.length_ms,
+        min_length_ms=track.min_length_ms,
         mbid=track.mbid,
-        external_ids=[("isrc", isrc) for isrc in track.isrcs],
+        external_ids=[
+            *(("isrc", isrc) for isrc in track.isrcs),
+            *((e.scheme, e.value) for e in track.external_ids),
+        ],
     )
     return decide(
         ctx,
@@ -985,6 +1023,7 @@ def _match_track(
         new=NEW,  # with the track's MBID, if it has one
         can_skip=True,
         taken=taken,
+        blocking=not track.optional,
     )
 
 
@@ -1047,6 +1086,9 @@ class _Applier:
     def recording(self, track: IncomingTrack) -> Recording | None:
         target = track.target
         recording: Recording | None = None
+        if track.optional and self._waiting(track):
+            self.ctx.log(f"left out until reviewed: {track_label(track)}")
+            return None
         match target:
             case SkipTarget():
                 return None
@@ -1075,8 +1117,42 @@ class _Applier:
         assert recording is not None
         if track.isrcs:
             add_isrcs(self.session, recording.id, track.isrcs)
+        if track.external_ids:
+            self._external_ids(recording, track)
         self.applied.recordings[track.key] = recording
         return recording
+
+    def _waiting(self, track: IncomingTrack) -> bool:
+        """An optional track waiting for an answer: about itself, or about an artist of
+        the new recording it would become."""
+        if track.target.kind is TargetKind.undecided:
+            return True
+        return isinstance(track.target, NewTarget) and any(
+            self.proposal.artist(part.artist_key).target.kind is TargetKind.undecided
+            for part in track.credit
+        )
+
+    def _external_ids(self, recording: Recording, track: IncomingTrack) -> None:
+        self.session.flush()
+        known = set(
+            self.session.exec(
+                select(ExternalId.scheme, ExternalId.value).where(
+                    ExternalId.entity_type == EntityType.recording,
+                    ExternalId.entity_id == recording.id,
+                )
+            ).all()
+        )
+        for external in track.external_ids:
+            if (external.scheme, external.value) not in known:
+                known.add((external.scheme, external.value))
+                self.session.add(
+                    ExternalId(
+                        entity_type=EntityType.recording,
+                        entity_id=recording.id,
+                        scheme=external.scheme,
+                        value=external.value,
+                    )
+                )
 
     def release(self, release: IncomingRelease) -> None:
         target = release.target
@@ -1185,42 +1261,50 @@ class _Applier:
         self.ctx.rollback_actions.append(lambda: written.unlink(missing_ok=True))
 
     def sources(self) -> None:
+        """File sources for the media, and slices for tracks with a time range. An
+        optional track left out (waiting for review) still gets its slice, without a
+        recording; it is identified (gains the recording) once the track is applied."""
         tracks = self.proposal.all_tracks()
         recordings = self.applied.recordings
         for medium in self.proposal.media:
             if not medium.path:
                 continue
-            playing = [
-                (track, recordings[track.key])
+            on_medium = [
+                (track, recordings.get(track.key))
                 for track in tracks
-                if track.medium_key == medium.key and track.key in recordings
+                if track.medium_key == medium.key
+                and (track.key in recordings or (track.optional and track.start_ms is not None))
             ]
-            if not playing:
+            if not on_medium:
                 continue
             file = self._file_source(medium)
             self.applied.files[medium.key] = file
-            [(first, recording), *more] = playing
+            [(first, recording), *more] = on_medium
             whole = not more and first.start_ms is None and first.end_ms is None
-            if whole and file.recording_id in (None, recording.id):
+            if whole and recording is not None and file.recording_id in (None, recording.id):
                 file.recording_id = recording.id
                 self.applied.sources[first.key] = file
                 continue
             existing_slices = {(s.start_ms, s.end_ms, s.recording_id): s for s in file.children}
-            for track, recording in playing:
-                key = (track.start_ms or 0, track.end_ms, recording.id)
-                if (source := existing_slices.get(key)) is None:
+            for track, recording in on_medium:
+                recording_id = recording.id if recording is not None else None
+                start = track.start_ms or 0
+                source = existing_slices.get((start, track.end_ms, recording_id))
+                if source is None and recording_id is not None:
+                    source = existing_slices.pop((start, track.end_ms, None), None)
+                    if source is not None:
+                        source.recording_id = recording_id
+                if source is None:
                     source = Source(
                         kind=SourceKind.slice,
                         parent_id=file.id,
-                        start_ms=track.start_ms or 0,
+                        start_ms=start,
                         end_ms=track.end_ms,
-                        recording_id=recording.id,
-                        duration_ms=(track.end_ms - (track.start_ms or 0))
-                        if track.end_ms
-                        else None,
+                        recording_id=recording_id,
+                        duration_ms=(track.end_ms - start) if track.end_ms else None,
                     )
                     self.session.add(source)
-                    existing_slices[key] = source
+                existing_slices[(start, track.end_ms, recording_id)] = source
                 self.applied.sources[track.key] = source
 
     def _file_source(self, medium: IncomingMedium) -> Source:
@@ -1338,6 +1422,8 @@ __all__ = [
     "answer_fits",
     "apply_proposal",
     "discard_work",
+    "fetch_image",
+    "fetch_incoming_image",
     "job_work_dir",
     "match_proposal",
     "mb_credit",

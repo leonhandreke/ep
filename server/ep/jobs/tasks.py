@@ -13,6 +13,7 @@ from ep.db import get_engine
 from ep.importers.bandcamp import BandcampImporter
 from ep.importers.folder import FolderImporter
 from ep.importers.framework import Importer, requeue, run_job
+from ep.importers.nts import NtsImporter
 from ep.importers.youtube import YouTubeImporter
 from ep.jobs.queue import IMPORT_QUEUE, RUN_IMPORT, app, enqueue_import
 from ep.metadata.musicbrainz import MusicBrainz
@@ -23,6 +24,7 @@ IMPORTERS: dict[ImportKind, Importer] = {
     ImportKind.folder: FolderImporter(),
     ImportKind.bandcamp: BandcampImporter(),
     ImportKind.youtube: YouTubeImporter(),
+    ImportKind.nts: NtsImporter(),
 }
 
 

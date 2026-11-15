@@ -7,7 +7,7 @@ from sqlmodel import col, select
 
 from ep.api.deps import SessionDep, artist_credit_from_input, get_or_404
 from ep.api.errors import CONFLICT, NOT_FOUND
-from ep.api.external_ids import add_external_id_routes, delete_external_ids
+from ep.api.external_ids import add_external_id_routes
 from ep.api.release_groups import release_group_order
 from ep.api.schemas import (
     RecordingCreate,
@@ -18,6 +18,7 @@ from ep.api.schemas import (
 )
 from ep.api.sources import source_read
 from ep.credits import delete_artist_credit_if_unused, with_credit
+from ep.external_ids import delete_external_ids
 from ep.models import ArtistCredit, EntityType, Recording, ReleaseGroup, Source, Track, rel
 from ep.playback import resolve_where
 

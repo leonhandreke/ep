@@ -341,6 +341,7 @@ def match_recording(
     artist: str | None = None,
     artist_names: Sequence[str] = (),
     length_ms: int | None = None,
+    min_length_ms: int | None = None,
     mbid: uuid.UUID | None = None,
     isrc: str | None = None,
     external_ids: ExternalIds = (),
@@ -348,6 +349,10 @@ def match_recording(
     """Match a recording by MBID, ISRC and external IDs, then title, artist credit text and
     duration. Without artist text, fuzzy matches need review. ``artist_names``: the
     individual artists of the credit, if known (see ``credit_score``).
+
+    ``min_length_ms``: the recording is known to be at least this long (a radio play,
+    which may be cut short): fuzzy candidates more than ``DURATION_TOLERANCE_MS``
+    shorter are dropped.
     """
     if mbid and (result := _by_mbid(session, Recording, col(Recording.mbid), mbid)):
         return result
@@ -378,6 +383,7 @@ def match_recording(
             )
             for recording in rows
             if not _durations_differ(length_ms, recording.length_ms)
+            and not _shorter(recording.length_ms, min_length_ms)
         ),
         allow_auto=bool(artist),
     )
@@ -426,6 +432,14 @@ def _title_artist_score(
     if artist:
         score = score * credit_score(artist, credit, artist_names) / 100
     return score
+
+
+def _shorter(length_ms: int | None, min_length_ms: int | None) -> bool:
+    return (
+        length_ms is not None
+        and min_length_ms is not None
+        and length_ms < min_length_ms - DURATION_TOLERANCE_MS
+    )
 
 
 def _durations_differ(a: int | None, b: int | None) -> bool:

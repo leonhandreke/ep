@@ -22,6 +22,11 @@ The fixtures:
 - ``bandcamp/floatingpoints_promises.html``: Floating Points, Pharoah Sanders & The
   London Symphony Orchestra, "Promises" on the artist's page (9 tracks; linked from
   MusicBrainz, see ``tests.mock_musicbrainz``)
+- ``nts/episode_early-bird-show-w-pam-12th-november-2026.json``: NTS's API response for
+  "The Early Bird Show w/ PAM & Alice" of 2026-11-12 (32 tracklist entries: 27 with
+  detected times, ISRCs, Deezer and ACRCloud ids, 12 of them with a MusicBrainz
+  recording MBID; 5 typed in with estimated times; audio on SoundCloud), and
+  ``nts/show_early-bird-show-w-pam.json``, its show; served by ``nts_transport``
 """
 
 import subprocess
@@ -36,6 +41,7 @@ from ep.metadata.ytdlp import PlaylistInfo, Progress, VideoInfo, YtDlp, YtDlpErr
 FIXTURES = Path(__file__).parent / "fixtures"
 YTDLP = FIXTURES / "ytdlp"
 BANDCAMP = FIXTURES / "bandcamp"
+NTS = FIXTURES / "nts"
 
 SINGLE_VIDEO = "https://www.youtube.com/watch?v=GSWtPDAN3PE"
 CHAPTERED_VIDEO = "https://www.youtube.com/watch?v=Hx5aGvXCwyQ"
@@ -44,6 +50,19 @@ PLAYLIST_CANONICAL = "https://www.youtube.com/playlist?list=PLpCe82icWpaIvy78b4v
 UNRELEASED = "https://www.youtube.com/watch?v=J0vUqvfHQeQ"
 KNOTWILG = "https://knotwilg.bandcamp.com/album/leitmotiv-2"
 PROMISES = "https://floatingpoints.bandcamp.com/album/promises"
+NTS_EPISODE = (
+    "https://www.nts.live/shows/early-bird-show-w-pam/episodes/"
+    "early-bird-show-w-pam-12th-november-2026"
+)
+NTS_SOUNDCLOUD = "https://soundcloud.com/user-202286394-991268468/the-early-bird-show-516135418"
+NTS_EPISODE_API = (
+    "https://www.nts.live/api/v2/shows/early-bird-show-w-pam/episodes/"
+    "early-bird-show-w-pam-12th-november-2026"
+)
+NTS_API = {
+    NTS_EPISODE_API: "episode_early-bird-show-w-pam-12th-november-2026.json",
+    "https://www.nts.live/api/v2/shows/early-bird-show-w-pam": "show_early-bird-show-w-pam.json",
+}
 BANDCAMP_PAGES = {
     KNOTWILG: "knotwilg_leitmotiv-2.html",
     PROMISES: "floatingpoints_promises.html",
@@ -135,6 +154,27 @@ def web_transport(requests: list[str] | None = None) -> httpx2.MockTransport:
             return httpx2.Response(200, content=(BANDCAMP / BANDCAMP_PAGES[url]).read_bytes())
         host = request.url.host
         if host.endswith("bcbits.com") or host.endswith("ytimg.com"):
+            return httpx2.Response(200, content=png_bytes())
+        return httpx2.Response(404, content=b"not found")
+
+    return httpx2.MockTransport(handle)
+
+
+def nts_transport(
+    requests: list[str] | None = None, responses: dict[str, httpx2.Response] | None = None
+) -> httpx2.MockTransport:
+    """NTS's API from the fixtures (404 for other URLs, ``responses`` override by URL)
+    and a PNG for NTS's images."""
+
+    def handle(request: httpx2.Request) -> httpx2.Response:
+        url = str(request.url)
+        if requests is not None:
+            requests.append(url)
+        if responses and url in responses:
+            return responses[url]
+        if url in NTS_API:
+            return httpx2.Response(200, content=(NTS / NTS_API[url]).read_bytes())
+        if request.url.host.endswith("ntslive.co.uk"):
             return httpx2.Response(200, content=png_bytes())
         return httpx2.Response(404, content=b"not found")
 

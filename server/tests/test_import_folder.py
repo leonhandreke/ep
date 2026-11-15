@@ -480,7 +480,10 @@ def test_import_input_is_validated(client: TestClient, music: Path, tmp_path: Pa
             {"kind": "bandcamp", "input": "https://bandcamp.com/discover"},
             "must be a Bandcamp album or track page URL (https://<name>.bandcamp.com/album/...)",
         ),
-        ({"kind": "nts", "input": "https://www.nts.live/"}, "nts imports are not available yet"),
+        (
+            {"kind": "nts", "input": "https://www.nts.live/shows/x"},
+            "must be an NTS episode URL (https://www.nts.live/shows/<show>/episodes/<episode>)",
+        ),
     ]:
         response = create(body)
         assert response.status_code == 422

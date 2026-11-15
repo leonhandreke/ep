@@ -10,7 +10,14 @@ structure, stored as JSON on ``import_job.proposal`` and shown by the review UI:
   sources);
 - ``loose_tracks``: incoming recordings without a release group (a single video, a radio
   tracklist entry);
+- ``radio``: a radio episode with its show and tracklist (NTS), whose entries are loose
+  tracks;
 - ``issues``: everything that needs the user, each with the choices available.
+
+An open issue holds up the whole job (it stops at ``needs_review``) unless it is not
+``blocking``: issues about ``optional`` tracks (radio tracklist entries) let the job
+apply without those tracks; it then stays in ``needs_review`` until they are answered,
+and running it again with the answers adds them.
 
 Each incoming item has a stable ``key`` (built from what was imported, e.g. the file
 path), so that an issue keeps its id when the job runs again, and an answer given in
@@ -19,9 +26,9 @@ review still applies.
 Where an item goes (``Target``) and where a cover comes from (``IncomingCover``) are
 unions discriminated by ``kind`` (``oneOf`` with a ``discriminator`` in OpenAPI): each
 variant carries exactly the fields it needs. Importer-specific parts that are not
-catalogue rows (stage 7: the radio episode and its tracklist) are added as further
-fields of ``Proposal``, referring to the items here by key, and written by the
-importer's ``Importer.apply``.
+catalogue rows (the radio episode and its tracklist, ``radio``) are further fields of
+``Proposal``, referring to the items here by key, and written by the importer's
+``Importer.apply``.
 """
 
 import uuid
@@ -31,7 +38,7 @@ from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from ep.models import ArtistType, ReleaseGroupType, SourceKind
+from ep.models import ArtistType, RadioStation, ReleaseGroupType, SourceKind
 
 
 class Model(BaseModel):
@@ -185,6 +192,12 @@ class UrlCover(Model):
 type IncomingCover = Annotated[EmbeddedCover | FileCover | UrlCover, Field(discriminator="kind")]
 
 
+class IncomingExternalId(Model):
+    # e.g. deezer, nts, acr (ISRCs are in ``isrcs``).
+    scheme: str
+    value: str
+
+
 class IncomingTrack(Model):
     key: str
     # The medium that plays it; null for a recording without audio (e.g. a radio
@@ -201,9 +214,19 @@ class IncomingTrack(Model):
     credit: list[IncomingCreditPart]
     length_ms: int | None = None
     isrcs: list[str] = Field(default_factory=list)
+    # Further identifiers: matched like ISRCs, added to the recording on apply.
+    external_ids: list[IncomingExternalId] = Field(default_factory=list)
     # MusicBrainz recording and release track.
     mbid: uuid.UUID | None = None
     mb_track_id: uuid.UUID | None = None
+    # Known to have played this long (a radio play, perhaps cut short): recordings
+    # shorter than this are not candidates. Unlike ``length_ms``, not the recording's
+    # length.
+    min_length_ms: int | None = None
+    # An open issue about this track (or its artists) does not hold up the job: it
+    # applies without the track and stays in the inbox until the issue is answered
+    # (radio tracklist entries).
+    optional: bool = False
     # The recording this track maps to.
     target: Target = UNDECIDED
 
@@ -247,6 +270,9 @@ class IssueKind(StrEnum):
     metadata_not_found = "metadata_not_found"
     # The input could not be fetched (network or server error, a bot check); retry.
     fetch_failed = "fetch_failed"
+    # A service answered in a shape EP does not understand (an undocumented API
+    # changed); retry once EP is updated.
+    unexpected_response = "unexpected_response"
     # A file could not be read as audio.
     unreadable_file = "unreadable_file"
     # A download failed.
@@ -271,11 +297,13 @@ class SubjectType(StrEnum):
     release = "release"
     track = "track"
     medium = "medium"
+    radio_episode = "radio_episode"
 
 
 class Subject(Model):
     """The incoming item an issue is about (``key`` in ``artists``, ``releases``, the
-    releases' ``tracks``, ``loose_tracks`` or ``media``)."""
+    releases' ``tracks``, ``loose_tracks`` or ``media``; for ``radio_episode``, the
+    episode URL)."""
 
     type: SubjectType
     key: str
@@ -320,10 +348,66 @@ class Issue(Model):
     choices: list[Choice]
     # The user's answer; null while the issue is open.
     answer: Answer | None = None
+    # While open, the job does not apply. Non-blocking issues concern ``optional``
+    # tracks: the job applies without them and waits for the answer afterwards.
+    blocking: bool = True
 
 
 def issue_id(kind: IssueKind, subject_key: str) -> str:
     return f"{kind}:{subject_key}"
+
+
+# Radio (``Proposal.radio``): written by the importer (``ep.importers.nts``)
+
+
+class IncomingImage(Model):
+    url: str
+    # The image fetched into the job's work directory; null if it could not be fetched.
+    path: str | None = None
+
+
+class IncomingRadioShow(Model):
+    station: RadioStation
+    slug: str
+    name: str
+    description: str = ""
+    image: IncomingImage | None = None
+
+
+class IncomingRadioEpisode(Model):
+    slug: str
+    name: str
+    description: str = ""
+    broadcast_at: datetime | None = None
+    location: str | None = None
+    # The episode page.
+    url: str
+    image: IncomingImage | None = None
+    # As given by the station; not imported yet, kept for tags (stage 8).
+    genres: list[str] = Field(default_factory=list)
+    moods: list[str] = Field(default_factory=list)
+
+
+class IncomingRadioEntry(Model):
+    """A tracklist entry: the station's text, and the loose track (``track_key``) that
+    maps it to a recording and, with a time range, to a slice of the episode file."""
+
+    position: int
+    track_key: str
+    artist_text: str
+    title_text: str
+    # Within the episode; null if the station gives no time.
+    start_ms: int | None = None
+    end_ms: int | None = None
+    offset_is_estimate: bool = False
+
+
+class IncomingRadio(Model):
+    show: IncomingRadioShow
+    episode: IncomingRadioEpisode
+    # The episode's audio (``Proposal.media``).
+    medium_key: str
+    entries: list[IncomingRadioEntry] = Field(default_factory=list)
 
 
 class Proposal(Model):
@@ -331,10 +415,15 @@ class Proposal(Model):
     artists: list[IncomingArtist] = Field(default_factory=list)
     releases: list[IncomingRelease] = Field(default_factory=list)
     loose_tracks: list[IncomingTrack] = Field(default_factory=list)
+    radio: IncomingRadio | None = None
     issues: list[Issue] = Field(default_factory=list)
 
     def open_issues(self) -> list[Issue]:
         return [issue for issue in self.issues if issue.answer is None]
+
+    def blocking_issues(self) -> list[Issue]:
+        """Open issues that keep the job from applying."""
+        return [issue for issue in self.open_issues() if issue.blocking]
 
     def medium(self, key: str) -> IncomingMedium:
         return next(medium for medium in self.media if medium.key == key)
