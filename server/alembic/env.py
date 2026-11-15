@@ -21,10 +21,17 @@ def database_url() -> str:
     return config.attributes.get("database_url") or get_settings().database_url
 
 
+def include_name(name: str | None, type_: str, parent_names: object) -> bool:
+    """Leave the job queue's tables (migration 0006, not SQLModel tables) out of
+    autogenerate and ``alembic check``."""
+    return not (type_ == "table" and name and name.startswith("procrastinate_"))
+
+
 def run_migrations_offline() -> None:
     context.configure(
         url=database_url(),
         target_metadata=target_metadata,
+        include_name=include_name,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
     )
@@ -35,7 +42,9 @@ def run_migrations_offline() -> None:
 def run_migrations_online() -> None:
     engine = create_engine(database_url())
     with engine.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata)
+        context.configure(
+            connection=connection, target_metadata=target_metadata, include_name=include_name
+        )
         with context.begin_transaction():
             context.run_migrations()
     engine.dispose()

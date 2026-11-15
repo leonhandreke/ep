@@ -17,6 +17,7 @@ from ep.models.catalogue import (
     ReleaseGroupType,
     Track,
 )
+from ep.models.operations import ImportJob, ImportKind, JobStage, JobState, WatchDir
 from ep.models.source import Source, SourceKind
 
 __all__ = [
@@ -27,11 +28,16 @@ __all__ = [
     "Base",
     "EntityType",
     "ExternalId",
+    "ImportJob",
+    "ImportKind",
+    "JobStage",
+    "JobState",
     "Recording",
     "ReleaseGroup",
     "ReleaseGroupType",
     "Source",
     "SourceKind",
     "Track",
+    "WatchDir",
     "rel",
 ]
