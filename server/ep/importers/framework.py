@@ -96,6 +96,7 @@ from ep.importers.proposal import (
     issue_id,
 )
 from ep.matching import Decision, MatchResult, match_artist, match_recording, match_release_group
+from ep.matching.normalize import normalize
 from ep.media_roots import is_within_media_roots
 from ep.metadata import web
 from ep.metadata.musicbrainz import (
@@ -759,7 +760,9 @@ def match_proposal(ctx: JobContext, proposal: Proposal) -> None:
         ctx.advance(len(release.tracks))
     for track in proposal.loose_tracks:
         if track.target.kind is TargetKind.undecided and not ctx.waiting(track.key):
-            track.target = _match_track(ctx, proposal, track, taken)
+            # A radio tracklist may play a recording twice: optional tracks neither
+            # take library rows from each other nor from the job's other items.
+            track.target = _match_track(ctx, proposal, track, None if track.optional else taken)
         ctx.advance()
     _match_artists(ctx, proposal)
 
@@ -999,7 +1002,7 @@ def _match_tracks(
 
 
 def _match_track(
-    ctx: JobContext, proposal: Proposal, track: IncomingTrack, taken: set[uuid.UUID]
+    ctx: JobContext, proposal: Proposal, track: IncomingTrack, taken: set[uuid.UUID] | None
 ) -> Target:
     subject = Subject(type=SubjectType.track, key=track.key, label=track_label(track))
     result = match_recording(
@@ -1040,6 +1043,9 @@ class _Applier:
         self.proposal = proposal
         self.artists: dict[str, Artist] = {}
         self.applied = Applied()
+        # New recordings of this job by identity (``_identities``): two incoming tracks
+        # that are the same recording (a radio tracklist playing it twice) become one.
+        self.new_recordings: dict[tuple[str, str], Recording] = {}
 
     def artist(self, key: str) -> Artist:
         if key in self.artists:
@@ -1094,6 +1100,7 @@ class _Applier:
                 return None
             case ExistingTarget():
                 recording = self.session.get_one(Recording, target.id)
+                self._attach_mbid(recording, track)
             case MusicBrainzTarget():
                 recording = self.session.exec(
                     select(Recording).where(Recording.mbid == target.mbid)
@@ -1105,13 +1112,21 @@ class _Applier:
                         self.session, mb_recording, self.mb_artists(artists)
                     )
             case NewTarget():
-                recording = Recording(
-                    mbid=track.mbid,
-                    title=track.title,
-                    artist_credit_id=self.credit(track.credit).id,
-                    length_ms=track.length_ms,
+                identities = self._identities(track)
+                recording = next(
+                    (self.new_recordings[i] for i in identities if i in self.new_recordings),
+                    None,
                 )
-                self.session.add(recording)
+                if recording is None:
+                    recording = Recording(
+                        mbid=track.mbid,
+                        title=track.title,
+                        artist_credit_id=self.credit(track.credit).id,
+                        length_ms=track.length_ms,
+                    )
+                    self.session.add(recording)
+                for identity in identities:
+                    self.new_recordings.setdefault(identity, recording)
             case UndecidedTarget():
                 raise AssertionError(f"track {track.key} is undecided")
         assert recording is not None
@@ -1121,6 +1136,43 @@ class _Applier:
             self._external_ids(recording, track)
         self.applied.recordings[track.key] = recording
         return recording
+
+    def _identities(self, track: IncomingTrack) -> list[tuple[str, str]]:
+        """What makes a new recording the same as another one of this job: its MBID;
+        for optional tracks (radio entries, which repeat) also its ISRCs and external
+        IDs and the normalised artist and title text."""
+        identities = [("mbid", str(track.mbid))] if track.mbid else []
+        if track.optional:
+            identities += [("isrc", isrc) for isrc in track.isrcs]
+            identities += [(e.scheme, e.value) for e in track.external_ids]
+            text = f"{normalize(credit_name(track.credit))}\n{normalize(track.title)}"
+            identities.append(("text", text))
+        return identities
+
+    def _attach_mbid(self, recording: Recording, track: IncomingTrack) -> None:
+        """A library recording without an MBID gains the MBID of the incoming track
+        matched to it (like artists and release groups), unless another recording has
+        it or another track of this job, matched to the same recording, has another
+        MBID (then which one it is stays open)."""
+        if recording.mbid is not None or track.mbid is None:
+            return
+        others = {
+            other.mbid
+            for other in self.proposal.all_tracks()
+            if isinstance(other.target, ExistingTarget)
+            and other.target.id == recording.id
+            and other.mbid is not None
+        }
+        if others != {track.mbid}:
+            self.ctx.log(
+                f"{track_label(track)}: MusicBrainz recording not attached, other tracks of "
+                "this import matched to the same recording have other MBIDs",
+                LogLevel.warning,
+            )
+            return
+        taken = select(Recording.id).where(Recording.mbid == track.mbid)
+        if self.session.exec(taken).first() is None:
+            recording.mbid = track.mbid
 
     def _waiting(self, track: IncomingTrack) -> bool:
         """An optional track waiting for an answer: about itself, or about an artist of

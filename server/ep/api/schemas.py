@@ -327,6 +327,9 @@ class RadioEpisodeDetail(RadioEpisodeRead):
     show: RadioShowRead
     # How to play the whole episode.
     playback: PlaybackRead | None
+    # Length of the episode file, if known (the scrubber's scale; the last entry may
+    # have no end).
+    duration_ms: int | None
     tracks: list[RadioEpisodeTrackRead]
 
 

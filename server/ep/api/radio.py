@@ -39,10 +39,12 @@ from ep.models import (
     Recording,
     Source,
     SourceKind,
+    WatchDir,
     rel,
 )
 from ep.playback import Playback, resolve_where_flagged
-from ep.radio import delete_episode, delete_show
+from ep.radio import delete_episode, delete_show, delete_unused_recordings, radio_only_ids
+from ep.settings import Settings
 
 router = APIRouter(prefix="/radio", tags=["radio"])
 # ``/recordings/{id}/radio-appearances`` and ``/artists/{id}/radio-appearances``.
@@ -62,6 +64,14 @@ def _playback(playback: Playback | None) -> PlaybackRead | None:
 def _remove_files(files: Sequence[Path]) -> None:
     for path in files:
         path.unlink(missing_ok=True)
+
+
+def _protected(session: Session, settings: Settings) -> list[Path]:
+    """Directories whose files are never deleted: the watched directories and every
+    media root other than the managed library."""
+    library = settings.library_dir.resolve()
+    roots = [root for root in settings.media_roots if root.resolve() != library]
+    return [*roots, *(Path(path) for path in session.exec(select(WatchDir.path)).all())]
 
 
 # Shows
@@ -98,7 +108,9 @@ def delete_radio_show(
 ) -> None:
     """Delete a show with its episodes (see ``DELETE /radio/episodes/{id}``)."""
     show = get_or_404(session, RadioShow, id)
-    files = delete_show(session, show, settings.library_dir, delete_audio)
+    files = delete_show(
+        session, show, settings.library_dir, delete_audio, _protected(session, settings)
+    )
     session.commit()
     _remove_files(files)
 
@@ -134,6 +146,7 @@ def _load_episode(session: Session, id: uuid.UUID) -> RadioEpisode:
                 .joinedload(rel(Recording.artist_credit))
                 .selectinload(rel(ArtistCredit.names)),
                 selectinload(rel(RadioEpisode.tracks)).joinedload(rel(RadioEpisodeTrack.source)),
+                joinedload(rel(RadioEpisode.source)),
             )
         )
         .unique()
@@ -212,6 +225,7 @@ def get_radio_episode(id: uuid.UUID, session: SessionDep) -> RadioEpisodeDetail:
         playback=_playback(
             playbacks.by_source.get(episode.source_id) if episode.source_id else None
         ),
+        duration_ms=episode.source.duration_ms if episode.source is not None else None,
         tracks=[playbacks.track(track) for track in episode.tracks],
     )
 
@@ -235,7 +249,9 @@ def delete_radio_episode(
     the library otherwise keep everything but their slice. The audio file stays unless
     ``delete_audio`` (only a file EP downloaded into the managed library is deleted)."""
     episode = get_or_404(session, RadioEpisode, id)
-    files = delete_episode(session, episode, settings.library_dir, delete_audio)
+    files = delete_episode(
+        session, episode, settings.library_dir, delete_audio, _protected(session, settings)
+    )
     session.commit()
     _remove_files(files)
 
@@ -247,13 +263,17 @@ def update_radio_episode_track(
     """Re-point a tracklist entry to another recording (or to none) and/or adjust its
     time range within the episode. The entry's slice follows: it plays the new
     recording, and its range is the entry's. An entry without a slice gets one when a
-    range is given (if the episode has a file)."""
+    range is given (if the episode has a file). The previous recording is deleted if it
+    was only known from radio and no entry plays it any more."""
     track = session.get(RadioEpisodeTrack, id)
     if track is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"radio_episode_track {id} not found")
-    if body.recording_id is not MISSING:
+    replaced: set[uuid.UUID] = set()
+    if body.recording_id is not MISSING and body.recording_id != track.recording_id:
         if body.recording_id is not None:
             get_or_422(session, Recording, body.recording_id, ("recording_id",))
+        if track.recording_id is not None:
+            replaced = radio_only_ids(session, [track.recording_id])
         track.recording_id = body.recording_id
         if track.source is not None:
             track.source.recording_id = body.recording_id
@@ -270,6 +290,8 @@ def update_radio_episode_track(
             track.offset_is_estimate = False
     if body.offset_is_estimate is not MISSING:
         track.offset_is_estimate = body.offset_is_estimate
+    # A radio-only recording that no entry plays any more goes (``ep.radio``).
+    delete_unused_recordings(session, replaced)
     session.commit()
     session.refresh(track)
     return _Playbacks(session, [track], None).track(track)

@@ -115,6 +115,11 @@ def test_time_ranges() -> None:
     ranges = time_ranges(tracklist)
     assert ranges[0] == (8000, 430000)
     assert ranges[2] == (None, None)
+    # Out of order: up to the entry that starts next, wherever it is in the list.
+    entries[0]["offset_estimate"], entries[0]["duration_estimate"] = 900, None
+    entries[1]["offset"] = 1000
+    tracklist = parse_episode(json.dumps(data).encode()).tracklist
+    assert time_ranges(tracklist)[0] == (900000, 1000000)
 
 
 def test_parse_show() -> None:

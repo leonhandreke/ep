@@ -29,8 +29,11 @@ importer
 5. ``apply`` writes the radio rows (``ep.models.radio``): the show and the episode
    (found by station + slug and by URL: importing an episode again updates it), and one
    ``radio_episode_track`` per entry with the station's text, the recording and the
-   slice. Entries already in the library from an earlier import keep their recording
-   and time range (as edited since, e.g. with ``PATCH /radio/episode-tracks/{id}``).
+   slice. Entries already in the library from an earlier import (same text) keep their
+   recording and time range (as edited since, e.g. with
+   ``PATCH /radio/episode-tracks/{id}``). Slices and radio-only recordings that no entry
+   plays any more (the station corrected or removed an entry) are deleted
+   (``ep.radio.delete_unused_recordings``).
 
 NTS genres and moods are kept in the proposal (``radio.episode.genres``/``moods``) for
 tags (stage 8).
@@ -98,6 +101,7 @@ from ep.models import (
     SourceKind,
     rel,
 )
+from ep.radio import delete_unused_recordings, delete_unused_slices, radio_only_ids
 
 # Seconds an episode download may take (two hours of audio, ~150 MB).
 EPISODE_DOWNLOAD_TIMEOUT = 6 * 3600
@@ -139,8 +143,9 @@ def time_ranges(tracklist: list[NtsTrack]) -> list[tuple[int | None, int | None]
             continue
         end = start + duration if duration else None
         if end is None:
-            later = [s for s in starts[index + 1 :] if s is not None and s > start]
-            end = later[0] if later else None
+            # The next entry to start (the tracklist may be out of order).
+            later = [s for s in starts if s is not None and s > start]
+            end = min(later) if later else None
         ranges.append((start, end))
     return ranges
 
@@ -274,8 +279,12 @@ class NtsImporter(Importer):
                 min_length_ms=entry.detected_duration_ms,
                 optional=True,
             )
-            row = known.get(position)
-            if row is not None and (row.artist_text, row.title_text) == (artist, title):
+            # The same entry as imported before: same text, at this position if it is
+            # still there (the station may have added or removed entries before it).
+            same = known.get((artist, title), [])
+            row = next((r for r in same if r.position == position), same[0] if same else None)
+            if row is not None:
+                same.remove(row)
                 # In the library from an earlier import: keep its recording and range.
                 if row.recording is not None:
                     track.target = existing(row.recording)
@@ -299,8 +308,10 @@ class NtsImporter(Importer):
         if estimated or untimed:
             ctx.log(f"{estimated} entries have estimated times, {untimed} have none (no slice)")
 
-    def _known_entries(self, ctx: JobContext, ref: EpisodeRef) -> dict[int, RadioEpisodeTrack]:
-        """The tracklist of the episode as imported before, by position."""
+    def _known_entries(
+        self, ctx: JobContext, ref: EpisodeRef
+    ) -> dict[tuple[str, str], list[RadioEpisodeTrack]]:
+        """The tracklist of the episode as imported before, by artist and title text."""
         episode = ctx.session.exec(
             select(RadioEpisode)
             .where(RadioEpisode.url == ref.url)
@@ -311,7 +322,10 @@ class NtsImporter(Importer):
                 ),
             )
         ).first()
-        return {track.position: track for track in episode.tracks} if episode else {}
+        known: dict[tuple[str, str], list[RadioEpisodeTrack]] = {}
+        for track in episode.tracks if episode else []:
+            known.setdefault((track.artist_text, track.title_text), []).append(track)
+        return known
 
     def fetch_cover(self, url: str) -> bytes:
         return web.fetch(url, self.transport)
@@ -364,6 +378,12 @@ class NtsImporter(Importer):
         session.flush()
 
         rows = {track.position: track for track in episode.tracks}
+        # What the rows played before: slices and radio-only recordings no entry uses
+        # any more are deleted below (``ep.radio``).
+        old_recordings = radio_only_ids(
+            session, (row.recording_id for row in rows.values() if row.recording_id)
+        )
+        old_slices = {row.source_id for row in rows.values() if row.source_id is not None}
         for entry in radio.entries:
             row = rows.pop(entry.position, None)
             if row is None:
@@ -384,6 +404,9 @@ class NtsImporter(Importer):
             row.offset_is_estimate = entry.offset_is_estimate
         for gone in rows.values():  # no longer in NTS's tracklist
             session.delete(gone)
+        delete_unused_slices(session, old_slices)
+        if dropped := delete_unused_recordings(session, old_recordings):
+            ctx.log(f"radio: {dropped} recording(s) no tracklist entry plays any more deleted")
         matched = sum(applied.recordings.get(e.track_key) is not None for e in radio.entries)
         ctx.log(
             f"radio: {show.name!r} / {episode.name!r}, {len(radio.entries)} entries, "

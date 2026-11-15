@@ -82,6 +82,9 @@ class Artist(Base, table=True):
     __table_args__ = (
         trigram_index("artist", "name_normalized"),
         trigram_index("artist", "sort_name_normalized"),
+        # The order of ``GET /artists``: the first pages read the index instead of
+        # sorting every artist (and testing each for radio-only, ``ep.radio``).
+        sa.Index("ix_artist_sort_name_name_id", "sort_name", "name", "id"),
     )
 
     mbid: uuid.UUID | None = Field(default=None, unique=True)

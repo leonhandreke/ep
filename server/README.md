@@ -282,10 +282,16 @@ uv run alembic revision --autogenerate -m "add catalogue"
   matched by MBID, ISRC/Deezer/ACRCloud/NTS uid, then fuzzy artist + title (the
   detected duration only as a lower bound): confident ones are used, clear misses become
   new standalone recordings and artists, the uncertain ones are non-blocking issues (the
-  episode applies with them unmatched). A library recording matched by text keeps its
-  metadata (no MBID from NTS). Images go to `_covers/radio-show/`, `_covers/radio-episode/`
+  episode applies with them unmatched). A track played twice is one recording (radio
+  entries do not "take" library rows from each other; new ones are shared within the job
+  by MBID, ISRC/external ID or normalised text). A library recording matched by text
+  keeps its metadata, but gains NTS's recording MBID if it has none and nothing else has
+  it (framework-wide, as artists and release groups do; not when two tracks of the job
+  with different MBIDs matched it). Images go to `_covers/radio-show/`, `_covers/radio-episode/`
   (`GET /covers/radio-show/{id}`, `/covers/radio-episode/{id}`). Re-importing updates
-  the rows; entries in the library keep their recording and range (manual edits stand).
+  the rows; entries in the library (found by their text) keep their recording and range
+  (manual edits stand); slices and radio-only recordings no entry plays any more go.
+  Not kept: an entry un-matched by hand (`recording_id: null`) is matched again.
   Genres and moods stay in the proposal for tags. From the Docker image (2026-11) the
   NTS API and the SoundCloud download both work; a bot check would be a
   `fetch_failed`/`download_failed` issue with retry, never worked around.
@@ -299,11 +305,21 @@ uv run alembic revision --autogenerate -m "add catalogue"
   `/radio/episodes/{id}` (tracklist with raw text, range, estimate flag, recording,
   `in_library`/`library_playback`, the slice's and the episode's `playback`), `PATCH`
   and `DELETE` on shows and episodes, `PATCH /radio/episode-tracks/{id}` (re-point to a
-  recording or `null`, change the range; the slice follows),
+  recording or `null`, change the range; the slice follows; the previous recording is
+  deleted if it was radio-only and no entry plays it any more),
   `GET /recordings/{id}/radio-appearances`, `/artists/{id}/radio-appearances`.
   `DELETE` an episode removes its tracklist, slices, file source and link sources, and
   the recordings (and then uncredited artists) only it knew; the audio file only with
-  `delete_audio=true` (managed files under the library only).
+  `delete_audio=true`: a `managed` regular file whose real path (symlinks, `..`
+  resolved) is in the library and in no watched directory or other media root. The
+  rule for recordings radio created (`ep.radio.delete_unused_recordings`): a radio-only
+  recording lives as long as a tracklist entry points at it; a recording in no
+  tracklist is never hidden. `GET /radio/episodes/{id}` has `duration_ms` of the file
+  (the scrubber's scale; the last entry may be open-ended).
+- Cost of the radio-only filter (synthetic 70k artists, 560k recordings, 110k
+  tracklist entries): `/artists` first page 3 ms (index on the browse order), but
+  ~1 s at offset 40000 (each skipped artist is tested); `/search` adds up to ~1 s when
+  a query hits tens of thousands of rows.
 
 ## Tests
 
