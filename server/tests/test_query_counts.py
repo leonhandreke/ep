@@ -14,6 +14,9 @@ from fastapi.testclient import TestClient
 from sqlalchemy import event
 from sqlmodel import Session
 
+from ep.jobs.queue import create_import
+from ep.models import ImportKind
+from ep.settings import Settings
 from tests.helpers import credit, make_artist, make_release_group, make_track, post
 
 
@@ -110,3 +113,23 @@ def test_list_endpoint_query_count(
         assert response.json()
         counts.append(len(statements))
     assert counts == [expected, expected], "\n\n".join(statements)
+
+
+def test_import_lists_query_count(client: TestClient, session: Session, settings: Settings) -> None:
+    """One statement per list, however many jobs (with proposals) or watch dirs."""
+    music = settings.media_roots[2]
+    counts = []
+    for size in (1, 5):
+        for n in range(size):
+            job = create_import(session, ImportKind.folder, str(music / f"{size}-{n}"))
+            job.proposal = {"issues": [], "releases": []}
+            path = music / f"watch-{size}-{n}"
+            path.mkdir()
+            assert client.post("/watch-dirs", json={"path": str(path)}).status_code == 201
+        session.commit()
+        for list_path in ("/imports", "/watch-dirs"):
+            with count_selects(session) as statements:
+                response = client.get(list_path)
+            assert response.status_code == 200
+            counts.append(len(statements))
+    assert counts == [1, 1, 1, 1]

@@ -37,8 +37,9 @@ services:
 
   worker:
     <<: *app
-    # Placeholder until stage 5 adds Procrastinate.
-    command: ["sh", "-c", "echo 'worker: placeholder (no jobs yet)'; exec sleep infinity"]
+    # Procrastinate worker for the import queue (one job at a time) plus the watcher.
+    command: ["python", "-m", "ep.jobs.worker"]
+    stop_grace_period: 60s
 
 volumes:
   db-data:

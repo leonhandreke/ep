@@ -17,7 +17,7 @@ files; `server/`: ruff, ty, `uv lock --check`).
 |---|---|---|
 | `db` | Postgres 18, user/password/db `ep`/`ep`/`ep` | `127.0.0.1:5432` |
 | `api` | `uvicorn ep.main:app` | `8000` |
-| `worker` | placeholder until stage 5 (Procrastinate) | none |
+| `worker` | `python -m ep.jobs.worker`: Procrastinate worker (import queue) + watcher | none |
 
 `api` and `worker` share one image and these mounts:
 
@@ -34,6 +34,9 @@ files; `server/`: ruff, ty, `uv lock --check`).
 | `EP_LIBRARY_DIR` | `/library` | managed library directory |
 | `EP_MEDIA_ROOTS` | `["<EP_LIBRARY_DIR>", "/watch"]` | JSON list: the only directories file sources may point into |
 | `EP_TEST_DATABASE_URL` | `EP_DATABASE_URL` with database `ep_test` | used by tests only |
+| `EP_WATCH_POLL_SECONDS` | `30` | watcher: seconds between polls of the watched dirs |
+| `EP_WATCH_SETTLE_SECONDS` | `60` | watcher: quiet time before a changed folder is imported |
+| `EP_WATCH_RESCAN_SECONDS` | `900` | watcher: seconds between full rescans |
 
 ## Start, migrate
 
@@ -147,11 +150,44 @@ uv run alembic revision --autogenerate -m "add catalogue"
 - MusicBrainz test fixtures are real responses in `tests/fixtures/musicbrainz/`, served
   by `tests/mock_musicbrainz.py`.
 
+## Jobs, imports, watcher
+
+- Job queue: Procrastinate (`ep.jobs.queue`) in EP's database. Its schema is Alembic
+  migration 0006, a frozen copy of the package's `schema.sql` in `alembic/procrastinate/`;
+  `alembic/env.py` keeps its tables out of autogenerate. Upgrading Procrastinate: one
+  revision per new script in `procrastinate schema --migrations-path`.
+- Jobs are deferred on the caller's own connection, in the transaction that creates or
+  re-queues the `import_job` row (`enqueue_import`, a queueing lock per job): a row and
+  its queue entry commit together. The queue carries only "run import job <id>"; state,
+  log, progress, proposal, answers and error live on `import_job`.
+- The worker runs one job at a time (MusicBrainz is called only there, at 1 request/s),
+  and the watcher in the same event loop. On start it re-queues jobs left `running` or
+  `applying`.
+- Import pipeline (`ep.importers.framework`): an importer's `build` fetches and resolves
+  metadata into an `ep.importers.proposal.Proposal`; the framework matches it against the
+  library, stops at `needs_review` when any issue is open, performs pending downloads
+  (`Importer.download`), then applies it in one transaction (rows reused by MBID, sources
+  by location: re-running creates nothing new). Errors make the job `failed` with
+  `error` and a traceback in the log; nothing is ever dropped.
+- Issues have stable ids (`<kind>:<subject key>`); `POST /imports/{id}/review` stores
+  answers by id and re-runs the job from the start, each stage applying the stored
+  answer to the issue it would raise. An item with an open issue is not matched further.
+  A new importer: subclass `Importer`, register it in `ep.jobs.tasks.IMPORTERS`, describe
+  everything as `Proposal` items (single-file albums: tracks with `start_ms`/`end_ms` on
+  one medium; downloads: `IncomingMedium.download` with an `origin`).
+- Folder importer (`ep.importers.folder`): see its docstring. Files are indexed in place
+  (`managed=false`, with `sha256`); covers go through `ep.covers`.
+- Watcher (`ep.jobs.watcher`): `watchfiles` polling plus periodic rescans; a watch dir's
+  `baseline_at` keeps what was there at registration from being imported automatically
+  (`POST /watch-dirs/{id}/scan` does that on request).
+
 ## Tests
 
 Tests run against a real Postgres: the `db` service must be up. The test session drops
 and recreates the `ep_test` database, migrates it to head, and wraps each test in a
-transaction that is rolled back. Audio fixtures are generated with `ffmpeg` (must be on
+transaction that is rolled back. The job queue is Procrastinate's in-memory connector
+(`job_queue` fixture); `tests.imports.run_queued` runs queued jobs as the worker would.
+Audio fixtures are generated with `ffmpeg` (must be on
 the `PATH`) into temp dirs; the managed library is a temp dir too.
 
 ```sh

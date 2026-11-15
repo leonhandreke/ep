@@ -427,3 +427,27 @@ class IssueAnswer(BaseModel):
 class ReviewRequest(BaseModel):
     answers: Annotated[list[IssueAnswer], Field(min_length=1)]
 
+
+# Watched directories
+
+
+class WatchDirCreate(BaseModel):
+    # Absolute directory path under the media roots, e.g. /watch/Library.
+    path: NonEmptyStr
+    enabled: bool = True
+
+
+class WatchDirUpdate(BaseModel):
+    enabled: bool | MISSING = MISSING
+
+
+class WatchDirRead(Read):
+    path: str
+    enabled: bool
+    # Folders that last changed before this are imported only by an explicit scan.
+    baseline_at: datetime
+
+
+class WatchDirScan(BaseModel):
+    # A directory inside the watch dir to limit the scan to; null scans all of it.
+    path: NonEmptyStr | None = None

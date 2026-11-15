@@ -16,6 +16,14 @@ def test_operation_ids_are_endpoint_names(client: TestClient) -> None:
         "resolve",
         "search_musicbrainz",
         "import_musicbrainz_release",
+        "create_import_job",
+        "list_import_jobs",
+        "get_import_job",
+        "review_import_job",
+        "retry_import_job",
+        "dismiss_import_job",
+        "create_watch_dir",
+        "scan_watch_dir",
     } <= set(operation_ids)
 
 
@@ -51,3 +59,36 @@ def test_response_fields_with_defaults_are_required(client: TestClient) -> None:
     assert "playback" in schemas["SourceRead"]["required"]
     assert "playback" in schemas["TrackRead"]["required"]
     assert "cover_url" in schemas["ReleaseGroupRead"]["required"]
+
+
+def test_import_schemas_describe_issues_and_choices(client: TestClient) -> None:
+    """The review UI is generated from these: enums and required fields, not free text."""
+    schemas = client.get("/openapi.json").json()["components"]["schemas"]
+    assert set(schemas["IssueKind"]["enum"]) == {
+        "uncertain_artist",
+        "uncertain_release_group",
+        "uncertain_recording",
+        "uncertain_metadata",
+        "release_conflict",
+        "metadata_not_found",
+        "unreadable_file",
+        "download_failed",
+    }
+    assert set(schemas["Choice"]["enum"]) == {
+        "pick_candidate",
+        "create_new",
+        "keep_as_entered",
+        "skip",
+        "retry",
+    }
+    issue = schemas["Issue"]
+    assert set(issue["required"]) == set(issue["properties"])
+    assert issue["properties"]["choices"]["items"] == {"$ref": "#/components/schemas/Choice"}
+    assert set(schemas["ImportJobRead"]["required"]) >= {"proposal", "log", "actions"}
+    assert set(schemas["TargetKind"]["enum"]) == {
+        "existing",
+        "musicbrainz",
+        "new",
+        "skip",
+        "undecided",
+    }

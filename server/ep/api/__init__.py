@@ -11,6 +11,7 @@ from ep.api import (
     search,
     sources,
     tracks,
+    watch_dirs,
 )
 
 router = APIRouter()
@@ -24,3 +25,4 @@ router.include_router(covers.router)
 router.include_router(search.router)
 router.include_router(musicbrainz.router)
 router.include_router(imports.router)
+router.include_router(watch_dirs.router)
