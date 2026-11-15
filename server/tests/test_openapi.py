@@ -85,10 +85,23 @@ def test_import_schemas_describe_issues_and_choices(client: TestClient) -> None:
     assert set(issue["required"]) == set(issue["properties"])
     assert issue["properties"]["choices"]["items"] == {"$ref": "#/components/schemas/Choice"}
     assert set(schemas["ImportJobRead"]["required"]) >= {"proposal", "log", "actions"}
-    assert set(schemas["TargetKind"]["enum"]) == {
-        "existing",
-        "musicbrainz",
-        "new",
-        "skip",
-        "undecided",
+    # Where an item goes, and covers: unions discriminated by ``kind``.
+    target = schemas["Target"]
+    assert target["discriminator"] == {
+        "propertyName": "kind",
+        "mapping": {
+            kind: f"#/components/schemas/{name}Target"
+            for kind, name in [
+                ("existing", "Existing"),
+                ("musicbrainz", "MusicBrainz"),
+                ("new", "New"),
+                ("skip", "Skip"),
+                ("undecided", "Undecided"),
+            ]
+        },
     }
+    assert set(schemas["ExistingTarget"]["required"]) == {"kind", "id", "label"}
+    assert schemas["MusicBrainzTarget"]["properties"]["mbid"]["format"] == "uuid"
+    cover = schemas["IncomingCover"]
+    assert set(cover["discriminator"]["mapping"]) == {"embedded", "file", "url"}
+    assert set(schemas["UrlCover"]["required"]) == {"kind", "url"}

@@ -1,5 +1,7 @@
 """The watcher: baseline, settle period, "already imported or queued", explicit scans."""
 
+import os
+import shutil
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
@@ -166,3 +168,25 @@ def test_disabled_watch_dirs_are_not_scanned(
     assert watcher.rescan(session, later()) == []
     client.patch(f"/watch-dirs/{watch_dir['id']}", json={"enabled": True})
     assert len(watcher.rescan(session, later())) == 1
+
+
+def test_folder_moved_in_with_old_times_counts_as_new(
+    session: Session, watch_dir: dict[str, Any], watcher: Watcher, library: Path, tmp_path: Path
+) -> None:
+    """``mv``/``cp -p`` keep the files' mtimes; the ctime moves (as through the macOS
+    bind mount), so the folder is still newer than the baseline."""
+    staging = tmp_path / "Downloads" / "Moved Album"
+    write_audio(staging / "1.flac", 1, {"title": "One", "album": "Moved"})
+    for path in (staging / "1.flac", staging):
+        os.utime(path, (946684800, 946684800))  # 2000-01-01
+    moved = library / "Moved Album"
+    staging.rename(moved)
+    assert [job.input for job in watcher.rescan(session, later())] == [str(moved)]
+
+
+def test_missing_watch_dir_is_skipped(
+    session: Session, watch_dir: dict[str, Any], watcher: Watcher, library: Path
+) -> None:
+    shutil.rmtree(library)
+    assert watcher.rescan(session, later()) == []
+    assert watcher.due(session, later()) == []

@@ -13,9 +13,15 @@ plan stay as they are and the watcher stops and starts with the jobs it feeds.
 An *album folder* is a directory with audio files in it (a disc folder such as "CD1"
 counts as part of its parent). It is imported automatically when
 
-- it last changed (newest mtime/ctime of the folder and everything in it) after the watch
-  dir's ``baseline_at``: registering a directory does not import what is already there
-  (``POST /watch-dirs/{id}/scan`` does that, on request);
+- it last changed (newest mtime/ctime of the folder and everything in it, hidden entries
+  left out) after the watch dir's ``baseline_at``: registering a directory does not
+  import what is already there (``POST /watch-dirs/{id}/scan`` does that, on request).
+  ctime is what moves when a folder is moved or copied in with its old mtimes
+  preserved (checked through the macOS Docker bind mount: ctime and mtime are the
+  host's, and changes show at once). It also moves when a file's extended attributes
+  change (macOS sets some when a file is opened from the Finder) and a folder's when a
+  hidden file is created in it (``.DS_Store``): such a folder counts as changed, which
+  only matters if some of its files are not imported (see below);
 - it has been quiet for the settle period;
 - some of its audio files are not sources yet, and no folder import job for it (or a
   folder above it) was created since it last changed. A dismissed or finished job counts:
@@ -26,7 +32,6 @@ counts as part of its parent). It is imported automatically when
 
 import asyncio
 import logging
-import re
 import uuid
 from collections.abc import AsyncIterator, Iterable
 from datetime import UTC, datetime, timedelta
@@ -36,7 +41,7 @@ import watchfiles
 from sqlalchemy import Engine, exists, func, literal, or_
 from sqlmodel import Session, col, select
 
-from ep.importers.folder import AUDIO_EXTENSIONS, audio_files
+from ep.importers.folder import AUDIO_EXTENSIONS, album_folder, audio_files
 from ep.jobs.queue import create_import
 from ep.models import ImportJob, ImportKind, Source, SourceKind, WatchDir
 from ep.models.base import utcnow
@@ -44,18 +49,8 @@ from ep.settings import Settings
 
 logger = logging.getLogger(__name__)
 
-_DISC_FOLDER = re.compile(r"^(cd|disc|disk)\s*\d+$", re.IGNORECASE)
 # How often the watcher checks settled folders and the rescan timer (seconds).
 TICK_SECONDS = 5.0
-
-
-def album_folder(path: Path, root: Path) -> Path:
-    """The album folder of an audio file under ``root``: its directory, or the parent of
-    a disc folder ("CD1", "Disc 2")."""
-    folder = path.parent
-    if folder != root and _DISC_FOLDER.match(folder.name):
-        folder = folder.parent
-    return folder
 
 
 def album_folders(directory: Path, root: Path) -> list[Path]:
@@ -64,10 +59,15 @@ def album_folders(directory: Path, root: Path) -> list[Path]:
 
 
 def last_change(folder: Path) -> datetime:
-    """When the folder or anything in it last changed: the newest mtime or ctime (ctime
-    also moves when a file is copied in with its old mtime preserved)."""
+    """When the folder or anything in it last changed: the newest mtime or ctime of the
+    folder and its entries, hidden ones (and what is in them) left out."""
     newest = 0.0
-    for path in [folder, *folder.rglob("*")]:
+    entries = (
+        path
+        for path in folder.rglob("*")
+        if not any(part.startswith(".") for part in path.relative_to(folder).parts)
+    )
+    for path in [folder, *entries]:
         stat = path.stat()
         newest = max(newest, stat.st_mtime, stat.st_ctime)
     return datetime.fromtimestamp(newest, UTC)

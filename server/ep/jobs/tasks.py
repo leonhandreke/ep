@@ -28,13 +28,18 @@ def run_import(job_id: str) -> None:
 
 def recover_interrupted_jobs(session: Session) -> list[uuid.UUID]:
     """Queue again the jobs a stopped worker left ``running`` or ``applying`` (an
-    interrupted apply was rolled back, so running again is safe). For worker start-up,
-    when no job of this (single) worker can be running."""
-    jobs = session.exec(
-        select(ImportJob).where(col(ImportJob.state).in_([JobState.running, JobState.applying]))
-    ).all()
+    interrupted apply was rolled back, so running again is safe), and make sure every
+    ``queued`` job has its queue entry (one lost to a failed task would wait forever;
+    the queueing lock keeps this from adding a second one). For worker start-up, when
+    no job of this (single) worker can be running. Returns the jobs re-queued."""
+    states = [JobState.running, JobState.applying, JobState.queued]
+    jobs = session.exec(select(ImportJob).where(col(ImportJob.state).in_(states))).all()
+    recovered = []
     for job in jobs:
-        requeue(job)
-        enqueue_import(session, job.id)
+        interrupted = job.state is not JobState.queued
+        if interrupted:
+            requeue(job)
+        if enqueue_import(session, job.id) or interrupted:
+            recovered.append(job.id)
     session.commit()
-    return [job.id for job in jobs]
+    return recovered

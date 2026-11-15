@@ -37,15 +37,18 @@ from ep.importers.framework import (
     JobContext,
     answer_fits,
     credit_name,
+    mb_credit,
     release_label,
     sha256_file,
 )
 from ep.importers.musicbrainz import release_group_type
 from ep.importers.proposal import (
     SKIP,
+    UNDECIDED,
     CandidateType,
     Choice,
-    CoverKind,
+    EmbeddedCover,
+    FileCover,
     IncomingArtist,
     IncomingCover,
     IncomingCreditPart,
@@ -59,14 +62,11 @@ from ep.importers.proposal import (
     Proposal,
     Subject,
     SubjectType,
-    Target,
-    TargetKind,
     issue_id,
 )
 from ep.matching.match import DURATION_TOLERANCE_MS
 from ep.media_roots import is_within_media_roots
 from ep.metadata.musicbrainz import (
-    MBArtistCreditPart,
     MBRelease,
     MBTrack,
     MusicBrainzError,
@@ -74,7 +74,7 @@ from ep.metadata.musicbrainz import (
     lucene_query,
     render_artist_credit,
 )
-from ep.models import Artist, ImportKind, JobStage, ReleaseGroup, Source, SourceKind
+from ep.models import ImportKind, JobStage, ReleaseGroup, ReleaseGroupType, Source, SourceKind
 from ep.probe import ProbeError, ProbeResult, probe
 
 AUDIO_EXTENSIONS = frozenset(
@@ -90,7 +90,13 @@ MAX_RELEASE_LOOKUPS = 3
 # Candidates shown in an uncertain_metadata issue.
 MAX_METADATA_CANDIDATES = 5
 VARIOUS_ARTISTS = "Various Artists"
+# MusicBrainz's special purpose artist for compilations of several artists.
+VARIOUS_ARTISTS_MBID = uuid.UUID("89ad4ac3-39f7-470e-963a-56509c546377")
 UNKNOWN_ARTIST = "Unknown Artist"
+# A folder of one disc of an album ("CD1", "Disc 2"): part of the folder above it.
+_DISC_FOLDER = re.compile(r"^(?:cd|disc|disk)\s*(\d+)$", re.IGNORECASE)
+# A file name that starts with a track number: "01 Title", "1-02 - Title", "03. Title".
+_NUMBERED_NAME = re.compile(r"^(?:(\d{1,2})-)?(\d{1,3})(?:\s*[-._]\s*|\s+)(\S.*)$")
 _PARTIAL_DATE = re.compile(r"^\d{4}(-\d{2}(-\d{2})?)?$")
 _YEAR = re.compile(r"^(\d{4})\b")
 
@@ -103,6 +109,20 @@ class _Album:
     directory: Path
     files: list[ProbeResult]
     cue: CueSheet | None = None
+
+
+def album_folder(path: Path, root: Path | None = None) -> Path:
+    """The album folder of an audio file: its directory, or the parent of a disc folder
+    ("CD1", "Disc 2"), but not above ``root``."""
+    folder = path.parent
+    if folder != root and _DISC_FOLDER.match(folder.name):
+        folder = folder.parent
+    return folder
+
+
+def _folder_disc(path: Path) -> int | None:
+    m = _DISC_FOLDER.match(path.parent.name)
+    return int(m.group(1)) if m else None
 
 
 def audio_files(directory: Path) -> list[Path]:
@@ -213,9 +233,9 @@ class FolderImporter(Importer):
         groups: dict[str, list[ProbeResult]] = defaultdict(list)
         for result in probed:
             if result.path not in used:
-                groups[_group_key(result)].append(result)
+                groups[_group_key(result, root)].append(result)
         for key, files in groups.items():
-            albums.append(_Album(key, files[0].path.parent, files))
+            albums.append(_Album(key, album_folder(files[0].path, root), files))
         return albums
 
     # Albums from tags
@@ -231,6 +251,9 @@ class FolderImporter(Importer):
             else:
                 album_artist = VARIOUS_ARTISTS if track_artists else UNKNOWN_ARTIST
         album_artist_ids = _common_ids(t.mb_album_artist_ids for t in tags)
+        various = album_artist.casefold() == VARIOUS_ARTISTS.casefold()
+        if various:
+            album_artist_ids = [VARIOUS_ARTISTS_MBID]
         release_credit = [_credit_part(proposal, album_artist, album_artist_ids)]
         title = (cue.title if cue else None) or _common(t.album for t in tags)
         title = title or album.directory.name
@@ -238,6 +261,7 @@ class FolderImporter(Importer):
             key=album.key,
             title=title,
             credit=release_credit,
+            type=ReleaseGroupType.compilation if various else ReleaseGroupType.album,
             date=_date((cue.date if cue else None) or _common(t.date for t in tags)),
             release_mbid=_common(t.mb_release_id for t in tags),
             mbid=_common(t.mb_release_group_id for t in tags),
@@ -257,16 +281,26 @@ class FolderImporter(Importer):
         album_artist: str,
         release_credit: list[IncomingCreditPart],
     ) -> list[IncomingTrack]:
+        """Tracks from tags; without tags, disc and number from a disc folder and the
+        file name ("CD2/03 Title.flac"), the title from the rest of the name."""
+        named = {file.path: _numbered_name(file.path) for file in album.files}
+
+        def disc_of(file: ProbeResult) -> int:
+            return file.tags.disc_number or _folder_disc(file.path) or named[file.path][0] or 1
+
+        def number_of(file: ProbeResult) -> int | None:
+            return file.tags.track_number or named[file.path][1]
+
         files = sorted(
             album.files,
-            key=lambda f: (f.tags.disc_number or 1, f.tags.track_number or 10**6, f.path.name),
+            key=lambda f: (disc_of(f), number_of(f) or 10**6, f.path.name),
         )
-        numbers = Counter((f.tags.disc_number or 1, f.tags.track_number) for f in files)
+        numbers = Counter((disc_of(f), number_of(f)) for f in files)
         tracks = []
         for index, file in enumerate(files, start=1):
             tags = file.tags
-            disc = tags.disc_number or 1
-            numbered = tags.track_number is not None and numbers[(disc, tags.track_number)] == 1
+            disc, number = disc_of(file), number_of(file)
+            numbered = number is not None and numbers[(disc, number)] == 1
             artist = tags.artist or album_artist
             credit = (
                 release_credit
@@ -278,8 +312,8 @@ class FolderImporter(Importer):
                     key=str(file.path),
                     medium_key=str(file.path),
                     disc=disc,
-                    position=tags.track_number if numbered and tags.track_number else index,
-                    title=tags.title or file.path.stem,
+                    position=number if numbered and number else index,
+                    title=tags.title or named[file.path][2],
                     credit=credit,
                     length_ms=file.duration_ms,
                     isrcs=tags.isrcs,
@@ -502,53 +536,22 @@ def _use_musicbrainz(
     }
     mb_group = mb_release.release_group
     release.title = mb_group.title
-    release.credit = _mb_credit(ctx, proposal, mb_group.artist_credit or mb_release.artist_credit)
+    release.credit = mb_credit(proposal, mb_group.artist_credit or mb_release.artist_credit)
     release.type = release_group_type(mb_group)
     release.date = mb_group.first_release_date or mb_release.date
     release.barcode = mb_release.barcode
     release.mbid, release.release_mbid = mb_group.id, mb_release.id
-    release.target = Target(
-        kind=TargetKind.musicbrainz, mbid=mb_group.id, label=_mb_label(mb_release)
-    )
+    release.target = UNDECIDED  # the framework matches it, by MBID or else
     for track in release.tracks:
         mb_track = aligned[track.key]
         track.disc, track.position = positions[mb_track.id]
         track.title = mb_track.title
-        track.credit = _mb_credit(
-            ctx, proposal, mb_track.artist_credit or mb_track.recording.artist_credit
+        track.credit = mb_credit(
+            proposal, mb_track.artist_credit or mb_track.recording.artist_credit
         )
         track.mbid, track.mb_track_id = mb_track.recording.id, mb_track.id
         track.isrcs = sorted({*track.isrcs, *mb_track.recording.isrcs})
     return True
-
-
-def _mb_credit(
-    ctx: JobContext, proposal: Proposal, parts: list[MBArtistCreditPart]
-) -> list[IncomingCreditPart]:
-    credit = []
-    for part in parts:
-        key = f"mbid:{part.artist.id}"
-        if not any(artist.key == key for artist in proposal.artists):
-            row = ctx.session.exec(select(Artist).where(Artist.mbid == part.artist.id)).first()
-            if row is not None:
-                target = Target(kind=TargetKind.existing, id=row.id, label=row.name)
-            else:
-                target = Target(
-                    kind=TargetKind.musicbrainz, mbid=part.artist.id, label=part.artist.name
-                )
-            proposal.artists.append(
-                IncomingArtist(
-                    key=key,
-                    name=part.artist.name,
-                    sort_name=part.artist.sort_name,
-                    mbid=part.artist.id,
-                    target=target,
-                )
-            )
-        credit.append(
-            IncomingCreditPart(artist_key=key, credited_name=part.name, join_phrase=part.joinphrase)
-        )
-    return credit
 
 
 def _mb_label(mb_release: MBRelease) -> str:
@@ -576,14 +579,15 @@ def _mb_candidate(hit: MBRelease) -> IssueCandidate:
 # Tags
 
 
-def _group_key(result: ProbeResult) -> str:
+def _group_key(result: ProbeResult, root: Path) -> str:
     tags = result.tags
+    folder = album_folder(result.path, root)
     if tags.mb_release_id:
         return f"mb|{tags.mb_release_id}"
     if tags.album:
-        artist = tags.album_artist.casefold() if tags.album_artist else str(result.path.parent)
+        artist = tags.album_artist.casefold() if tags.album_artist else str(folder)
         return f"tags|{artist}|{tags.album.casefold()}"
-    return f"dir|{result.path.parent}"
+    return f"dir|{folder}"
 
 
 def _common[T](values: Iterable[T | None]) -> T | None:
@@ -615,13 +619,26 @@ def _date(value: str | None) -> str | None:
 
 
 def _cover(album: _Album) -> IncomingCover | None:
-    for path in sorted(album.directory.iterdir(), key=lambda p: p.name):
-        if path.stem.casefold() in COVER_NAMES and path.suffix.casefold() in COVER_EXTENSIONS:
-            return IncomingCover(kind=CoverKind.file, path=str(path))
+    """An image file named cover/folder/front in the album folder (or, for a multi-disc
+    album, in a disc folder), else the first embedded picture."""
+    folders = [album.directory, *sorted({file.path.parent for file in album.files})]
+    for folder in dict.fromkeys(folders):
+        for path in sorted(folder.iterdir(), key=lambda p: p.name):
+            name, suffix = path.stem.casefold(), path.suffix.casefold()
+            if name in COVER_NAMES and suffix in COVER_EXTENSIONS and path.is_file():
+                return FileCover(path=str(path))
     for file in album.files:
         if file.cover is not None:
-            return IncomingCover(kind=CoverKind.embedded, medium_key=str(file.path))
+            return EmbeddedCover(medium_key=str(file.path))
     return None
+
+
+def _numbered_name(path: Path) -> tuple[int | None, int | None, str]:
+    """Disc, track number and title from a file name: "1-02 Title" -> (1, 2, "Title")."""
+    if m := _NUMBERED_NAME.match(path.stem):
+        disc, number, title = m.groups()
+        return (int(disc) if disc else None), int(number), title
+    return None, None, path.stem
 
 
 def _cue_audio(cue_path: Path, name: str, probed: dict[Path, ProbeResult]) -> Path | None:

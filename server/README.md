@@ -110,8 +110,11 @@ uv run alembic revision --autogenerate -m "add catalogue"
 - `ep.importers.musicbrainz.import_release(session, release, recordings=None)` adds a
   release fetched with `get_release` to the catalogue (artists, credits, release group
   with `release_mbid`, recordings, tracks with `disc`, ISRCs), reusing rows by MBID and
-  never overwriting them. A release group already imported from another release raises
-  `ReleaseConflict`. `recordings` maps track MBIDs to existing recordings (e.g. a loose
+  never overwriting them. Library artists and release groups without an MBID are reused
+  (and gain it) when given (`artists=`, `release_group=`: the import framework passes
+  what matching and the user decided) or, without that, on a confident match; recordings
+  already at a track position gain the MBID of the track there if the titles agree.
+  A release group already imported from another release raises `ReleaseConflict`. `recordings` maps track MBIDs to existing recordings (e.g. a loose
   YouTube track) to attach instead of creating duplicates: they gain the MBID and a
   track and keep their sources and external IDs (`RecordingConflict` if one has another
   MBID). `propose_recordings(session, release)` proposes that mapping with the matcher.
@@ -162,24 +165,46 @@ uv run alembic revision --autogenerate -m "add catalogue"
   log, progress, proposal, answers and error live on `import_job`.
 - The worker runs one job at a time (MusicBrainz is called only there, at 1 request/s),
   and the watcher in the same event loop. On start it re-queues jobs left `running` or
-  `applying`.
+  `applying`, and queues `queued` jobs whose queue entry is missing.
 - Import pipeline (`ep.importers.framework`): an importer's `build` fetches and resolves
   metadata into an `ep.importers.proposal.Proposal`; the framework matches it against the
-  library, stops at `needs_review` when any issue is open, performs pending downloads
-  (`Importer.download`), then applies it in one transaction (rows reused by MBID, sources
-  by location: re-running creates nothing new). Errors make the job `failed` with
-  `error` and a traceback in the log; nothing is ever dropped.
+  library (releases resolved to MusicBrainz and their artists too: by MBID, else against
+  rows without MBID, which gain it), stops at `needs_review` when any issue is open,
+  downloads, then applies it in one transaction (rows reused by MBID, sources by
+  location: re-running creates nothing new). Errors make the job `failed` with `error`
+  and a traceback in the log; nothing is ever dropped.
+- The proposal is the API contract of the review UI: typed models only (no free-form
+  JSON); where an item goes (`Target`) and covers (`IncomingCover`) are unions
+  discriminated by `kind`.
 - Issues have stable ids (`<kind>:<subject key>`); `POST /imports/{id}/review` stores
   answers by id and re-runs the job from the start, each stage applying the stored
-  answer to the issue it would raise. An item with an open issue is not matched further.
-  A new importer: subclass `Importer`, register it in `ep.jobs.tasks.IMPORTERS`, describe
+  answer to the issue it would raise. An answer that no longer fits (its candidate is not
+  offered any more) is ignored and the issue asked again. An item with an open issue is
+  not matched further. The review, retry and dismiss endpoints lock the job row.
+- Downloads: an importer only describes them (`IncomingMedium.download` with an
+  `origin`); after review the framework calls `Importer.download(ctx, medium, directory)`
+  with a per-medium work directory under `EP_LIBRARY_DIR/.downloads/<job id>/`, kept
+  across failures and re-runs (a finished download is reused, a partial one handed to the
+  importer again), reads the file's facts, and on apply links (or moves) it to
+  `Importer.library_path` in the library (default `Artist/Release Group/NN Title.ext`),
+  undone if the transaction fails. The work directory is deleted when the job is done or
+  dismissed. A medium whose origin is already the parent of a file source is not
+  downloaded again.
+- A new importer: subclass `Importer`, register it in `ep.jobs.tasks.IMPORTERS`, describe
   everything as `Proposal` items (single-file albums: tracks with `start_ms`/`end_ms` on
-  one medium; downloads: `IncomingMedium.download` with an `origin`).
+  one medium; MusicBrainz credits through `framework.mb_credit`). Rows outside the
+  catalogue (radio) go in further `Proposal` fields and `Importer.apply`, which gets the
+  recordings and sources the tracks became (`Applied`), in the apply transaction.
 - Folder importer (`ep.importers.folder`): see its docstring. Files are indexed in place
   (`managed=false`, with `sha256`); covers go through `ep.covers`.
 - Watcher (`ep.jobs.watcher`): `watchfiles` polling plus periodic rescans; a watch dir's
   `baseline_at` keeps what was there at registration from being imported automatically
-  (`POST /watch-dirs/{id}/scan` does that on request).
+  (`POST /watch-dirs/{id}/scan` does that on request). "Changed" is the newest mtime or
+  ctime in the folder (hidden entries left out); through the macOS Docker bind mount both
+  are the host's and changes are seen at once. ctime catches folders moved or copied in
+  with old mtimes, but also moves on extended-attribute changes (opening a file from the
+  Finder) and on `.DS_Store` creation: that re-offers a folder only if some of its files
+  are not sources.
 
 ## Tests
 

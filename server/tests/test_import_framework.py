@@ -4,6 +4,7 @@ A fake importer stands in for the real ones: it returns a fixed proposal, so the
 exercise matching, review, downloads and applying independently of any input format.
 """
 
+import shutil
 import uuid
 from pathlib import Path
 from typing import Any
@@ -13,8 +14,17 @@ from fastapi.testclient import TestClient
 from procrastinate.testing import InMemoryConnector
 from sqlmodel import Session, SQLModel, col, func, select
 
-from ep.importers.framework import DownloadError, Importer, ImportFailed, JobContext
+from ep.importers.framework import (
+    Applied,
+    DownloadError,
+    Importer,
+    ImportFailed,
+    JobContext,
+    job_work_dir,
+)
 from ep.importers.proposal import (
+    EmbeddedCover,
+    ExistingTarget,
     IncomingArtist,
     IncomingCreditPart,
     IncomingMedium,
@@ -23,9 +33,9 @@ from ep.importers.proposal import (
     Origin,
     Proposal,
     Target,
-    TargetKind,
 )
 from ep.jobs.queue import create_import
+from ep.jobs.tasks import recover_interrupted_jobs
 from ep.models import (
     Artist,
     ImportJob,
@@ -57,6 +67,10 @@ class FakeImporter(Importer):
         self.pending_download = False
         self.recording_target: Target | None = None
         self.builds = 0
+        self.downloads = 0
+        self.found_partial = False
+        self.fail_apply = False
+        self.applied: Applied | None = None
 
     def build(self, ctx: JobContext) -> Proposal:
         self.builds += 1
@@ -92,15 +106,32 @@ class FakeImporter(Importer):
             media=media,
             artists=[IncomingArtist(key="nina", name="Nina Simone")],
             releases=[
-                IncomingRelease(key="rg", title="Pastel Blues", credit=credit, tracks=tracks)
+                IncomingRelease(
+                    key="rg",
+                    title="Pastel Blues",
+                    credit=credit,
+                    tracks=tracks,
+                    cover=EmbeddedCover(medium_key="one"),
+                )
             ],
         )
 
-    def download(self, ctx: JobContext, medium: IncomingMedium) -> None:
+    def apply(self, ctx: JobContext, proposal: Proposal, applied: Applied) -> None:
+        self.applied = applied
+        if self.fail_apply:
+            raise RuntimeError("radio tables are full")
+
+    def download(self, ctx: JobContext, medium: IncomingMedium, directory: Path) -> Path:
+        self.downloads += 1
+        self.found_partial = (directory / "song.mp3.part").exists()
+        (directory / "song.mp3.part").write_bytes(b"partial")
         if self.download_failures:
             self.download_failures -= 1
             raise DownloadError("HTTP 403")
-        medium.path, medium.download = str(self.audio_dir / "song.mp3"), False
+        file = directory / "song.mp3"
+        shutil.copyfile(self.audio_dir / "song.mp3", file)
+        (directory / "song.mp3.part").unlink()
+        return file
 
 
 @pytest.fixture
@@ -243,7 +274,12 @@ def test_review_answers_are_validated(
 
 
 def test_download_failed_then_retried(
-    client: TestClient, session: Session, job: ImportJob, run: Any, fake: FakeImporter
+    client: TestClient,
+    session: Session,
+    job: ImportJob,
+    run: Any,
+    fake: FakeImporter,
+    library_dir: Path,
 ) -> None:
     fake.pending_download, fake.download_failures = True, 1
     assert run() == {job.id: JobState.needs_review}
@@ -252,15 +288,72 @@ def test_download_failed_then_retried(
     assert issue["subject"]["type"] == "medium"
     assert issue["message"] == "download failed: HTTP 403"
     assert issue["choices"] == ["retry", "skip"]
+    work = job_work_dir(library_dir, job.id)
+    assert [p.name for p in work.rglob("*") if p.is_file()] == ["song.mp3.part"]
 
     review(client, str(job.id), {"issue_id": issue["id"], "choice": "retry"})
     assert run() == {job.id: JobState.done}
+    assert fake.found_partial  # the second attempt got the first one's directory
     read = get_job(client, str(job.id))
     assert read["proposal"]["issues"] == []
-    file = session.exec(select(Source).where(col(Source.uri).endswith("song.mp3"))).one()
-    assert file.managed
+    # Moved to its place in the managed library; the work directory is gone.
+    placed = library_dir / "Nina Simone" / "Pastel Blues" / "02 Feeling Good.mp3"
+    assert placed.is_file()
+    assert not work.exists()
+    [medium] = [m for m in read["proposal"]["media"] if m["key"] == "two"]
+    assert (medium["path"], medium["download"], medium["managed"]) == (str(placed), False, True)
+    file = session.exec(select(Source).where(Source.uri == str(placed))).one()
+    assert (file.managed, file.codec, file.size) == (True, "mp3", placed.stat().st_size)
+    assert file.sha256 is not None and len(file.sha256) == 64
     assert file.parent is not None
     assert (file.parent.kind, file.parent.uri) == ("youtube", "https://youtu.be/feeling-good")
+
+
+def test_download_is_reused_after_a_failed_apply(
+    client: TestClient,
+    session: Session,
+    job: ImportJob,
+    run: Any,
+    fake: FakeImporter,
+    library_dir: Path,
+) -> None:
+    fake.pending_download, fake.fail_apply = True, True
+    assert run() == {job.id: JobState.failed}
+    assert get_job(client, str(job.id))["error"] == "RuntimeError: radio tables are full"
+    work = job_work_dir(library_dir, job.id)
+    assert [p.name for p in work.rglob("*") if p.is_file()] == ["song.mp3"]
+    # The file placed in the library while applying was removed again, and so was the cover.
+    assert [p for p in library_dir.rglob("*") if p.is_file() and ".downloads" not in p.parts] == []
+    assert count(session, Source) == 0
+
+    fake.fail_apply = False
+    client.post(f"/imports/{job.id}/retry")
+    assert run() == {job.id: JobState.done}
+    assert fake.downloads == 1
+    assert (library_dir / "Nina Simone" / "Pastel Blues" / "02 Feeling Good.mp3").is_file()
+    assert not work.exists()
+    applied = fake.applied
+    assert applied is not None
+    assert (set(applied.sources), set(applied.files)) == ({"t1", "t2"}, {"one", "two"})
+    assert applied.sources["t2"] is applied.files["two"]
+
+    # Run again: the origin is a source already, so nothing is downloaded or created.
+    sources = count(session, Source)
+    client.post(f"/imports/{job.id}/retry")
+    assert run() == {job.id: JobState.done}
+    assert (fake.downloads, count(session, Source)) == (1, sources)
+    assert session.exec(select(ReleaseGroup)).one().cover_path is not None
+
+
+def test_dismiss_deletes_downloads(
+    client: TestClient, job: ImportJob, run: Any, fake: FakeImporter, library_dir: Path
+) -> None:
+    fake.pending_download, fake.download_failures = True, 1
+    assert run() == {job.id: JobState.needs_review}
+    work = job_work_dir(library_dir, job.id)
+    assert work.exists()
+    assert client.post(f"/imports/{job.id}/dismiss").status_code == 200
+    assert not work.exists()
 
 
 def test_download_skipped(
@@ -307,7 +400,7 @@ def test_error_while_applying_rolls_back(
     client: TestClient, session: Session, job: ImportJob, run: Any, fake: FakeImporter
 ) -> None:
     # A recording that does not exist: applying fails after creating the artist.
-    fake.recording_target = Target(kind=TargetKind.existing, id=uuid.uuid4())
+    fake.recording_target = ExistingTarget(id=uuid.uuid4(), label="gone")
     assert run() == {job.id: JobState.failed}
     read = get_job(client, str(job.id))
     assert read["error"].startswith("NoResultFound")
@@ -347,3 +440,39 @@ def test_list_import_jobs(client: TestClient, session: Session, job: ImportJob, 
     assert client.get("/imports", params={"state": "done"}).json() == []
     run()
     assert len(client.get("/imports", params={"state": "done"}).json()) == 2
+
+
+def test_stale_answer_is_ignored_and_asked_again(
+    client: TestClient, session: Session, job: ImportJob, run: Any
+) -> None:
+    """An answer picking a candidate that a later run no longer offers (the library or
+    MusicBrainz changed) does not apply: the issue is open again."""
+    make_artist(client, disambiguation="a")
+    gone = make_artist(client, disambiguation="b")
+    run()
+    answer = {"issue_id": "uncertain_artist:nina", "choice": "pick_candidate"}
+    review(client, str(job.id), {**answer, "candidate_id": gone["id"]})
+    assert client.delete(f"/artists/{gone['id']}").status_code == 204
+    make_artist(client, disambiguation="c")
+    assert run() == {job.id: JobState.needs_review}
+    read = get_job(client, str(job.id))
+    [issue] = read["proposal"]["issues"]
+    assert issue["answer"] is None
+    assert gone["id"] not in {c["id"] for c in issue["candidates"]}
+    assert any("no longer fits" in entry["message"] for entry in read["log"])
+    assert count(session, ReleaseGroup) == 0
+
+
+def test_worker_start_requeues_interrupted_and_lost_jobs(
+    session: Session, job: ImportJob, job_queue: InMemoryConnector
+) -> None:
+    lost = create_import(session, ImportKind.youtube, "https://example.com/lost")
+    job.state = JobState.applying
+    session.commit()
+    job_queue.jobs.clear()  # both queue entries are gone (a crash, a failed task)
+    assert set(recover_interrupted_jobs(session)) == {job.id, lost.id}
+    assert job.state is JobState.queued
+    assert sorted(j["args"]["job_id"] for j in job_queue.jobs.values()) == sorted(
+        [str(job.id), str(lost.id)]
+    )
+    assert recover_interrupted_jobs(session) == []  # queued once only

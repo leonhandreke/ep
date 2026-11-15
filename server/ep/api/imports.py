@@ -28,6 +28,7 @@ from ep.importers.framework import (
     RETRYABLE,
     REVIEWABLE,
     answer_fits,
+    discard_work,
     record_answers,
     requeue,
 )
@@ -133,7 +134,11 @@ def get_import_job(id: uuid.UUID, session: SessionDep) -> ImportJobRead:
 
 
 def _job_in(session: Session, id: uuid.UUID, states: frozenset[JobState], action: str) -> ImportJob:
-    job = get_or_404(session, ImportJob, id)
+    """The job, locked for this transaction (the worker claims a queued job with a
+    conditional update, which waits for the lock and then sees the new state)."""
+    job = session.get(ImportJob, id, with_for_update=True)
+    if job is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"import_job {id} not found")
     if job.state not in states:
         raise HTTPException(status.HTTP_409_CONFLICT, f"a {job.state} job cannot be {action}")
     return job
@@ -187,10 +192,12 @@ def retry_import_job(id: uuid.UUID, session: SessionDep) -> ImportJobRead:
 
 
 @router.post("/{id}/dismiss", responses=NOT_FOUND | CONFLICT)
-def dismiss_import_job(id: uuid.UUID, session: SessionDep) -> ImportJobRead:
+def dismiss_import_job(id: uuid.UUID, session: SessionDep, settings: SettingsDep) -> ImportJobRead:
     """Take a ``queued``, ``needs_review`` or ``failed`` job out of the inbox. Nothing is
-    imported; the watcher does not queue the folder again until it changes."""
+    imported, and its downloads are deleted; the watcher does not queue the folder again
+    until it changes."""
     job = _job_in(session, id, DISMISSABLE, "dismissed")
     job.state = JobState.dismissed
     session.commit()
+    discard_work(settings.library_dir, job.id)
     return job_read(job)

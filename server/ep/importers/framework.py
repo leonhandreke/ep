@@ -1,16 +1,26 @@
 """The import pipeline shared by every importer: fetch → resolve → match → proposal → apply.
 
 An importer (``Importer``) fetches its input and resolves metadata into a ``Proposal``
-(``build``), and, for kinds that download, performs pending downloads (``download``).
-The framework does the rest, identically for every kind:
+(``build``), and, for kinds that download, downloads one medium (``download``). The
+framework does the rest, identically for every kind:
 
-- ``match_proposal``: maps incoming artists, release groups and tracks to the library
-  with ``ep.matching`` (auto match, new, or an issue for the user);
+- ``match_proposal``: maps incoming release groups, tracks and artists to the library
+  with ``ep.matching`` (auto match, new, or an issue for the user). Releases resolved to
+  MusicBrainz are matched too: by MBID, else against library rows without an MBID
+  (which gain it on apply), and so are their artists;
 - ``run_job``: the job state machine. A job with open issues stops at ``needs_review``;
   answers (``record_answers``) re-run it from the start, each stage consulting the
-  answers by issue id, until nothing is open. Then it applies;
+  answers by issue id, until nothing is open. Then it downloads and applies;
+- downloads (``_download``): each pending medium is downloaded into its own work
+  directory of the job (``job_work_dir``), which survives failures and re-runs: a
+  finished download is reused, a partial one is handed to the importer again (to resume
+  or overwrite). A medium whose origin is already a source is not downloaded again. The
+  work directory is removed when the job is done or dismissed;
 - ``apply_proposal``: writes the catalogue rows, sources and cover in the job's single
-  transaction. Idempotent: rows are reused by MBID, sources by location.
+  transaction, moving downloads to their place in the managed library
+  (``Importer.library_path``), then the importer's own rows (``Importer.apply``).
+  Idempotent: rows are reused by MBID, sources by location. Files written while
+  applying are removed again if the transaction fails.
 
 State machine::
 
@@ -19,15 +29,20 @@ State machine::
                      → failed ─(retry / review)→ queued
     queued, needs_review, failed ─(dismiss)→ dismissed
 
-Jobs leave the inbox only as ``done`` or ``dismissed``.
+Jobs leave the inbox only as ``done`` or ``dismissed``. Any exception while running
+makes the job ``failed`` with the error and a traceback in its log.
 """
 
 import hashlib
+import os
+import re
+import shutil
 import traceback
 import uuid
 from collections import Counter
-from collections.abc import Sequence
-from pathlib import Path
+from collections.abc import Callable, Iterable, Sequence
+from dataclasses import dataclass, field
+from pathlib import Path, PurePath
 
 from sqlalchemy import event, update
 from sqlalchemy.orm import selectinload
@@ -37,6 +52,7 @@ from ep import covers
 from ep.credits import CreditPart, get_or_create_artist_credit
 from ep.importers.musicbrainz import (
     add_isrcs,
+    artist_type,
     import_recording,
     import_release,
     propose_recordings,
@@ -48,7 +64,9 @@ from ep.importers.proposal import (
     Answer,
     CandidateType,
     Choice,
-    CoverKind,
+    EmbeddedCover,
+    ExistingTarget,
+    FileCover,
     IncomingArtist,
     IncomingCreditPart,
     IncomingMedium,
@@ -59,15 +77,27 @@ from ep.importers.proposal import (
     IssueKind,
     LogEntry,
     LogLevel,
+    MusicBrainzTarget,
+    NewTarget,
     Proposal,
+    SkipTarget,
     Subject,
     SubjectType,
     Target,
     TargetKind,
+    UndecidedTarget,
+    UrlCover,
     issue_id,
 )
 from ep.matching import Decision, MatchResult, match_artist, match_recording, match_release_group
-from ep.metadata.musicbrainz import MBRelease, MusicBrainz, render_artist_credit
+from ep.media_roots import is_within_media_roots
+from ep.metadata.musicbrainz import (
+    MBArtist,
+    MBArtistCreditPart,
+    MBRelease,
+    MusicBrainz,
+    render_artist_credit,
+)
 from ep.models import (
     Artist,
     ArtistCredit,
@@ -103,6 +133,17 @@ RETRYABLE = frozenset({JobState.needs_review, JobState.failed, JobState.done})
 DISMISSABLE = frozenset({JobState.queued, JobState.needs_review, JobState.failed})
 
 
+def job_work_dir(library_dir: Path, job_id: uuid.UUID) -> Path:
+    """Where a job keeps its downloads until it is done or dismissed (hidden, so that a
+    folder import of the library never picks up a partial download)."""
+    return library_dir / ".downloads" / str(job_id)
+
+
+def discard_work(library_dir: Path, job_id: uuid.UUID) -> None:
+    """Remove a job's work directory (downloads not applied); for done or dismissed jobs."""
+    shutil.rmtree(job_work_dir(library_dir, job_id), ignore_errors=True)
+
+
 class JobContext:
     """What a running job's stages share: the session, the user's answers, the issues
     raised so far, the log and progress, and MusicBrainz results of this run.
@@ -118,11 +159,22 @@ class JobContext:
         self.job = job
         self.musicbrainz = musicbrainz
         self.settings = settings
-        self.answers = {key: Answer.model_validate(value) for key, value in job.answers.items()}
+        self.answers: dict[str, Answer] = {}
         self.issues: list[Issue] = []
         # MusicBrainz releases fetched in this run, by release MBID.
         self.mb_releases: dict[uuid.UUID, MBRelease] = {}
         self.in_transaction = False
+        # Undo actions for files written in the apply transaction (run if it fails).
+        self.rollback_actions: list[Callable[[], None]] = []
+
+    def load_answers(self) -> None:
+        self.answers = {
+            key: Answer.model_validate(value) for key, value in self.job.answers.items()
+        }
+
+    @property
+    def work_dir(self) -> Path:
+        return job_work_dir(self.settings.library_dir, self.job.id)
 
     def save(self) -> None:
         """Commit the job's state, log and progress (not while applying)."""
@@ -143,7 +195,9 @@ class JobContext:
         self.save()
 
     def raise_issue(self, issue: Issue) -> Answer | None:
-        """Record an issue; return the user's answer to it if there is a valid one."""
+        """Record an issue; return the user's answer to it if there is a valid one. An
+        answer that no longer fits (e.g. the candidate it picked is not offered any more)
+        is ignored and the issue is open again."""
         answer = self.answers.get(issue.id)
         if answer is not None and not answer_fits(issue, answer):
             self.log(f"answer to {issue.id} no longer fits; asking again", LogLevel.warning)
@@ -171,22 +225,51 @@ def answer_fits(issue: Issue, answer: Answer) -> bool:
     return True
 
 
+@dataclass
+class Applied:
+    """What applying wrote, by incoming key (for ``Importer.apply``)."""
+
+    release_groups: dict[str, ReleaseGroup] = field(default_factory=dict)
+    # Track key -> its recording, and the source that plays it (a file or a slice).
+    recordings: dict[str, Recording] = field(default_factory=dict)
+    sources: dict[str, Source] = field(default_factory=dict)
+    # Medium key -> its file source.
+    files: dict[str, Source] = field(default_factory=dict)
+
+
 class Importer:
     """One import kind. Subclasses implement ``build``; kinds that download also
-    ``download``."""
+    ``download``; kinds with rows outside the catalogue (radio) also ``apply``."""
 
     kind: ImportKind
 
     def build(self, ctx: JobContext) -> Proposal:
         """Fetch the input and resolve metadata: the incoming items, with targets set
-        where resolving decided them (e.g. MusicBrainz) and issues raised through
-        ``ctx.raise_issue``. Raise ``ImportFailed`` if the job cannot go on."""
+        where resolving decided them and issues raised through ``ctx.raise_issue``.
+        Downloads are only described (``IncomingMedium.download``), not done. Raise
+        ``ImportFailed`` if the job cannot go on."""
         raise NotImplementedError
 
-    def download(self, ctx: JobContext, medium: IncomingMedium) -> None:
-        """Download a pending medium: set its ``path`` and file facts, clear ``download``.
-        Raise ``DownloadError`` on failure."""
+    def download(self, ctx: JobContext, medium: IncomingMedium, directory: Path) -> Path:
+        """Download a pending medium into ``directory`` and return the file's path in it.
+
+        ``directory`` belongs to this medium and is kept across failures and runs of the
+        job until the download succeeds: it may hold partial files of an earlier attempt,
+        to resume or overwrite. The framework then reads the file's facts, reuses the
+        file in later runs and moves it into the library on apply. Raise
+        ``DownloadError`` on failure."""
         raise NotImplementedError(f"{self.kind} imports do not download")
+
+    def library_path(self, proposal: Proposal, medium: IncomingMedium) -> PurePath:
+        """Where a downloaded medium goes in the managed library, relative to it and
+        without extension: ``Artist/Release Group/NN Title`` for a track of a release,
+        ``Artist/Release Group/Release Group`` for a single-file album, ``Artist/Title``
+        for a loose track."""
+        return default_library_path(proposal, medium)
+
+    def apply(self, ctx: JobContext, proposal: Proposal, applied: Applied) -> None:
+        """Write the importer's own rows (e.g. radio episodes), in the apply transaction
+        after the catalogue rows and sources."""
 
 
 # Running a job
@@ -228,24 +311,29 @@ def run_job(
     if job is None:
         return None
     ctx = JobContext(session, job, musicbrainz, settings)
-    ctx.log("started" if not job.answers else f"started with {len(job.answers)} answer(s)")
     try:
-        proposal = importers[job.kind].build(ctx)
+        ctx.load_answers()
+        ctx.log("started" if not ctx.answers else f"started with {len(ctx.answers)} answer(s)")
+        importer = importers[job.kind]
+        proposal = importer.build(ctx)
         match_proposal(ctx, proposal)
         if _stop_for_review(ctx, proposal):
             return job.state
-        _download(ctx, importers[job.kind], proposal)
+        _download(ctx, importer, proposal)
         if _stop_for_review(ctx, proposal):
             return job.state
         job.state = JobState.applying
         ctx.stage(JobStage.apply)
         ctx.in_transaction = True
-        summary = apply_proposal(ctx, proposal)
+        summary = apply_proposal(ctx, importer, proposal)
+        job.proposal = proposal.model_dump(mode="json")  # with the downloads' final paths
         job.state, job.stage = JobState.done, None
         ctx.log(summary)
         session.commit()
     except Exception as e:  # the job fails; it stays in the inbox for a retry
         _fail(ctx, job_id, e)
+    else:
+        discard_work(settings.library_dir, job_id)
     return session.get_one(ImportJob, job_id).state
 
 
@@ -264,24 +352,39 @@ def _fail(ctx: JobContext, job_id: uuid.UUID, error: Exception) -> None:
     session = ctx.session
     log = list(ctx.job.log) if ctx.in_transaction else None
     session.rollback()
+    for action in reversed(ctx.rollback_actions):
+        try:
+            action()
+        except OSError as e:
+            log = [*(log or ctx.job.log), _entry(LogLevel.warning, f"undo failed: {e}")]
     job = session.get_one(ImportJob, job_id)
     session.refresh(job)
     if log is not None:  # entries written in the failed apply transaction
         job.log = log
     message = str(error) if isinstance(error, ImportFailed) else f"{type(error).__name__}: {error}"
     job.state, job.error = JobState.failed, message
-    entry = LogEntry(at=utcnow(), level=LogLevel.error, message=message)
-    job.log = [*job.log, entry.model_dump(mode="json")]
+    job.log = [*job.log, _entry(LogLevel.error, message)]
     if not isinstance(error, ImportFailed):
         trace = "".join(traceback.format_exception(error, limit=-5))
-        entry = LogEntry(at=utcnow(), level=LogLevel.error, message=trace)
-        job.log = [*job.log, entry.model_dump(mode="json")]
+        job.log = [*job.log, _entry(LogLevel.error, trace)]
     session.commit()
+
+
+def _entry(level: LogLevel, message: str) -> dict:
+    return LogEntry(at=utcnow(), level=level, message=message).model_dump(mode="json")
+
+
+# Downloads
 
 
 def _download(ctx: JobContext, importer: Importer, proposal: Proposal) -> None:
     used = {t.medium_key for t in proposal.all_tracks() if t.target.kind is not TargetKind.skip}
     pending = [medium for medium in proposal.media if medium.download and medium.key in used]
+    for release in proposal.releases:
+        if isinstance(release.cover, UrlCover) and release.target.kind is not TargetKind.skip:
+            # TODO(stage 6): fetch cover URLs into the work dir here.
+            ctx.log(f"cover {release.cover.url} not fetched: not supported yet", LogLevel.warning)
+            release.cover = None
     if not pending:
         return
     ctx.stage(JobStage.download, len(pending))
@@ -298,13 +401,60 @@ def _download(ctx: JobContext, importer: Importer, proposal: Proposal) -> None:
             issue.message = "download skipped"
             ctx.raise_issue(issue)
             _skip_medium(proposal, medium.key)
+        elif (path := _already_downloaded(ctx, medium)) is not None:
+            ctx.log(f"{_medium_label(medium)} is in the library already: {path}")
+            medium.path, medium.download, medium.managed = path, False, True
         else:
             try:
-                importer.download(ctx, medium)
+                _download_medium(ctx, importer, medium)
             except DownloadError as e:
                 issue.message = f"download failed: {e}"
                 ctx.raise_issue(issue)
         ctx.advance()
+
+
+def _medium_dir(ctx: JobContext, medium: IncomingMedium) -> Path:
+    return ctx.work_dir / hashlib.sha256(medium.key.encode()).hexdigest()[:16]
+
+
+def _download_medium(ctx: JobContext, importer: Importer, medium: IncomingMedium) -> None:
+    """Download into the medium's work directory: ``partial/`` while the importer works,
+    the file itself once it succeeded (and is readable as audio)."""
+    directory = _medium_dir(ctx, medium)
+    done = next((p for p in sorted(directory.glob("*")) if p.is_file()), None)
+    if done is not None:
+        ctx.log(f"using the download of an earlier run: {done.name}")
+    else:
+        partial = directory / "partial"
+        partial.mkdir(parents=True, exist_ok=True)
+        file = importer.download(ctx, medium, partial)
+        if not file.is_file() or file.parent != partial:
+            raise ValueError(f"download returned {file}, not a file in {partial}")
+        done = directory / file.name
+        file.replace(done)
+        shutil.rmtree(partial)
+    try:
+        result = probe(done)
+        sha256 = sha256_file(done)
+    except (ProbeError, OSError) as e:
+        done.unlink(missing_ok=True)  # download it again on retry
+        raise DownloadError(f"the downloaded file cannot be read as audio: {e}") from e
+    medium.path, medium.download, medium.managed = str(done), False, True
+    medium.codec, medium.duration_ms, medium.size = result.codec, result.duration_ms, result.size
+    medium.sha256 = sha256
+
+
+def _already_downloaded(ctx: JobContext, medium: IncomingMedium) -> str | None:
+    """The file of an earlier import from the same origin, if it is still there."""
+    if medium.origin is None:
+        return None
+    origins = select(Source.id).where(
+        Source.kind == medium.origin.kind, Source.uri == medium.origin.uri
+    )
+    files = ctx.session.exec(
+        select(Source.uri).where(Source.kind == SourceKind.file, col(Source.parent_id).in_(origins))
+    ).all()
+    return next((uri for uri in files if uri and Path(uri).is_file()), None)
 
 
 def _medium_label(medium: IncomingMedium) -> str:
@@ -315,6 +465,38 @@ def _skip_medium(proposal: Proposal, key: str) -> None:
     for track in proposal.all_tracks():
         if track.medium_key == key:
             track.target = SKIP
+
+
+_UNSAFE = re.compile(r"[\x00-\x1f/\\]")
+MAX_NAME_BYTES = 180
+
+
+def safe_name(text: str) -> str:
+    """A file or directory name from metadata: no separators or control characters, no
+    leading dot, at most ``MAX_NAME_BYTES`` bytes of UTF-8."""
+    name = _UNSAFE.sub("_", text).strip().lstrip(".").strip()
+    while len(name.encode()) > MAX_NAME_BYTES:
+        name = name[:-1]
+    return name.rstrip() or "_"
+
+
+def default_library_path(proposal: Proposal, medium: IncomingMedium) -> PurePath:
+    for release in proposal.releases:
+        tracks = [t for t in release.tracks if t.medium_key == medium.key]
+        if not tracks:
+            continue
+        folder = PurePath(safe_name(credit_name(release.credit)), safe_name(release.title))
+        if len(tracks) > 1 or tracks[0].start_ms or tracks[0].end_ms:
+            return folder / safe_name(release.title)
+        [track] = tracks
+        number = f"{track.position:02d}"
+        if len({t.disc for t in release.tracks}) > 1:
+            number = f"{track.disc}-{number}"
+        return folder / safe_name(f"{number} {track.title}")
+    for track in proposal.loose_tracks:
+        if track.medium_key == medium.key:
+            return PurePath(safe_name(credit_name(track.credit)), safe_name(track.title))
+    return PurePath("_unsorted", safe_name(medium.key))
 
 
 # Review
@@ -349,15 +531,15 @@ def _label(entity: Base) -> str:
     raise TypeError(entity)
 
 
-def existing(entity: Base) -> Target:
-    return Target(kind=TargetKind.existing, id=entity.id, label=_label(entity))
+def existing(entity: Base) -> ExistingTarget:
+    return ExistingTarget(id=entity.id, label=_label(entity))
 
 
 def _issue_candidate(entity: Base, score: float) -> IssueCandidate:
     match entity:
         case Artist():
             type, title, subtitle = CandidateType.artist, entity.name, entity.disambiguation
-            detail = None
+            detail = f"MusicBrainz {entity.mbid}" if entity.mbid else None
         case ReleaseGroup():
             type, title, subtitle = (
                 CandidateType.release_group,
@@ -375,7 +557,7 @@ def _issue_candidate(entity: Base, score: float) -> IssueCandidate:
         id=entity.id,
         title=title,
         subtitle=subtitle or None,
-        detail=detail,
+        detail=detail or None,
         score=round(score, 1),
     )
 
@@ -400,12 +582,15 @@ def decide[T: Base](
     """The target for a match result: the automatic match, ``new``, or what the user
     answered to the issue raised for an uncertain match (UNDECIDED while open).
 
-    ``taken``: library rows already used by other incoming items of this job; an
-    automatic match to one of them needs review instead.
+    ``taken``: library rows already used by other incoming items of this job: they are
+    not candidates (if the automatic match is one, the others need review).
     """
     decision = result.decision
-    if decision is Decision.auto_match and taken and result.candidates[0].entity.id in taken:
-        decision = Decision.needs_review
+    if taken and any(c.entity.id in taken for c in result.candidates):
+        candidates = [c for c in result.candidates if c.entity.id not in taken]
+        decision = Decision.needs_review if candidates else Decision.new
+        result = MatchResult(decision, candidates)
+    target: Target
     if decision is Decision.auto_match:
         target = existing(result.candidates[0].entity)
     elif decision is Decision.new:
@@ -441,7 +626,7 @@ def decide[T: Base](
                 target = new
             case _:
                 target = SKIP
-    if taken is not None and target.kind is TargetKind.existing and target.id:
+    if taken is not None and isinstance(target, ExistingTarget):
         taken.add(target.id)
     return target
 
@@ -454,26 +639,58 @@ def _artist_names(proposal: Proposal, parts: Sequence[IncomingCreditPart]) -> li
     return [name for p in parts for name in (p.credited_name, proposal.artist(p.artist_key).name)]
 
 
+def mb_artist_key(mbid: uuid.UUID) -> str:
+    return f"mbid:{mbid}"
+
+
+def mb_credit(proposal: Proposal, parts: Iterable[MBArtistCreditPart]) -> list[IncomingCreditPart]:
+    """Incoming credit parts for a MusicBrainz artist credit, adding its artists to the
+    proposal (key ``mbid:<MBID>``, matched like any incoming artist)."""
+    credit = []
+    for part in parts:
+        _add_mb_artist(proposal, part.artist)
+        credit.append(
+            IncomingCreditPart(
+                artist_key=mb_artist_key(part.artist.id),
+                credited_name=part.name,
+                join_phrase=part.joinphrase,
+            )
+        )
+    return credit
+
+
+def _add_mb_artist(proposal: Proposal, artist: MBArtist) -> None:
+    key = mb_artist_key(artist.id)
+    if not any(incoming.key == key for incoming in proposal.artists):
+        proposal.artists.append(
+            IncomingArtist(
+                key=key,
+                name=artist.name,
+                sort_name=artist.sort_name,
+                disambiguation=artist.disambiguation,
+                type=artist_type(artist),
+                mbid=artist.id,
+            )
+        )
+
+
+def mb_release_artists(release: MBRelease) -> list[MBArtist]:
+    """Every artist ``import_release`` credits for a release."""
+    parts = [*release.artist_credit]
+    if release.release_group is not None:
+        parts += release.release_group.artist_credit
+    for medium in release.media:
+        for track in medium.tracks:
+            parts += [*track.artist_credit, *track.recording.artist_credit]
+    return list({part.artist.id: part.artist for part in parts}.values())
+
+
 def match_proposal(ctx: JobContext, proposal: Proposal) -> None:
     """Map every undecided incoming item to the library (see the module docstring),
-    except items waiting for the answer to an issue raised while building."""
+    except items waiting for the answer to an issue raised while building. Artists come
+    last, and only those an imported item credits."""
     tracks = proposal.all_tracks()
-    ctx.stage(JobStage.match, len(proposal.artists) + len(tracks))
-    session = ctx.session
-    for artist in proposal.artists:
-        if artist.target.kind is TargetKind.undecided:
-            subject = Subject(type=SubjectType.artist, key=artist.key, label=artist.name)
-            result = match_artist(session, artist.name, mbid=artist.mbid)
-            new = _mb_or_new(artist.mbid)
-            artist.target = decide(
-                ctx,
-                result,
-                kind=IssueKind.uncertain_artist,
-                subject=subject,
-                new=new,
-                can_skip=False,
-            )
-        ctx.advance()
+    ctx.stage(JobStage.match, len(tracks) + len(proposal.artists))
     taken: set[uuid.UUID] = set()
     for release in proposal.releases:
         if ctx.waiting(release.key):
@@ -481,7 +698,7 @@ def match_proposal(ctx: JobContext, proposal: Proposal) -> None:
         elif release.target.kind is TargetKind.skip:
             for track in release.tracks:
                 track.target = SKIP
-        elif release.target.kind is TargetKind.musicbrainz and release.release_mbid:
+        elif release.release_mbid is not None:
             _match_mb_release(ctx, proposal, release, taken)
         else:
             if release.target.kind is TargetKind.undecided:
@@ -492,10 +709,45 @@ def match_proposal(ctx: JobContext, proposal: Proposal) -> None:
         if track.target.kind is TargetKind.undecided:
             track.target = _match_track(ctx, proposal, track, taken)
         ctx.advance()
+    _match_artists(ctx, proposal)
 
 
-def _mb_or_new(mbid: uuid.UUID | None) -> Target:
-    return Target(kind=TargetKind.musicbrainz, mbid=mbid) if mbid else NEW
+def _used_artist_keys(ctx: JobContext, proposal: Proposal) -> set[str]:
+    used: set[str] = set()
+    for release in proposal.releases:
+        if release.target.kind is TargetKind.skip:
+            continue
+        used |= {part.artist_key for part in release.credit}
+        if release.release_mbid is not None and release.release_mbid in ctx.mb_releases:
+            mb_release = ctx.mb_releases[release.release_mbid]
+            used |= {mb_artist_key(artist.id) for artist in mb_release_artists(mb_release)}
+    for track in proposal.all_tracks():
+        if track.target.kind is not TargetKind.skip:
+            used |= {part.artist_key for part in track.credit}
+    return used
+
+
+def _match_artists(ctx: JobContext, proposal: Proposal) -> None:
+    used = _used_artist_keys(ctx, proposal)
+    ctx.job.progress_total = ctx.job.progress_done + len(proposal.artists)
+    for artist in proposal.artists:
+        if artist.key not in used:
+            artist.target = SKIP
+        elif artist.target.kind is TargetKind.undecided:
+            label = artist.name + (f" ({artist.disambiguation})" if artist.disambiguation else "")
+            artist.target = decide(
+                ctx,
+                match_artist(ctx.session, artist.name, mbid=artist.mbid),
+                kind=IssueKind.uncertain_artist,
+                subject=Subject(type=SubjectType.artist, key=artist.key, label=label),
+                new=_mb_or_new(artist.mbid, label),
+                can_skip=False,
+            )
+        ctx.advance()
+
+
+def _mb_or_new(mbid: uuid.UUID | None, label: str | None = None) -> Target:
+    return MusicBrainzTarget(mbid=mbid, label=label) if mbid else NEW
 
 
 def release_label(release: IncomingRelease) -> str:
@@ -509,50 +761,57 @@ def track_label(track: IncomingTrack) -> str:
 def _match_mb_release(
     ctx: JobContext, proposal: Proposal, release: IncomingRelease, taken: set[uuid.UUID]
 ) -> None:
-    """A release resolved to MusicBrainz: the release group by MBID (an issue if it is
-    in the library from another release), recordings with ``propose_recordings``."""
+    """A release resolved to MusicBrainz (``release_mbid``): its artists join the
+    proposal; the release group is the library's by MBID (an issue if that one is from
+    another release), else a library release group without MBID that matches (it gains
+    the MBIDs), else new; tracks at positions the library release group has take their
+    recordings, the others are matched with ``propose_recordings``."""
     session = ctx.session
     assert release.release_mbid is not None
     mb_release = ctx.mb_release(release.release_mbid)
-    release_group = session.exec(
-        select(ReleaseGroup).where(ReleaseGroup.mbid == release.mbid)
-    ).first()
-    if release_group is not None and release_group.release_mbid not in (None, release.release_mbid):
-        subject = Subject(type=SubjectType.release, key=release.key, label=release_label(release))
-        issue = Issue(
-            id=issue_id(IssueKind.release_conflict, release.key),
-            kind=IssueKind.release_conflict,
-            message=(
-                f"{release_label(release)!r} is already in the library from another "
-                f"MusicBrainz release ({release_group.release_mbid}); this is release "
-                f"{release.release_mbid}. Add these files to the release group in the "
-                "library, or skip them."
-            ),
-            subject=subject,
-            candidates=[_issue_candidate(release_group, 100.0)],
-            choices=[Choice.pick_candidate, Choice.skip],
+    for artist in mb_release_artists(mb_release):
+        _add_mb_artist(proposal, artist)
+    subject = Subject(type=SubjectType.release, key=release.key, label=release_label(release))
+    by_mbid = (
+        session.exec(select(ReleaseGroup).where(ReleaseGroup.mbid == release.mbid)).first()
+        if release.mbid
+        else None
+    )
+    if by_mbid is not None and by_mbid.release_mbid not in (None, release.release_mbid):
+        _release_conflict(ctx, proposal, release, by_mbid, subject, taken)
+        return
+    if by_mbid is not None:
+        release.target = existing(by_mbid)
+    elif release.target.kind is TargetKind.undecided or isinstance(
+        release.target, MusicBrainzTarget
+    ):
+        mb_label = f"{mb_release.title} — {render_artist_credit(mb_release.artist_credit)}"
+        result = match_release_group(
+            session,
+            release.title,
+            artist=credit_name(release.credit),
+            artist_names=_artist_names(proposal, release.credit),
+            mbid=release.mbid,
+            release_mbid=release.release_mbid,
+            barcode=release.barcode,
         )
-        answer = ctx.raise_issue(issue)
-        if answer is None:
-            release.target = UNDECIDED
-        elif answer.choice is Choice.skip:
-            release.target = SKIP
+        release.target = decide(
+            ctx,
+            result,
+            kind=IssueKind.uncertain_release_group,
+            subject=subject,
+            new=_mb_or_new(release.mbid, mb_label),
+            can_skip=True,
+        )
+    match release.target:
+        case ExistingTarget(id=release_group_id):
+            _match_tracks_by_position(ctx, release, release_group_id, taken)
+        case SkipTarget():
             for track in release.tracks:
                 track.target = SKIP
-        else:
-            release.target = existing(release_group)
-            release.release_mbid = None  # the tracks attach to the library's tracks
-            _match_tracks(ctx, proposal, release, taken)
-        return
-    release.target = (
-        existing(release_group)
-        if release_group
-        else Target(
-            kind=TargetKind.musicbrainz,
-            mbid=release.mbid,
-            label=f"{mb_release.title} — {render_artist_credit(mb_release.artist_credit)}",
-        )
-    )
+            return
+        case UndecidedTarget():
+            return
     results = propose_recordings(session, mb_release)
     for track in release.tracks:
         result = results.get(track.mb_track_id) if track.mb_track_id else None
@@ -564,10 +823,68 @@ def _match_mb_release(
             result,
             kind=IssueKind.uncertain_recording,
             subject=subject,
-            new=Target(kind=TargetKind.musicbrainz, mbid=track.mbid),
+            new=_mb_or_new(track.mbid),
             can_skip=True,
             taken=taken,
         )
+
+
+def _release_conflict(
+    ctx: JobContext,
+    proposal: Proposal,
+    release: IncomingRelease,
+    release_group: ReleaseGroup,
+    subject: Subject,
+    taken: set[uuid.UUID],
+) -> None:
+    issue = Issue(
+        id=issue_id(IssueKind.release_conflict, release.key),
+        kind=IssueKind.release_conflict,
+        message=(
+            f"{release_label(release)!r} is already in the library from another "
+            f"MusicBrainz release ({release_group.release_mbid}); this is release "
+            f"{release.release_mbid}. Add these files to the release group in the "
+            "library, or skip them."
+        ),
+        subject=subject,
+        candidates=[_issue_candidate(release_group, 100.0)],
+        choices=[Choice.pick_candidate, Choice.skip],
+    )
+    answer = ctx.raise_issue(issue)
+    if answer is None:
+        release.target = UNDECIDED
+    elif answer.choice is Choice.skip:
+        release.target = SKIP
+        for track in release.tracks:
+            track.target = SKIP
+    else:
+        release.target = existing(release_group)
+        release.release_mbid = None  # the tracks attach to the library's tracks
+        _match_tracks(ctx, proposal, release, taken)
+
+
+def _match_tracks_by_position(
+    ctx: JobContext, release: IncomingRelease, release_group_id: uuid.UUID, taken: set[uuid.UUID]
+) -> None:
+    """Tracks of a MusicBrainz release going into a library release group take the
+    recording at their position there, unless it is another MusicBrainz recording (or
+    the track's recording is in the library as another row)."""
+    session = ctx.session
+    release_group = session.exec(
+        select(ReleaseGroup)
+        .where(ReleaseGroup.id == release_group_id)
+        .options(selectinload(rel(ReleaseGroup.tracks)).selectinload(rel(Track.recording)))
+    ).one()
+    at_position = {(t.disc, t.position): t.recording for t in release_group.tracks}
+    mbids = [t.mbid for t in release.tracks if t.mbid]
+    by_mbid = set(session.exec(select(Recording.mbid).where(col(Recording.mbid).in_(mbids))).all())
+    for track in release.tracks:
+        recording = at_position.get((track.disc, track.position))
+        if track.target.kind is not TargetKind.undecided or recording is None:
+            continue
+        if recording.mbid == track.mbid or (recording.mbid is None and track.mbid not in by_mbid):
+            track.target = existing(recording)
+            taken.add(recording.id)
 
 
 def _match_release_group(ctx: JobContext, proposal: Proposal, release: IncomingRelease) -> None:
@@ -578,7 +895,6 @@ def _match_release_group(ctx: JobContext, proposal: Proposal, release: IncomingR
         artist=credit_name(release.credit),
         artist_names=_artist_names(proposal, release.credit),
         mbid=release.mbid,
-        release_mbid=release.release_mbid,
         barcode=release.barcode,
     )
     release.target = decide(
@@ -600,7 +916,7 @@ def _match_tracks(
     """Tracks of a release going into an existing release group take the recording of
     the track at their position there; others are matched like loose tracks."""
     at_position: dict[tuple[int, int], Track] = {}
-    if release.target.kind is TargetKind.existing:
+    if isinstance(release.target, ExistingTarget):
         release_group = ctx.session.exec(
             select(ReleaseGroup)
             .where(ReleaseGroup.id == release.target.id)
@@ -635,7 +951,7 @@ def _match_track(
         result,
         kind=IssueKind.uncertain_recording,
         subject=subject,
-        new=NEW,
+        new=NEW,  # with the track's MBID, if it has one
         can_skip=True,
         taken=taken,
     )
@@ -647,13 +963,13 @@ def _match_track(
 class _Applier:
     """Writes a fully decided proposal; see ``apply_proposal``."""
 
-    def __init__(self, ctx: JobContext, proposal: Proposal) -> None:
+    def __init__(self, ctx: JobContext, importer: Importer, proposal: Proposal) -> None:
         self.ctx = ctx
+        self.importer = importer
         self.session = ctx.session
         self.proposal = proposal
         self.artists: dict[str, Artist] = {}
-        # Incoming track key -> the recording it became.
-        self.recordings: dict[str, Recording] = {}
+        self.applied = Applied()
 
     def artist(self, key: str) -> Artist:
         if key in self.artists:
@@ -661,19 +977,35 @@ class _Applier:
         incoming = self.proposal.artist(key)
         target = incoming.target
         artist: Artist | None = None
-        if target.kind is TargetKind.existing:
+        if isinstance(target, ExistingTarget):
             artist = self.session.get_one(Artist, target.id)
+            if artist.mbid is None and incoming.mbid and not self._artist_by_mbid(incoming.mbid):
+                artist.mbid = incoming.mbid
         elif incoming.mbid:
-            artist = self.session.exec(select(Artist).where(Artist.mbid == incoming.mbid)).first()
+            artist = self._artist_by_mbid(incoming.mbid)
         if artist is None:
             artist = Artist(
                 mbid=incoming.mbid,
                 name=incoming.name,
                 sort_name=incoming.sort_name or incoming.name,
+                disambiguation=incoming.disambiguation,
+                type=incoming.type,
             )
             self.session.add(artist)
         self.artists[key] = artist
         return artist
+
+    def _artist_by_mbid(self, mbid: uuid.UUID) -> Artist | None:
+        return self.session.exec(select(Artist).where(Artist.mbid == mbid)).first()
+
+    def mb_artists(self, artists: Iterable[MBArtist]) -> dict[uuid.UUID, Artist | None]:
+        """The decided library artists for MusicBrainz artists (``import_release``)."""
+        keys = {artist.key for artist in self.proposal.artists}
+        return {
+            artist.id: self.artist(mb_artist_key(artist.id))
+            for artist in artists
+            if mb_artist_key(artist.id) in keys
+        }
 
     def credit(self, parts: Sequence[IncomingCreditPart]) -> ArtistCredit:
         return get_or_create_artist_credit(
@@ -684,19 +1016,22 @@ class _Applier:
     def recording(self, track: IncomingTrack) -> Recording | None:
         target = track.target
         recording: Recording | None = None
-        match target.kind:
-            case TargetKind.skip:
+        match target:
+            case SkipTarget():
                 return None
-            case TargetKind.existing:
+            case ExistingTarget():
                 recording = self.session.get_one(Recording, target.id)
-            case TargetKind.musicbrainz:
+            case MusicBrainzTarget():
                 recording = self.session.exec(
                     select(Recording).where(Recording.mbid == target.mbid)
                 ).first()
-                if recording is None and target.mbid:
+                if recording is None:
                     mb_recording = self.ctx.musicbrainz.get_recording(target.mbid)
-                    recording = import_recording(self.session, mb_recording)
-            case TargetKind.new:
+                    artists = [part.artist for part in mb_recording.artist_credit]
+                    recording = import_recording(
+                        self.session, mb_recording, self.mb_artists(artists)
+                    )
+            case NewTarget():
                 recording = Recording(
                     mbid=track.mbid,
                     title=track.title,
@@ -704,27 +1039,26 @@ class _Applier:
                     length_ms=track.length_ms,
                 )
                 self.session.add(recording)
-            case TargetKind.undecided:
+            case UndecidedTarget():
                 raise AssertionError(f"track {track.key} is undecided")
         assert recording is not None
         if track.isrcs:
             add_isrcs(self.session, recording.id, track.isrcs)
-        self.recordings[track.key] = recording
+        self.applied.recordings[track.key] = recording
         return recording
 
     def release(self, release: IncomingRelease) -> None:
         target = release.target
         if target.kind is TargetKind.skip:
             return
-        if target.kind is TargetKind.musicbrainz and release.release_mbid:
+        if release.release_mbid is not None:
             release_group = self._musicbrainz_release(release)
         else:
-            if target.kind is TargetKind.existing:
+            if isinstance(target, ExistingTarget):
                 release_group = self.session.get_one(ReleaseGroup, target.id)
             else:
                 release_group = ReleaseGroup(
                     mbid=release.mbid,
-                    release_mbid=release.release_mbid,
                     title=release.title,
                     artist_credit_id=self.credit(release.credit).id,
                     type=release.type,
@@ -749,6 +1083,7 @@ class _Applier:
                     )
                 )
                 positions.add((track.disc, track.position))
+        self.applied.release_groups[release.key] = release_group
         self._cover(release, release_group)
 
     def _musicbrainz_release(self, release: IncomingRelease) -> ReleaseGroup:
@@ -757,9 +1092,20 @@ class _Applier:
         prematched = {
             track.mb_track_id: self.session.get_one(Recording, track.target.id)
             for track in release.tracks
-            if track.target.kind is TargetKind.existing and track.mb_track_id
+            if isinstance(track.target, ExistingTarget) and track.mb_track_id
         }
-        release_group = import_release(self.session, mb_release, prematched)
+        given = (
+            self.session.get_one(ReleaseGroup, release.target.id)
+            if isinstance(release.target, ExistingTarget)
+            else None
+        )
+        release_group = import_release(
+            self.session,
+            mb_release,
+            prematched,
+            artists=self.mb_artists(mb_release_artists(mb_release)),
+            release_group=given,
+        )
         by_track_id = {
             mb_track.id: (medium.position or index, mb_track.position)
             for index, medium in enumerate(mb_release.media, start=1)
@@ -767,27 +1113,34 @@ class _Applier:
         }
         rows = {(t.disc, t.position): t for t in release_group.tracks}
         for track in release.tracks:
-            position = by_track_id.get(track.mb_track_id) if track.mb_track_id else None
-            if track.target.kind is TargetKind.skip or position is None:
+            if track.target.kind is TargetKind.skip:
                 continue
+            position = by_track_id.get(track.mb_track_id) if track.mb_track_id else None
+            if position is None:
+                raise ValueError(
+                    f"track {track.key} of MusicBrainz release {release.release_mbid} "
+                    "has no track MBID of that release (mb_track_id)"
+                )
             recording = rows[position].recording
             if track.isrcs:
                 add_isrcs(self.session, recording.id, track.isrcs)
-            self.recordings[track.key] = recording
+            self.applied.recordings[track.key] = recording
         return release_group
 
     def _cover(self, release: IncomingRelease, release_group: ReleaseGroup) -> None:
         if release_group.cover_path or release.cover is None:
             return
-        cover = release.cover
         data: bytes | None = None
         try:
-            if cover.kind is CoverKind.embedded and cover.medium_key:
-                medium = self.proposal.medium(cover.medium_key)
-                found = probe(Path(medium.path or "")).cover
-                data = found.data if found else None
-            elif cover.kind is CoverKind.file and cover.path:
-                data = Path(cover.path).read_bytes()
+            match release.cover:
+                case EmbeddedCover(medium_key=key):
+                    found = probe(Path(self.proposal.medium(key).path or "")).cover
+                    data = found.data if found else None
+                case FileCover(path=path):
+                    if is_within_media_roots(Path(path), self.ctx.settings.media_roots):
+                        data = Path(path).read_bytes()
+                    else:
+                        self.ctx.log(f"cover {path} is outside the media roots", LogLevel.warning)
         except (OSError, ProbeError) as e:
             self.ctx.log(f"cover not read: {e}", LogLevel.warning)
         if data is None:
@@ -796,31 +1149,36 @@ class _Applier:
             covers.set_release_group_cover(release_group, data, self.ctx.settings.library_dir)
         except ValueError as e:
             self.ctx.log(f"cover not used: {e}", LogLevel.warning)
+            return
+        written = Path(release_group.cover_path or "")
+        self.ctx.rollback_actions.append(lambda: written.unlink(missing_ok=True))
 
     def sources(self) -> None:
         tracks = self.proposal.all_tracks()
+        recordings = self.applied.recordings
         for medium in self.proposal.media:
-            if medium.existing_source_id or not medium.path:
+            if not medium.path:
                 continue
             playing = [
-                (track, self.recordings[track.key])
+                (track, recordings[track.key])
                 for track in tracks
-                if track.medium_key == medium.key and track.key in self.recordings
+                if track.medium_key == medium.key and track.key in recordings
             ]
             if not playing:
                 continue
             file = self._file_source(medium)
-            whole = [p for p in playing if p[0].start_ms is None and p[0].end_ms is None]
-            if len(playing) == 1 and whole:
-                file.recording_id = playing[0][1].id
+            self.applied.files[medium.key] = file
+            [(first, recording), *more] = playing
+            whole = not more and first.start_ms is None and first.end_ms is None
+            if whole and file.recording_id in (None, recording.id):
+                file.recording_id = recording.id
+                self.applied.sources[first.key] = file
                 continue
-            existing_slices = {(s.start_ms, s.end_ms, s.recording_id) for s in file.children}
+            existing_slices = {(s.start_ms, s.end_ms, s.recording_id): s for s in file.children}
             for track, recording in playing:
                 key = (track.start_ms or 0, track.end_ms, recording.id)
-                if key in existing_slices:
-                    continue
-                self.session.add(
-                    Source(
+                if (source := existing_slices.get(key)) is None:
+                    source = Source(
                         kind=SourceKind.slice,
                         parent_id=file.id,
                         start_ms=track.start_ms or 0,
@@ -830,10 +1188,14 @@ class _Applier:
                         if track.end_ms
                         else None,
                     )
-                )
-                existing_slices.add(key)
+                    self.session.add(source)
+                    existing_slices[key] = source
+                self.applied.sources[track.key] = source
 
     def _file_source(self, medium: IncomingMedium) -> Source:
+        assert medium.path is not None
+        if Path(medium.path).is_relative_to(self.ctx.work_dir):
+            medium.path = str(self._place(medium, Path(medium.path)))
         found = self.session.exec(
             select(Source).where(Source.kind == SourceKind.file, Source.uri == medium.path)
         ).first()
@@ -864,8 +1226,37 @@ class _Applier:
         self.session.add(source)
         return source
 
+    def _place(self, medium: IncomingMedium, downloaded: Path) -> Path:
+        """Put a download at its place in the managed library: a hard link (the work
+        directory keeps the download until the job is done, so a failed apply loses
+        nothing), else a move that is undone if the transaction fails."""
+        library = self.ctx.settings.library_dir
+        relative = self.importer.library_path(self.proposal, medium)
+        base = library / relative
+        if not base.resolve().is_relative_to(library.resolve()) or relative.is_absolute():
+            raise ValueError(f"library path {relative} is outside the library")
+        target = base.with_name(base.name + downloaded.suffix)
+        number = 1
+        while target.exists() and not target.samefile(downloaded):
+            number += 1
+            target = base.with_name(f"{base.name} ({number}){downloaded.suffix}")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.exists():
+            return target  # linked by an earlier, interrupted apply
+        try:
+            os.link(downloaded, target)
+            self.ctx.rollback_actions.append(lambda: target.unlink(missing_ok=True))
+        except OSError:
+            downloaded.replace(target)
+            self.ctx.rollback_actions.append(lambda: _move(target, downloaded))
+        return target
 
-def apply_proposal(ctx: JobContext, proposal: Proposal) -> str:
+
+def _move(source: Path, destination: Path) -> None:
+    source.replace(destination)
+
+
+def apply_proposal(ctx: JobContext, importer: Importer, proposal: Proposal) -> str:
     """Write a proposal without open issues; flushes, the caller commits. Returns a
     summary of the rows created."""
     created: Counter[str] = Counter()
@@ -875,13 +1266,15 @@ def apply_proposal(ctx: JobContext, proposal: Proposal) -> str:
 
     event.listen(ctx.session, "before_flush", count_new)
     try:
-        applier = _Applier(ctx, proposal)
+        applier = _Applier(ctx, importer, proposal)
         for release in proposal.releases:
             applier.release(release)
         for track in proposal.loose_tracks:
             applier.recording(track)
         ctx.session.flush()
         applier.sources()
+        ctx.session.flush()
+        importer.apply(ctx, proposal, applier.applied)
         ctx.session.flush()
     finally:
         event.remove(ctx.session, "before_flush", count_new)
@@ -905,6 +1298,7 @@ __all__ = [
     "DISMISSABLE",
     "RETRYABLE",
     "REVIEWABLE",
+    "Applied",
     "DownloadError",
     "ImportFailed",
     "Importer",
@@ -912,7 +1306,10 @@ __all__ = [
     "JobContext",
     "answer_fits",
     "apply_proposal",
+    "discard_work",
+    "job_work_dir",
     "match_proposal",
+    "mb_credit",
     "record_answers",
     "requeue",
     "run_job",

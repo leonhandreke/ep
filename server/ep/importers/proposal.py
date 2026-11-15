@@ -15,15 +15,23 @@ structure, stored as JSON on ``import_job.proposal`` and shown by the review UI:
 Each incoming item has a stable ``key`` (built from what was imported, e.g. the file
 path), so that an issue keeps its id when the job runs again, and an answer given in
 review still applies.
+
+Where an item goes (``Target``) and where a cover comes from (``IncomingCover``) are
+unions discriminated by ``kind`` (``oneOf`` with a ``discriminator`` in OpenAPI): each
+variant carries exactly the fields it needs. Importer-specific parts that are not
+catalogue rows (stage 7: the radio episode and its tracklist) are added as further
+fields of ``Proposal``, referring to the items here by key, and written by the
+importer's ``Importer.apply``.
 """
 
 import uuid
 from datetime import datetime
 from enum import StrEnum
+from typing import Annotated, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from ep.models import ReleaseGroupType, SourceKind
+from ep.models import ArtistType, ReleaseGroupType, SourceKind
 
 
 class Model(BaseModel):
@@ -31,33 +39,61 @@ class Model(BaseModel):
     model_config = ConfigDict(json_schema_serialization_defaults_required=True)
 
 
-# Where an incoming item goes
+# Where an incoming item goes: a union discriminated by ``kind``
 
 
 class TargetKind(StrEnum):
-    # An entity already in the library (``Target.id``).
     existing = "existing"
-    # From MusicBrainz (``Target.mbid``): the library row with that MBID, or a new one.
     musicbrainz = "musicbrainz"
-    # A new entity, as entered (tags, page metadata).
     new = "new"
-    # Not imported (the user chose to skip it, or it is already in the library).
     skip = "skip"
-    # Decided by an open issue.
     undecided = "undecided"
 
 
-class Target(Model):
-    kind: TargetKind
-    id: uuid.UUID | None = None
-    mbid: uuid.UUID | None = None
-    # Display text of the existing or MusicBrainz entity, e.g. "Pastel Blues — Nina Simone".
+class ExistingTarget(Model):
+    """An entity already in the library."""
+
+    kind: Literal[TargetKind.existing] = TargetKind.existing
+    id: uuid.UUID
+    # Display text, e.g. "Pastel Blues — Nina Simone".
+    label: str
+
+
+class MusicBrainzTarget(Model):
+    """From MusicBrainz: the library row with this MBID if there is one by then, else a
+    new row with MusicBrainz's metadata."""
+
+    kind: Literal[TargetKind.musicbrainz] = TargetKind.musicbrainz
+    mbid: uuid.UUID
     label: str | None = None
 
 
-UNDECIDED = Target(kind=TargetKind.undecided)
-SKIP = Target(kind=TargetKind.skip)
-NEW = Target(kind=TargetKind.new)
+class NewTarget(Model):
+    """A new entity, as entered (tags, page metadata)."""
+
+    kind: Literal[TargetKind.new] = TargetKind.new
+
+
+class SkipTarget(Model):
+    """Not imported: the user chose to skip it, or nothing imported refers to it."""
+
+    kind: Literal[TargetKind.skip] = TargetKind.skip
+
+
+class UndecidedTarget(Model):
+    """Waiting for the answer to an open issue (or not matched yet)."""
+
+    kind: Literal[TargetKind.undecided] = TargetKind.undecided
+
+
+type Target = Annotated[
+    ExistingTarget | MusicBrainzTarget | NewTarget | SkipTarget | UndecidedTarget,
+    Field(discriminator="kind"),
+]
+
+UNDECIDED = UndecidedTarget()
+SKIP = SkipTarget()
+NEW = NewTarget()
 
 
 # Incoming items
@@ -67,6 +103,8 @@ class IncomingArtist(Model):
     key: str
     name: str
     sort_name: str | None = None
+    disambiguation: str = ""
+    type: ArtistType | None = None
     mbid: uuid.UUID | None = None
     target: Target = UNDECIDED
 
@@ -86,38 +124,65 @@ class Origin(Model):
 
 
 class IncomingMedium(Model):
-    """An audio file: in place (``path``), or to be downloaded (``download``) on apply."""
+    """An audio file: in place (``path``), or to be downloaded by EP (``download``).
+
+    A download is done by the framework after review (``Importer.download``), into a
+    work directory of the job; on apply the file is moved to its place in the managed
+    library and ``path`` is updated to it.
+    """
 
     key: str
-    # Absolute path as the server sees it; null until a pending download is done.
+    # Absolute path as the server sees it; null while a download is pending.
     path: str | None
-    # True if EP downloads it into the managed library (``source.managed``).
+    # True if EP downloaded it into the managed library (``source.managed``).
     managed: bool = False
+    # Where it comes from: becomes the parent source of the file. Required for downloads.
     origin: Origin | None = None
-    # A download still to be done before applying (``origin`` says from where).
+    # A download still to be done.
     download: bool = False
     codec: str | None = None
     duration_ms: int | None = None
     size: int | None = None
     sha256: str | None = None
-    # Set when the file is already a source: nothing is imported for it.
-    existing_source_id: uuid.UUID | None = None
+
+    @model_validator(mode="after")
+    def _download_has_origin(self) -> Self:
+        if self.download and self.origin is None:
+            raise ValueError("a medium to download needs an origin")
+        return self
+
+
+# Covers: a union discriminated by ``kind``
 
 
 class CoverKind(StrEnum):
-    # The picture embedded in a medium's tags (``medium_key``).
     embedded = "embedded"
-    # An image file (``path``), e.g. cover.jpg next to the audio files.
     file = "file"
-    # An image URL (``url``).
     url = "url"
 
 
-class IncomingCover(Model):
-    kind: CoverKind
-    medium_key: str | None = None
-    path: str | None = None
-    url: str | None = None
+class EmbeddedCover(Model):
+    """The picture embedded in a medium's tags."""
+
+    kind: Literal[CoverKind.embedded] = CoverKind.embedded
+    medium_key: str
+
+
+class FileCover(Model):
+    """An image file, e.g. cover.jpg next to the audio files."""
+
+    kind: Literal[CoverKind.file] = CoverKind.file
+    path: str
+
+
+class UrlCover(Model):
+    """An image on the web (Bandcamp artwork, a video thumbnail)."""
+
+    kind: Literal[CoverKind.url] = CoverKind.url
+    url: str
+
+
+type IncomingCover = Annotated[EmbeddedCover | FileCover | UrlCover, Field(discriminator="kind")]
 
 
 class IncomingTrack(Model):
@@ -129,6 +194,8 @@ class IncomingTrack(Model):
     start_ms: int | None = None
     end_ms: int | None = None
     disc: int = 1
+    # Position on the disc; for a loose track, its place in the input (e.g. the
+    # tracklist position of a radio episode entry).
     position: int
     title: str
     credit: list[IncomingCreditPart]

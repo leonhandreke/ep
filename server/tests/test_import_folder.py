@@ -453,14 +453,8 @@ def test_release_conflict(
         job["id"],
         {"issue_id": issue["id"], "choice": "pick_candidate", "candidate_id": existing["id"]},
     )
-    # Track 1 takes the recording at position 1; the others look like it ("Movement 2"):
-    # never matched automatically, the user is asked.
-    assert run() == {uuid.UUID(job["id"]): JobState.needs_review}
-    issues = get_job(client, job["id"])["proposal"]["issues"]
-    open_issues = [i for i in issues if i["answer"] is None]
-    assert {i["kind"] for i in open_issues} == {"uncertain_recording"}
-    assert len(open_issues) == 8
-    review(client, job["id"], *({"issue_id": i["id"], "choice": "create_new"} for i in open_issues))
+    # Track 1 takes the recording at position 1; the others look like it ("Movement 2"),
+    # but it is taken: they are new.
     assert run() == {uuid.UUID(job["id"]): JobState.done}
     tracks = client.get(f"/release-groups/{existing['id']}/tracks").json()
     assert len(tracks) == 9
@@ -518,3 +512,92 @@ def test_isrc_external_ids_are_not_duplicated(
         )
     ).all()
     assert [r.value for r in rows] == ["GBAAA1900001"]
+
+
+def test_musicbrainz_release_attaches_to_library_rows_without_mbid(
+    client: TestClient, session: Session, music: Path, run: Any, cover_png: Path
+) -> None:
+    """An artist and a release group entered earlier (by hand, or a tag-only import)
+    gain their MBIDs instead of being duplicated; so does the recording at a position."""
+    floating = make_artist(client, "Floating Points")
+    local = make_release_group(client, floating, "Promises")
+    first = make_recording(client, floating, PROMISES_TRACKS[0].title)
+    track = {"release_group_id": local["id"], "recording_id": first["id"], "position": 1}
+    post(client, "/tracks", track)
+    promises_tagged(music / "Promises", cover_png)
+    job = post_import(client, music / "Promises")
+    assert run() == {uuid.UUID(job["id"]): JobState.done}
+
+    proposal = get_job(client, job["id"])["proposal"]
+    assert proposal["issues"] == []
+    [release] = proposal["releases"]
+    assert release["target"] == {
+        "kind": "existing",
+        "id": local["id"],
+        "label": "Promises — Floating Points",
+    }
+    targets = {a["name"]: a["target"]["kind"] for a in proposal["artists"]}
+    assert targets == {
+        "Floating Points": "existing",
+        "Pharoah Sanders": "musicbrainz",
+        "London Symphony Orchestra": "musicbrainz",
+    }
+    assert count(session, Artist) == 3
+    assert count(session, ReleaseGroup) == 1
+    rg = release_group(session)
+    assert (str(rg.mbid), str(rg.release_mbid)) == (PROMISES_RELEASE_GROUP, PROMISES_RELEASE)
+    assert str(session.get_one(Artist, uuid.UUID(floating["id"])).mbid) == str(
+        PROMISES.artist_credit[0].artist.id
+    )
+    recording = session.get_one(Recording, uuid.UUID(first["id"]))
+    assert recording.mbid == PROMISES_TRACKS[0].recording.id
+    assert len(rg.tracks) == len(PROMISES_TRACKS)
+    assert count(session, Recording) == len(PROMISES_TRACKS)
+
+
+def test_uncertain_artist_of_a_musicbrainz_release(
+    client: TestClient, session: Session, music: Path, run: Any, cover_png: Path
+) -> None:
+    make_artist(client, "Pharoah Sanders", disambiguation="the saxophonist")
+    other = make_artist(client, "Pharoah Sanders", disambiguation="someone else")
+    promises_tagged(music / "Promises", cover_png)
+    job = post_import(client, music / "Promises")
+    assert run() == {uuid.UUID(job["id"]): JobState.needs_review}
+    [issue] = get_job(client, job["id"])["proposal"]["issues"]
+    pharoah = PROMISES.artist_credit[1].artist
+    assert issue["id"] == f"uncertain_artist:mbid:{pharoah.id}"
+    assert issue["choices"] == ["pick_candidate", "create_new"]
+    assert count(session, ReleaseGroup) == 0
+
+    answer = {"issue_id": issue["id"], "choice": "pick_candidate", "candidate_id": other["id"]}
+    review(client, job["id"], answer)
+    assert run() == {uuid.UUID(job["id"]): JobState.done}
+    assert session.get_one(Artist, uuid.UUID(other["id"])).mbid == pharoah.id
+    assert count(session, Artist) == 4  # two Pharoahs, Floating Points, the LSO
+
+
+def test_various_artists_and_disc_folders_without_tags(
+    client: TestClient, session: Session, music: Path, run: Any, cover_png: Path
+) -> None:
+    """A compilation in disc folders: one release group (Various Artists, a compilation),
+    discs and numbers from the folder and file names, the cover from a disc folder."""
+    album = music / "Summer Mix"
+    write_audio(album / "CD1" / "01 - Opening.mp3", 1, {"artist": "Alpha"})
+    write_audio(album / "CD1" / "02 - Middle.mp3", 1, {"artist": "Beta"})
+    write_audio(album / "CD2" / "01 - Closing.mp3", 1, {"artist": "Gamma"})
+    shutil.copy(cover_png, album / "CD1" / "folder.png")
+    job = post_import(client, album)
+    assert run() == {uuid.UUID(job["id"]): JobState.done}
+
+    rg = release_group(session)
+    assert (rg.title, rg.type, rg.artist_credit.name) == (
+        "Summer Mix",
+        "compilation",
+        "Various Artists",
+    )
+    assert rg.artist_credit.names[0].artist.mbid == uuid.UUID(
+        "89ad4ac3-39f7-470e-963a-56509c546377"
+    )
+    assert rg.cover_path is not None
+    tracks = sorted((t.disc, t.position, t.recording.title) for t in rg.tracks)
+    assert tracks == [(1, 1, "Opening"), (1, 2, "Middle"), (2, 1, "Closing")]

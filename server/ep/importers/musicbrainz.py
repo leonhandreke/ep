@@ -12,7 +12,13 @@ be attached instead of creating duplicates: ``propose_recordings`` runs the matc
 the release's tracks, and ``import_release(..., recordings={track MBID: recording})``
 uses the given recordings. An attached recording gains the MBID (and a length if it had
 none), ISRCs and a ``track`` row, and keeps everything else: its title, credit, sources,
-external IDs and notes.
+external IDs and notes. Recordings already at a track position of the release group
+(e.g. imported earlier from tags) gain the MBID of the release's track there.
+
+Artists and the release group work the same way: ``artists`` and ``release_group`` give
+the library rows to use (the import framework passes what matching and the user decided),
+and they gain their MBID. Without them, a row with the MBID is used, else a confident
+match (``ep.matching``, ``auto_match``) among the rows without an MBID, else a new row.
 """
 
 import uuid
@@ -21,7 +27,9 @@ from collections.abc import Mapping, Sequence
 from sqlmodel import Session, col, select
 
 from ep.credits import CreditPart, get_or_create_artist_credit
-from ep.matching import Decision, MatchResult, match_recording
+from ep.matching import Decision, MatchResult, match_artist, match_recording, match_release_group
+from ep.matching.match import AUTO_MATCH_SCORE, text_score
+from ep.matching.normalize import normalize_title
 from ep.metadata.musicbrainz import (
     MBArtist,
     MBArtistCreditPart,
@@ -102,7 +110,12 @@ def propose_recordings(
 
 
 def import_release(
-    session: Session, release: MBRelease, recordings: Mapping[uuid.UUID, Recording] | None = None
+    session: Session,
+    release: MBRelease,
+    recordings: Mapping[uuid.UUID, Recording] | None = None,
+    *,
+    artists: Mapping[uuid.UUID, Artist | None] | None = None,
+    release_group: ReleaseGroup | None = None,
 ) -> ReleaseGroup:
     """Add a release (fetched with ``MusicBrainz.get_release``) to the catalogue.
 
@@ -111,24 +124,31 @@ def import_release(
     or the track's recording is already in the library as a different row, or one
     recording is given for tracks of different MusicBrainz recordings.
 
+    ``artists`` maps artist MBIDs to the library artist to use (it gains the MBID), or to
+    None for "a new artist" (unless one with the MBID exists). ``release_group`` is the
+    library release group to use (it gains the MBIDs; ``ReleaseConflict`` if it has
+    others). Artists and a release group not given are found by MBID, else by a
+    confident match, else created.
+
     Flushes but does not commit. Returns the release group.
     """
     if release.release_group is None:
         raise ValueError("release lookup without its release group (inc=release-groups)")
     recordings = recordings or {}
     _check_prematched(session, release, recordings)
-    release_group = _release_group(session, release, release.release_group)
-    existing = {(track.disc, track.position) for track in release_group.tracks}
+    resolver = _ArtistResolver(session, artists or {})
+    release_group = _release_group(session, resolver, release, release.release_group, release_group)
+    session.flush()
+    existing = {(track.disc, track.position): track for track in release_group.tracks}
     for disc_index, medium in enumerate(release.media, start=1):
         disc = medium.position or disc_index
         for mb_track in medium.tracks:
-            if (disc, mb_track.position) in existing:
+            prematched = recordings.get(mb_track.id)
+            if (track := existing.get((disc, mb_track.position))) is not None:
+                _attach_existing_track(session, track, mb_track, prematched)
                 continue
             recording = _recording(
-                session,
-                mb_track.recording,
-                mb_track.artist_credit,
-                recordings.get(mb_track.id),
+                session, resolver, mb_track.recording, mb_track.artist_credit, prematched
             )
             title = mb_track.title if mb_track.title != recording.title else None
             session.add(
@@ -143,6 +163,27 @@ def import_release(
     session.flush()
     session.expire(release_group, ["tracks"])
     return release_group
+
+
+def _attach_existing_track(
+    session: Session, track: Track, mb_track: MBTrack, prematched: Recording | None
+) -> None:
+    """The release group has a track at this position already: its recording gains the
+    MBID if it has none, no other recording has it, and the titles agree (or it was
+    pre-matched to this track)."""
+    recording = track.recording
+    mbid = mb_track.recording.id
+    if prematched not in (None, recording) or recording.mbid not in (None, mbid):
+        return
+    if recording.mbid is None:
+        if prematched is None and not _same_title(recording.title, mb_track):
+            return
+        if session.exec(select(Recording.id).where(Recording.mbid == mbid)).first():
+            return
+        recording.mbid = mbid
+        if recording.length_ms is None:
+            recording.length_ms = mb_track.recording.length
+    add_isrcs(session, recording.id, mb_track.recording.isrcs)
 
 
 def _tracks(release: MBRelease) -> list[MBTrack]:
@@ -177,20 +218,48 @@ def _check_prematched(
 
 
 def _release_group(
-    session: Session, release: MBRelease, mb_release_group: MBReleaseGroup
+    session: Session,
+    resolver: _ArtistResolver,
+    release: MBRelease,
+    mb_release_group: MBReleaseGroup,
+    given: ReleaseGroup | None,
 ) -> ReleaseGroup:
-    release_group = session.exec(
-        select(ReleaseGroup).where(ReleaseGroup.mbid == mb_release_group.id)
-    ).first()
+    release_group = (
+        given
+        or session.exec(
+            select(ReleaseGroup).where(ReleaseGroup.mbid == mb_release_group.id)
+        ).first()
+    )
+    credit_parts = mb_release_group.artist_credit or release.artist_credit
+    if release_group is None:
+        result = match_release_group(
+            session,
+            mb_release_group.title,
+            artist=render_artist_credit(credit_parts),
+            artist_names=[name for part in credit_parts for name in (part.name, part.artist.name)],
+            mbid=mb_release_group.id,
+            release_mbid=release.id,
+            barcode=release.barcode,
+        )
+        release_group = result.match
     if release_group is not None:
-        if release_group.release_mbid not in (None, release.id):
+        if release_group.mbid not in (
+            None,
+            mb_release_group.id,
+        ) or release_group.release_mbid not in (
+            None,
+            release.id,
+        ):
             raise ReleaseConflict(
-                f"release group {mb_release_group.id} ({release_group.title!r}) is already "
-                f"imported from release {release_group.release_mbid}, not {release.id}"
+                f"release group {release_group.mbid} ({release_group.title!r}) is already "
+                f"imported from release {release_group.release_mbid}, not {release.id} "
+                f"of {mb_release_group.id}"
             )
-        release_group.release_mbid = release.id
+        release_group.mbid, release_group.release_mbid = mb_release_group.id, release.id
+        if release_group.barcode is None:
+            release_group.barcode = release.barcode
         return release_group
-    credit = _artist_credit(session, mb_release_group.artist_credit or release.artist_credit)
+    credit = resolver.credit(credit_parts)
     release_group = ReleaseGroup(
         mbid=mb_release_group.id,
         release_mbid=release.id,
@@ -213,6 +282,7 @@ def release_group_type(release_group: MBReleaseGroup) -> ReleaseGroupType:
 
 def _recording(
     session: Session,
+    resolver: _ArtistResolver,
     mb_recording: MBRecording,
     track_credit: Sequence[MBArtistCreditPart],
     prematched: Recording | None,
@@ -226,7 +296,7 @@ def _recording(
     else:
         recording = session.exec(select(Recording).where(Recording.mbid == mb_recording.id)).first()
     if recording is None:
-        credit = _artist_credit(session, mb_recording.artist_credit or track_credit)
+        credit = resolver.credit(mb_recording.artist_credit or track_credit)
         recording = Recording(
             mbid=mb_recording.id,
             title=mb_recording.title,
@@ -238,11 +308,24 @@ def _recording(
     return recording
 
 
-def import_recording(session: Session, mb_recording: MBRecording) -> Recording:
+def _same_title(title: str, mb_track: MBTrack) -> bool:
+    ours = normalize_title(title)
+    return any(
+        text_score(ours, normalize_title(theirs)) >= AUTO_MATCH_SCORE
+        for theirs in (mb_track.title, mb_track.recording.title)
+    )
+
+
+def import_recording(
+    session: Session,
+    mb_recording: MBRecording,
+    artists: Mapping[uuid.UUID, Artist | None] | None = None,
+) -> Recording:
     """The library recording for a MusicBrainz recording (fetched with ``get_recording``):
-    the row with its MBID, or a new standalone recording (no track) with its artists and
-    ISRCs. Flushes nothing."""
-    return _recording(session, mb_recording, mb_recording.artist_credit, None)
+    the row with its MBID, or a new standalone recording (no track) with its artists
+    (``artists`` as for ``import_release``) and ISRCs. Flushes nothing."""
+    resolver = _ArtistResolver(session, artists or {})
+    return _recording(session, resolver, mb_recording, mb_recording.artist_credit, None)
 
 
 def add_isrcs(session: Session, recording_id: uuid.UUID, isrcs: Sequence[str]) -> None:
@@ -269,22 +352,46 @@ def add_isrcs(session: Session, recording_id: uuid.UUID, isrcs: Sequence[str]) -
         )
 
 
-def _artist_credit(session: Session, parts: Sequence[MBArtistCreditPart]) -> ArtistCredit:
-    return get_or_create_artist_credit(
-        session,
-        [CreditPart(_artist(session, part.artist), part.name, part.joinphrase) for part in parts],
-    )
+def artist_type(mb_artist: MBArtist) -> ArtistType | None:
+    return _ARTIST_TYPES.get(mb_artist.type, ArtistType.other) if mb_artist.type else None
 
 
-def _artist(session: Session, mb_artist: MBArtist) -> Artist:
-    artist = session.exec(select(Artist).where(Artist.mbid == mb_artist.id)).first()
-    if artist is None:
-        artist = Artist(
-            mbid=mb_artist.id,
-            name=mb_artist.name,
-            sort_name=mb_artist.sort_name,
-            disambiguation=mb_artist.disambiguation,
-            type=_ARTIST_TYPES.get(mb_artist.type, ArtistType.other) if mb_artist.type else None,
+class _ArtistResolver:
+    """The library artists for the MusicBrainz artists of one import (see the module
+    docstring); a library artist without MBID is attached to one MusicBrainz artist only."""
+
+    def __init__(self, session: Session, given: Mapping[uuid.UUID, Artist | None]) -> None:
+        self.session = session
+        self.given = given
+        self.resolved: dict[uuid.UUID, Artist] = {}
+
+    def credit(self, parts: Sequence[MBArtistCreditPart]) -> ArtistCredit:
+        return get_or_create_artist_credit(
+            self.session,
+            [CreditPart(self.artist(part.artist), part.name, part.joinphrase) for part in parts],
         )
-        session.add(artist)
-    return artist
+
+    def artist(self, mb_artist: MBArtist) -> Artist:
+        if (artist := self.resolved.get(mb_artist.id)) is not None:
+            return artist
+        artist = (
+            self.given.get(mb_artist.id)
+            or self.session.exec(select(Artist).where(Artist.mbid == mb_artist.id)).first()
+        )
+        if artist is None and mb_artist.id not in self.given:
+            match = match_artist(self.session, mb_artist.name, mbid=mb_artist.id).match
+            if match is not None and match not in self.resolved.values():
+                artist = match
+        if artist is None:
+            artist = Artist(
+                mbid=mb_artist.id,
+                name=mb_artist.name,
+                sort_name=mb_artist.sort_name,
+                disambiguation=mb_artist.disambiguation,
+                type=artist_type(mb_artist),
+            )
+            self.session.add(artist)
+        elif artist.mbid is None:
+            artist.mbid = mb_artist.id
+        self.resolved[mb_artist.id] = artist
+        return artist

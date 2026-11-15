@@ -291,10 +291,23 @@ def test_import_endpoint_errors(client: TestClient, mb: MockMusicBrainz) -> None
 
 
 def test_import_endpoint_conflicting_release_mbid(client: TestClient, mb: MockMusicBrainz) -> None:
-    # Another release group already claims this release: a constraint violation, 409.
-    make_release_group(client, make_artist(client), release_mbid=BIG_FUN_RELEASE)
+    # Another release group (of another MusicBrainz release group) claims this release.
+    artist = make_artist(client)
+    make_release_group(client, artist, mbid=str(uuid.uuid4()), release_mbid=BIG_FUN_RELEASE)
     response = client.post("/musicbrainz/import", json={"release_mbid": BIG_FUN_RELEASE})
     assert response.status_code == 409
+    assert "already imported" in response.json()["detail"]
+
+
+def test_import_endpoint_attaches_release_group_without_mbid(
+    client: TestClient, mb: MockMusicBrainz
+) -> None:
+    # A release group made by hand for this release: it gains the release group's MBID.
+    local = make_release_group(client, make_artist(client), release_mbid=BIG_FUN_RELEASE)
+    response = client.post("/musicbrainz/import", json={"release_mbid": BIG_FUN_RELEASE})
+    assert response.status_code == 200, response.text
+    assert response.json()["id"] == local["id"]
+    assert response.json()["mbid"] is not None
 
 
 def test_musicbrainz_search_endpoint(client: TestClient, mb: MockMusicBrainz) -> None:
@@ -318,3 +331,20 @@ def test_musicbrainz_search_endpoint(client: TestClient, mb: MockMusicBrainz) ->
     # Plain text: query syntax is escaped.
     client.get("/musicbrainz/search", params={"type": "artist", "q": "AC/DC"})
     assert mb.requests[-1].url.params["query"] == r"AC\/DC"
+
+
+def test_import_release_attaches_confident_artist_matches(session: Session) -> None:
+    """A library artist without MBID that clearly is the release's artist gains the MBID;
+    an ambiguous name (two candidates) gets a new artist; given artists are used."""
+    floating = Artist(name="Floating Points", sort_name="Floating Points")
+    pharoahs = [Artist(name="Pharoah Sanders", sort_name="Sanders, Pharoah") for _ in range(2)]
+    lso = Artist(name="London Symphony Orchestra", sort_name="London Symphony Orchestra")
+    session.add_all([floating, *pharoahs, lso])
+    session.flush()
+    release = promises()
+    lso_mbid = release.artist_credit[2].artist.id
+    import_release(session, release, artists={lso_mbid: None})
+    assert floating.mbid == release.artist_credit[0].artist.id
+    assert [p.mbid for p in pharoahs] == [None, None]
+    assert lso.mbid is None  # "a new artist" was asked for
+    assert count(session, Artist) == 6
