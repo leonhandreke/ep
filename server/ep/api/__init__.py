@@ -4,6 +4,7 @@ from ep.api import (
     artists,
     covers,
     health,
+    imports,
     musicbrainz,
     recordings,
     release_groups,
@@ -22,3 +23,4 @@ router.include_router(sources.router)
 router.include_router(covers.router)
 router.include_router(search.router)
 router.include_router(musicbrainz.router)
+router.include_router(imports.router)

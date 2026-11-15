@@ -22,7 +22,16 @@ from pydantic import (
     computed_field,
 )
 
-from ep.models import ArtistType, EntityType, ReleaseGroupType, SourceKind
+from ep.importers.proposal import Choice, LogEntry, Proposal
+from ep.models import (
+    ArtistType,
+    EntityType,
+    ImportKind,
+    JobStage,
+    JobState,
+    ReleaseGroupType,
+    SourceKind,
+)
 
 NonEmptyStr = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
@@ -358,3 +367,63 @@ class MusicBrainzHitRead(BaseModel):
 
 class MusicBrainzImport(BaseModel):
     release_mbid: uuid.UUID
+
+
+# Imports (the proposal and issue structure is ``ep.importers.proposal``)
+
+
+class ImportCreate(BaseModel):
+    kind: ImportKind
+    # For ``folder``: an absolute directory path under the media roots.
+    input: NonEmptyStr
+
+
+class JobAction(StrEnum):
+    """What the user can do with a job now."""
+
+    # Answer its open issues: ``POST /imports/{id}/review``.
+    review = "review"
+    # Run it again from the start: ``POST /imports/{id}/retry``.
+    retry = "retry"
+    # Remove it from the inbox: ``POST /imports/{id}/dismiss``.
+    dismiss = "dismiss"
+
+
+class ProgressRead(BaseModel):
+    # The stage the job is in (or stopped in); null before it starts.
+    stage: JobStage | None
+    # Items of this stage done, out of ``total`` (null if not known yet).
+    done: int
+    total: int | None
+
+
+class ImportJobSummary(Read):
+    kind: ImportKind
+    input: str
+    state: JobState
+    progress: ProgressRead
+    error: str | None
+    # Issues waiting for an answer.
+    open_issues: int
+    actions: list[JobAction]
+
+
+class ImportJobRead(ImportJobSummary):
+    log: list[LogEntry]
+    # What applying will do (or did), with every issue raised and its answer; null
+    # before the job has run (or if it failed before building one).
+    proposal: Proposal | None
+
+
+class IssueAnswer(BaseModel):
+    # ``Issue.id`` of one of the job's issues.
+    issue_id: NonEmptyStr
+    # One of the issue's ``choices``.
+    choice: Choice
+    # Required for ``pick_candidate``: the ``id`` of one of the issue's candidates.
+    candidate_id: uuid.UUID | None = None
+
+
+class ReviewRequest(BaseModel):
+    answers: Annotated[list[IssueAnswer], Field(min_length=1)]
+

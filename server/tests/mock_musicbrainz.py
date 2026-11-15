@@ -9,6 +9,10 @@ The fixtures are real responses, recorded once (minified):
 - ``url_promises``: the Bandcamp page of "Promises" with its release relations
 - lookups of an artist, release group, recording and ISRC, a barcode search, and
   searches for artists ("bjork"), releases and recordings
+- ``search_release_promises_tracks``: a release search by title, artist and track count
+  (``release:"Promises" AND artist:"Floating Points" AND tracks:"9"``), answering every
+  such search mentioning "promises"; ``search_release_empty`` (no hits) answers the
+  others
 """
 
 import json
@@ -54,7 +58,16 @@ def fixture_name(request: httpx2.Request) -> str | None:
     if path == "/ws/2/url":
         return "url_promises" if params.get("resource") == PROMISES_BANDCAMP else None
     if path == "/ws/2/release":
-        return "barcode_promises" if "barcode:" in params["query"] else "search_release_promises"
+        query = params["query"]
+        if "barcode:" in query:
+            return "barcode_promises"
+        if "tracks:" in query:  # the folder importer's search
+            return (
+                "search_release_promises_tracks"
+                if "promises" in query.lower()
+                else ("search_release_empty")
+            )
+        return "search_release_promises"
     return LOOKUPS.get(path)
 
 

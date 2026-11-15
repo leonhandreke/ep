@@ -196,7 +196,7 @@ def _release_group(
         release_mbid=release.id,
         title=mb_release_group.title,
         artist_credit_id=credit.id,
-        type=_release_group_type(mb_release_group),
+        type=release_group_type(mb_release_group),
         date=mb_release_group.first_release_date or release.date,
         barcode=release.barcode,
     )
@@ -204,7 +204,8 @@ def _release_group(
     return release_group
 
 
-def _release_group_type(release_group: MBReleaseGroup) -> ReleaseGroupType:
+def release_group_type(release_group: MBReleaseGroup) -> ReleaseGroupType:
+    """The EP type of a MusicBrainz release group (Compilation wins over the primary type)."""
     if "Compilation" in release_group.secondary_types:
         return ReleaseGroupType.compilation
     return _PRIMARY_TYPES.get(release_group.primary_type or "", ReleaseGroupType.other)
@@ -233,11 +234,19 @@ def _recording(
             length_ms=mb_recording.length,
         )
         session.add(recording)
-    _add_isrcs(session, recording.id, mb_recording.isrcs)
+    add_isrcs(session, recording.id, mb_recording.isrcs)
     return recording
 
 
-def _add_isrcs(session: Session, recording_id: uuid.UUID, isrcs: Sequence[str]) -> None:
+def import_recording(session: Session, mb_recording: MBRecording) -> Recording:
+    """The library recording for a MusicBrainz recording (fetched with ``get_recording``):
+    the row with its MBID, or a new standalone recording (no track) with its artists and
+    ISRCs. Flushes nothing."""
+    return _recording(session, mb_recording, mb_recording.artist_credit, None)
+
+
+def add_isrcs(session: Session, recording_id: uuid.UUID, isrcs: Sequence[str]) -> None:
+    """Add the ISRCs (normalised) the recording does not have yet."""
     values = {normalize_isrc(isrc) for isrc in isrcs}
     known = set(
         session.exec(

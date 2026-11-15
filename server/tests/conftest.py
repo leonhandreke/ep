@@ -18,10 +18,12 @@ from alembic.config import Config
 from fastapi.testclient import TestClient
 from mutagen.flac import Picture
 from mutagen.oggopus import OggOpus
+from procrastinate.testing import InMemoryConnector
 from sqlalchemy import Engine, create_engine, make_url, text
 from sqlmodel import Session
 
 from ep.db import get_session
+from ep.jobs.queue import defer_app
 from ep.main import app
 from ep.settings import Settings, get_settings
 
@@ -65,6 +67,15 @@ def session(engine: Engine) -> Iterator[Session]:
         transaction.rollback()
 
 
+@pytest.fixture(autouse=True)
+def job_queue() -> Iterator[InMemoryConnector]:
+    """The job queue in memory: jobs deferred in a test are in ``job_queue.jobs``; tests
+    run them with ``ep.importers.framework.run_job`` (see ``tests.imports``)."""
+    connector = InMemoryConnector()
+    with defer_app.replace_connector(connector):
+        yield connector
+
+
 @pytest.fixture
 def library_dir(tmp_path: Path) -> Path:
     """The managed library for a test: an empty temp dir (never ~/Music/ep-Library)."""
@@ -74,7 +85,16 @@ def library_dir(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def client(session: Session, library_dir: Path, audio_dir: Path) -> Iterator[TestClient]:
+def settings(library_dir: Path, audio_dir: Path, tmp_path: Path) -> Settings:
+    """Media roots: the library, the generated audio and ``tmp_path / "music"`` (for
+    folders a test builds), nothing else in the temp dirs."""
+    music = tmp_path / "music"
+    music.mkdir()
+    return Settings(library_dir=library_dir, media_roots=[library_dir, audio_dir, music])
+
+
+@pytest.fixture
+def client(session: Session, settings: Settings) -> Iterator[TestClient]:
     def request_session() -> Iterator[Session]:
         # Like a per-request session: a failed request leaves nothing pending behind.
         try:
@@ -84,8 +104,6 @@ def client(session: Session, library_dir: Path, audio_dir: Path) -> Iterator[Tes
             raise
 
     app.dependency_overrides[get_session] = request_session
-    # Media roots: the library and the generated audio, nothing else in the temp dirs.
-    settings = Settings(library_dir=library_dir, media_roots=[library_dir, audio_dir])
     app.dependency_overrides[get_settings] = lambda: settings
     with TestClient(app) as client:
         yield client
