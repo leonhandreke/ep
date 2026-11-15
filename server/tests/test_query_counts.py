@@ -175,6 +175,9 @@ NOTE_CASES: list[tuple[str, Callable[[dict[str, str]], str], int]] = [
     ("tag_entities", lambda ids: f"/tags/{ids['tag']}/entities", 6),
     # entity; tags with counts
     ("entity_tags", lambda ids: f"/entity-tags/artist/{ids['target']}", 2),
+    # entity; note (none: no links); tags; backlinks (as above, less the entity);
+    # radio appearances
+    ("entity_details", lambda ids: f"/entity-details/artist/{ids['target']}", 11),
 ]
 
 

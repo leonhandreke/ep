@@ -2,11 +2,12 @@
 concurrency, backlinks with snippets, full-text search."""
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from fastapi.testclient import TestClient
+from sqlalchemy import event, text
 from sqlmodel import Session, select
 
 from ep.models import EntityTag, Note, NoteLink, RadioEpisode, RadioShow, RadioStation
@@ -319,6 +320,15 @@ def test_note_search(client: TestClient, session: Session) -> None:
     assert [h["source"]["id"] for h in search("piano -tune")] == [str(show.id)]
     assert [h["source"]["id"] for h in search("piano", types="radio_show")] == [str(show.id)]
     assert search("nothing-like-this") == []
+    # Links in code stay as written (not their display text), like the link parser.
+    song = make_recording(client, nina)
+    code = f"[[artist:{bjork['id']}|Sugarcubes]]"
+    write(client, "recording", song["id"], f"Syntax: `{code}`\n\n```\n{code}\n```")
+    [hit] = search("syntax")
+    assert hit["snippet"]["text"].startswith(f"Syntax: `{code}`  ``` [[artist:")
+    # Query syntax is never SQL.
+    assert search("'; drop table note; --") == []
+    assert search('" or : & | ! ( ) <-> *') == []
 
 
 def test_deleting_entities_deletes_their_notes_and_tags_and_breaks_links(
@@ -347,3 +357,138 @@ def test_deleting_entities_deletes_their_notes_and_tags_and_breaks_links(
     assert note["body"] == body
     assert [link["target"] for link in note["links"]] == [None, None, None]
     assert all(link.target_id is None for link in session.exec(select(NoteLink)))
+
+
+def test_ranges_with_astral_characters_before_and_inside_links(client: TestClient) -> None:
+    """Every range is in UTF-16 code units: an emoji counts 2, before a link and inside
+    an earlier link's display text alike."""
+    nina = make_artist(client)
+    other = make_artist(client, "Other")
+    body = (
+        f"🎷🎺 [[artist:{nina['id']}|Nina 🎹 Simone]] — 👩🏽‍🎤 "
+        f"[[artist:{nina['id']}]]\r\nnext 🎻 [[artist:{nina['id']}|x]]"
+    )
+    note = write(client, "artist", other["id"], body)
+    encoded = body.encode("utf-16-le")
+    for link in note["links"]:
+        start, end = link["range"]["start"], link["range"]["end"]
+        assert encoded[2 * start : 2 * end].decode("utf-16-le") == link["raw"]
+    assert len(note["links"]) == 3
+    first = note["links"][0]
+    assert first["range"]["start"] == 5
+    assert first["display_text"] == "Nina 🎹 Simone"
+    [backlink] = client.get(f"/backlinks/artist/{nina['id']}").json()
+    texts = []
+    for snippet in backlink["snippets"]:
+        [highlight] = snippet["highlights"]
+        utf16 = snippet["text"].encode("utf-16-le")
+        texts.append(utf16[2 * highlight["start"] : 2 * highlight["end"]].decode("utf-16-le"))
+        # Lines end at \r\n: no stray carriage return.
+        assert "\r" not in snippet["text"]
+    assert texts == ["Nina 🎹 Simone", "Nina Simone", "x"]
+
+
+def test_first_save_may_omit_base_and_nul_is_a_422(client: TestClient) -> None:
+    """A generated client drops nil fields: ``base_updated_at`` may be omitted. A text
+    Postgres cannot store is a validation error, not a server error."""
+    nina = make_artist(client)
+    path = f"/notes/artist/{nina['id']}"
+    response = client.put(path, json={"body": "first"})
+    assert response.status_code == 200, response.text
+    assert client.put(path, json={"body": "again"}).status_code == 409
+    base = response.json()["updated_at"]
+    response = client.put(path, json={"body": "a\u0000b", "base_updated_at": base})
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["type"] == "invalid_value"
+    assert get_note(client, "artist", nina["id"])["body"] == "first"
+
+
+def test_entity_details_bundle_the_panel(client: TestClient, session: Session) -> None:
+    """One request per selection: the same reads as the single endpoints."""
+    nina = make_artist(client, mbid=MBID)
+    song = make_recording(client, nina)
+    other = make_artist(client, "Other")
+    write(client, "artist", other["id"], f"Loves [[artist:{MBID}|Nina]]")
+    write(client, "artist", nina["id"], f"Sings [[recording:{song['id']}]]")
+    client.post(f"/entity-tags/artist/{nina['id']}", json={"name": "Jazz"})
+
+    details = client.get(f"/entity-details/artist/{MBID}")
+    assert details.status_code == 200, details.text
+    details = details.json()
+    assert details["entity"]["id"] == nina["id"]
+    assert details["entity"]["link_ref"] == MBID
+    assert details["note"] == get_note(client, "artist", nina["id"])
+    assert details["tags"] == client.get(f"/entity-tags/artist/{nina['id']}").json()
+    assert details["backlinks"] == client.get(f"/backlinks/artist/{nina['id']}").json()
+    assert details["radio_appearances"] == []
+    show, _ = radio(session)
+    details = client.get(f"/entity-details/radio_show/{show.id}").json()
+    assert details["note"]["body"] == "" and details["radio_appearances"] == []
+    assert client.get(f"/entity-details/artist/{uuid.uuid4()}").status_code == 404
+
+
+def test_note_search_uses_the_index(client: TestClient, session: Session) -> None:
+    nina = make_artist(client)
+    write(client, "artist", nina["id"], "Björk sang here")
+    statements: list[tuple[str, Any]] = []
+
+    def capture(conn: Any, cursor: Any, statement: str, parameters: Any, *args: Any) -> None:
+        if "websearch_to_tsquery" in statement:
+            statements.append((statement, parameters))
+
+    connection = session.connection()
+    event.listen(connection, "before_cursor_execute", capture)
+    try:
+        [hit] = client.get("/notes/search", params={"q": "bjork"}).json()
+    finally:
+        event.remove(connection, "before_cursor_execute", capture)
+    assert hit["source"]["id"] == nina["id"]
+    [(statement, parameters)] = statements
+    # A tiny table: without these, Postgres scans it anyway.
+    connection.execute(text("SET LOCAL enable_seqscan = off"))
+    connection.execute(text("SET LOCAL enable_indexscan = off"))
+    plan = "\n".join(
+        line for (line,) in connection.exec_driver_sql("EXPLAIN " + statement, parameters)
+    )
+    assert "ix_note_search" in plan, plan
+
+
+def test_a_uuid_names_entities_of_each_type_separately(client: TestClient) -> None:
+    """A UUID that is a recording's ID and an artist's MBID: the link's type decides."""
+    nina = make_artist(client)
+    song = make_recording(client, nina)
+    namesake = make_artist(client, "Namesake", mbid=song["id"])
+    note = write(
+        client,
+        "artist",
+        nina["id"],
+        f"[[recording:{song['id']}]] [[artist:{song['id']}]]",
+    )
+    to_song, to_artist = note["links"]
+    assert to_song["target"]["id"] == song["id"]
+    assert to_artist["target"]["id"] == namesake["id"]
+    [backlink] = client.get(f"/backlinks/recording/{song['id']}").json()
+    assert [s["text"] for s in backlink["snippets"]] == ["Sinnerman Namesake"]
+    [backlink] = client.get(f"/backlinks/artist/{namesake['id']}").json()
+    assert len(backlink["snippets"]) == 1
+
+
+def test_base_at_millisecond_precision_is_the_same_version(client: TestClient) -> None:
+    """NSDate keeps milliseconds: ``updated_at`` sent back truncated or rounded to them
+    is no conflict; an older version is."""
+    nina = make_artist(client)
+    path = f"/notes/artist/{nina['id']}"
+    note = put_note(client, "artist", nina["id"], "v0")
+    for n, rounding in enumerate(("down", "up"), start=1):
+        at = datetime.fromisoformat(note["updated_at"])
+        sub = at.microsecond % 1000
+        if rounding == "down":
+            base = at - timedelta(microseconds=sub)
+        else:
+            base = at + timedelta(microseconds=(1000 - sub) % 1000)
+        response = client.put(path, json={"body": f"v{n}", "base_updated_at": base.isoformat()})
+        assert response.status_code == 200, (rounding, at, base)
+        note = response.json()
+    older = datetime.fromisoformat(note["updated_at"]) - timedelta(milliseconds=2)
+    response = client.put(path, json={"body": "stale", "base_updated_at": older.isoformat()})
+    assert response.status_code == 409

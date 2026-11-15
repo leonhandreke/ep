@@ -13,7 +13,8 @@ def test_operation_ids_are_endpoint_names(client: TestClient) -> None:
         "stream_source",
         "set_release_group_cover",
         "search_library",
-        "resolve",
+        "resolve_entity",
+        "get_health",
         "search_musicbrainz",
         "import_musicbrainz_release",
         "create_import_job",
@@ -24,10 +25,11 @@ def test_operation_ids_are_endpoint_names(client: TestClient) -> None:
         "dismiss_import_job",
         "create_watch_dir",
         "scan_watch_dir",
-        "get_note_of",
-        "save_note_of",
+        "get_note",
+        "save_note",
         "search_notes",
         "list_backlinks",
+        "get_entity_details",
         "list_tags",
         "update_tag",
         "list_tag_entities",
@@ -134,3 +136,14 @@ def test_import_schemas_describe_issues_and_choices(client: TestClient) -> None:
     radio = schemas["IncomingRadio"]
     assert set(radio["required"]) == {"show", "episode", "medium_key", "entries"}
     assert "radio" in schemas["Proposal"]["required"]
+
+
+def test_text_ranges_say_utf16_and_note_base_is_optional(client: TestClient) -> None:
+    schemas = client.get("/openapi.json").json()["components"]["schemas"]
+    assert "UTF-16" in schemas["TextRange"]["description"]
+    assert "UTF-16" in schemas["NoteLinkRead"]["properties"]["range"]["description"]
+    assert "UTF-16" in schemas["SnippetRead"]["properties"]["highlights"]["description"]
+    # A generated client leaves out nil fields.
+    assert schemas["NoteWrite"]["required"] == ["body"]
+    details = schemas["EntityDetailsRead"]
+    assert set(details["required"]) == set(details["properties"])

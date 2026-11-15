@@ -6,8 +6,11 @@ Create Date: 2026-11-15
 
 Full-text search over notes: ``ep_note_text(body)`` is the text of a note with each
 link ``[[type:uuid|Display text]]`` as its display text (escapes undone; a link without
-display text drops out), so that UUIDs are not indexed and snippets read as prose. (It
-knows no Markdown: unlike ``ep.notes.links``, it also rewrites links in code.)
+display text drops out), so that UUIDs are not indexed and snippets read as prose.
+Links in code are left as written: code spans in single backticks on one line and
+fenced blocks of three backticks or tildes without that character inside, an
+approximation of ``ep.notes.links`` (CommonMark) that differs only for longer backtick
+runs and fences.
 ``ep_notes`` is the ``simple`` configuration (no stemming: notes mix languages and
 names) with ``unaccent`` for words with non-ASCII letters, so "bjork" finds "Björk"
 and ``ts_headline`` still highlights the original text. (Matching and ``/search`` use
@@ -32,8 +35,9 @@ LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE
 RETURN regexp_replace(
     regexp_replace(
         body,
-        '\[\[[a-z_]+:[0-9A-Fa-f-]{36}(?:\|((?:\\.|[^\\\]\n])*))?\]\]',
-        '\1',
+        '(```[^`]*```|~~~[^~]*~~~|`[^`\n]*`)'
+        '|\[\[[a-z_]+:[0-9A-Fa-f-]{36}(?:\|((?:\\.|[^\\\]\n])*))?\]\]',
+        '\1\2',
         'g'
     ),
     '\\([\\|\[\]])',

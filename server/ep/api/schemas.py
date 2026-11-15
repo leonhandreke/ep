@@ -467,18 +467,25 @@ class ResolvedRead(BaseModel):
 # Notes, links, backlinks, tags
 
 
-class TextRange(BaseModel):
-    """A range of a text in UTF-16 code units (as NSString and NSRange count)."""
+# How every text range in the API counts (field descriptions in the OpenAPI schema).
+UTF16 = "UTF-16 code units, as NSString and NSRange count"
 
-    start: NonNegativeInt
-    end: NonNegativeInt
+
+class TextRange(BaseModel):
+    """A range of a text in UTF-16 code units (as NSString and NSRange count; an emoji
+    outside the Basic Multilingual Plane counts 2), ``end`` exclusive. Every text range
+    in the API is one of these."""
+
+    start: NonNegativeInt = Field(description=f"Offset of the first character, in {UTF16}.")
+    end: NonNegativeInt = Field(description=f"Offset after the last character, in {UTF16}.")
 
 
 class NoteLinkRead(BaseModel):
     """A link in a note body, ``[[type:uuid|Display text]]``."""
 
-    # Where the link is in the body (the whole ``[[...]]``).
-    range: TextRange
+    range: TextRange = Field(
+        description=f"Where the whole ``[[...]]`` is in the note body, in {UTF16}."
+    )
     # The link as written.
     raw: str
     target_type: EntityType
@@ -508,9 +515,10 @@ class NoteRead(BaseModel):
 class NoteWrite(BaseModel):
     # Markdown; empty (or blank) deletes the note.
     body: str
-    # ``updated_at`` of the note this edit started from (null: from an empty note). If
-    # the note changed since, the save is a 409 with the current note.
-    base_updated_at: AwareDatetime | None
+    # ``updated_at`` of the note this edit started from (null or omitted: from an empty
+    # note; millisecond precision is enough). If the note changed since, the save is a
+    # 409 with the current note.
+    base_updated_at: AwareDatetime | None = None
 
 
 class NoteConflictRead(BaseModel):
@@ -525,7 +533,9 @@ class SnippetRead(BaseModel):
     highlight."""
 
     text: str
-    highlights: list[TextRange]
+    highlights: list[TextRange] = Field(
+        description=f"The parts of ``text`` to highlight (offsets into ``text``, in {UTF16})."
+    )
 
 
 class BacklinkRead(BaseModel):
@@ -539,6 +549,8 @@ class BacklinkRead(BaseModel):
 
 
 class NoteSearchHitRead(BaseModel):
+    """A note matching a full-text search."""
+
     # The entity whose note it is.
     source: EntityRead
     note_updated_at: datetime
@@ -572,6 +584,19 @@ class TagAdd(BaseModel):
 class TagUpdate(BaseModel):
     # A name another tag has (ignoring case) merges this tag into that one.
     name: TagName
+
+
+class EntityDetailsRead(BaseModel):
+    """What the detail panel shows for an entity, in one request: the same reads as
+    ``GET /notes``, ``/entity-tags``, ``/backlinks`` and ``/…/radio-appearances``."""
+
+    entity: EntityRead
+    note: NoteRead
+    tags: list[TagRead]
+    backlinks: list[BacklinkRead]
+    # For a recording, the episodes that played it; for an artist, the episodes that
+    # played anything credited to them; empty for other types.
+    radio_appearances: list[RadioAppearanceRead]
 
 
 # MusicBrainz

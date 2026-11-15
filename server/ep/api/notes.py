@@ -9,6 +9,7 @@ is a 409 with the current note.
 import uuid
 from collections import defaultdict
 from collections.abc import Iterable
+from datetime import datetime, timedelta
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Query, status
@@ -34,8 +35,8 @@ from ep.api.schemas import (
 )
 from ep.entities import load_entities, mbid_of, refers_to, resolve_refs, title_of
 from ep.models import NOTE_SEARCH_CONFIG, Base, EntityType, Note, NoteLink, note_document, rel
+from ep.notes import store
 from ep.notes.links import Link, parse_links, utf16_offset
-from ep.notes.store import get_note, links_to, save_note
 
 router = APIRouter(tags=["notes"])
 
@@ -142,22 +143,27 @@ def search_notes(
 
 
 @router.get("/notes/{type}/{id}", responses=NOT_FOUND)
-def get_note_of(type: EntityType, id: uuid.UUID, session: SessionDep) -> NoteRead:
+def get_note(type: EntityType, id: uuid.UUID, session: SessionDep) -> NoteRead:
     """The note of an entity (``id``: its MBID or internal ID; a track's note is its
     recording's). An entity without a note has an empty one. Links come with their
     range in the body and the entity they point at (null: broken), so the editor can
     show them without further requests."""
     entity = get_entity_or_404(session, type, id)
+    return current_note_read(session, type, entity.id)
+
+
+def current_note_read(session: Session, type: EntityType, entity_id: uuid.UUID) -> NoteRead:
+    """The note of an entity as it is now (``get_note``)."""
     note = session.exec(
         select(Note)
-        .where(Note.entity_type == type, Note.entity_id == entity.id)
+        .where(Note.entity_type == type, Note.entity_id == entity_id)
         .options(selectinload(rel(Note.links)))
     ).first()
-    return note_read(session, type, entity.id, note)
+    return note_read(session, type, entity_id, note)
 
 
 @router.put("/notes/{type}/{id}", response_model=NoteRead, responses=NOT_FOUND | NOTE_CONFLICT)
-def save_note_of(
+def save_note(
     type: EntityType, id: uuid.UUID, body: NoteWrite, session: SessionDep
 ) -> NoteRead | JSONResponse:
     """Save the note of an entity; an empty body deletes it. ``base_updated_at`` is the
@@ -165,18 +171,29 @@ def save_note_of(
     differs from the current one), nothing is saved and the answer is a 409 with the
     current note. Links are parsed and resolved again on every save."""
     entity = get_entity_or_404(session, type, id)
-    current = get_note(session, type, entity.id, lock=True)
+    current = store.get_note(session, type, entity.id, lock=True)
     current_body = current.body if current is not None else ""
     current_at = current.updated_at if current is not None else None
-    if current_at != body.base_updated_at and body.body != current_body:
+    if not _same_version(current_at, body.base_updated_at) and body.body != current_body:
         return _conflict(session, type, entity.id, current)
     try:
         with session.begin_nested():
-            note = save_note(session, type, entity.id, body.body)
+            note = store.save_note(session, type, entity.id, body.body)
     except IntegrityError:  # another client created the note meanwhile
-        return _conflict(session, type, entity.id, get_note(session, type, entity.id))
+        return _conflict(session, type, entity.id, store.get_note(session, type, entity.id))
     session.commit()
     return note_read(session, type, entity.id, note)
+
+
+# Clients may send ``updated_at`` back at millisecond precision (NSDate and
+# ISO8601DateFormatter do not keep microseconds): within this, it is the same version.
+VERSION_TOLERANCE = timedelta(milliseconds=1)
+
+
+def _same_version(current: datetime | None, base: datetime | None) -> bool:
+    if current is None or base is None:
+        return current is base
+    return abs(current - base) < VERSION_TOLERANCE
 
 
 def _conflict(
@@ -194,12 +211,16 @@ def list_backlinks(type: EntityType, id: uuid.UUID, session: SessionDep) -> list
     """Notes that link to this entity (exactly this entity: a link to a recording is
     not a backlink of its release group), most recently edited first, each with the
     entity it belongs to and the line around each link."""
-    entity = get_entity_or_404(session, type, id)
+    return backlink_reads(session, type, get_entity_or_404(session, type, id))
+
+
+def backlink_reads(session: Session, type: EntityType, entity: Base) -> list[BacklinkRead]:
+    """The backlinks of an entity (``list_backlinks``)."""
     refs = [entity.id, *filter(None, (mbid_of(entity), getattr(entity, "release_mbid", None)))]
     links = session.exec(
         select(NoteLink)
         .join(rel(NoteLink.note))
-        .where(links_to(type, entity.id, refs))
+        .where(store.links_to(type, entity.id, refs))
         .order_by(col(Note.updated_at).desc(), col(Note.id), col(NoteLink.start))
         .options(contains_eager(rel(NoteLink.note)))
     ).all()
@@ -255,9 +276,8 @@ def _line_snippet(
     one: the target's title from ``titles``; the highlighted link's target is under its
     internal ID too), cut to about ``SNIPPET_CONTEXT`` characters on each side of the
     link."""
-    line_start = body.rfind("\n", 0, link.start) + 1
-    line_end = body.find("\n", link.end)
-    line_end = len(body) if line_end == -1 else line_end
+    line_start = max(body.rfind("\n", 0, link.start), body.rfind("\r", 0, link.start)) + 1
+    line_end = next((i for i in range(link.end, len(body)) if body[i] in "\r\n"), len(body))
     text, position = "", line_start
     highlight = (0, 0)
     for other in parsed:

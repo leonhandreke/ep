@@ -365,6 +365,10 @@ def list_recording_radio_appearances(
 ) -> list[RadioAppearanceRead]:
     """The radio episodes that played this recording, newest first, with the time."""
     get_or_404(session, Recording, id)
+    return recording_appearances(session, id)
+
+
+def recording_appearances(session: Session, id: uuid.UUID) -> list[RadioAppearanceRead]:
     return _appearances(session, col(Recording.id) == id)
 
 
@@ -372,5 +376,9 @@ def list_recording_radio_appearances(
 def list_artist_radio_appearances(id: uuid.UUID, session: SessionDep) -> list[RadioAppearanceRead]:
     """The radio episodes that played recordings credited to this artist, newest first."""
     get_or_404(session, Artist, id)
+    return artist_appearances(session, id)
+
+
+def artist_appearances(session: Session, id: uuid.UUID) -> list[RadioAppearanceRead]:
     credits = select(ArtistCreditName.artist_credit_id).where(ArtistCreditName.artist_id == id)
     return _appearances(session, col(Recording.artist_credit_id).in_(credits))

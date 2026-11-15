@@ -31,6 +31,8 @@ LINK = re.compile(
 )
 _FENCE = re.compile(r"^ {0,3}(?P<fence>`{3,}|~{3,})(?P<info>.*)$")
 _BACKTICKS = re.compile(r"`+")
+# A line and its ending (CommonMark: \n, \r\n or \r; not str.splitlines' others).
+_LINE = re.compile(r"[^\r\n]*(?:\r\n|\r|\n)?")
 _UNESCAPE = re.compile(r"\\([\\|\[\]])")
 _ESCAPE = re.compile(r"([\\|\[\]])")
 
@@ -105,21 +107,24 @@ def _code_ranges(body: str) -> list[tuple[int, int]]:
 
     fence: tuple[str, int, int] | None = None  # character, length, start
     position = 0
-    for line in body.splitlines(keepends=True):
+    for line_match in _LINE.finditer(body):
+        line = line_match[0]
+        if not line:
+            break
         start, position = position, position + len(line)
         text = line.rstrip("\r\n")
         match = _FENCE.match(text)
         if fence is not None:
             char, length, fence_start = fence
             closes = match and match["fence"][0] == char and len(match["fence"]) >= length
-            if closes and not match["info"].strip():
+            if closes and not match["info"].strip(" \t"):
                 ranges.append((fence_start, position))
                 fence = None
             continue
         if match and not (match["fence"][0] == "`" and "`" in match["info"]):
             end_paragraph()
             fence = (match["fence"][0], len(match["fence"]), start)
-        elif not text.strip():
+        elif not text.strip(" \t"):
             end_paragraph()
         else:
             paragraph.append((start, start + len(text)))

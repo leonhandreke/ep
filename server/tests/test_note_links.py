@@ -120,3 +120,12 @@ def test_ranges_are_code_points_and_convert_to_utf16() -> None:
     encoded = body.encode("utf-16-le")
     start, end = utf16_offset(body, second.start), utf16_offset(body, second.end)
     assert encoded[2 * start : 2 * end].decode("utf-16-le") == second.raw
+
+
+def test_line_endings_are_commonmark_ones() -> None:
+    link = f"[[artist:{A}]]"
+    assert parse_links(f"```\r\n{link}\r\n```\r\n") == []
+    assert parse_links(f"```\r{link}\r```") == []
+    # U+2028 is no line break in Markdown: no fence here.
+    [found] = parse_links(f"text\u2028```\n{link}\n```")
+    assert found.start == 9

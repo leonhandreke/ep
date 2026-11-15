@@ -45,7 +45,7 @@ def search_library(
 
 
 @router.get("/resolve/{type}/{uuid}", responses=NOT_FOUND)
-def resolve(type: EntityType, uuid: UUID, session: SessionDep) -> ResolvedRead:
+def resolve_entity(type: EntityType, uuid: UUID, session: SessionDep) -> ResolvedRead:
     """Find an entity by MBID or internal ID (as used in note links).
 
     A release group is also found by the MBID of its release. Radio shows and episodes

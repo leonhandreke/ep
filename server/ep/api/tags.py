@@ -113,10 +113,13 @@ def list_entity_tags(type: EntityType, id: uuid.UUID, session: SessionDep) -> li
     """The tags of an entity (``id``: its MBID or internal ID), by name, with how many
     entities have each."""
     entity = get_entity_or_404(session, type, id)
-    return _entity_tags(session, type, entity.id)
+    return entity_tag_reads(session, type, entity.id)
 
 
-def _entity_tags(session: Session, entity_type: EntityType, entity_id: uuid.UUID) -> list[TagRead]:
+def entity_tag_reads(
+    session: Session, entity_type: EntityType, entity_id: uuid.UUID
+) -> list[TagRead]:
+    """The tags of an entity, by name, with their usage counts (one query)."""
     tagged = select(EntityTag.tag_id).where(
         EntityTag.entity_type == entity_type, EntityTag.entity_id == entity_id
     )
@@ -132,7 +135,7 @@ def add_entity_tag(
     entity = get_entity_or_404(session, type, id)
     tag_entity(session, type, entity.id, body.name)
     session.commit()
-    return _entity_tags(session, type, entity.id)
+    return entity_tag_reads(session, type, entity.id)
 
 
 @router.delete(

@@ -8,7 +8,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from psycopg.errors import IntegrityError as PsycopgIntegrityError
 from pydantic import BaseModel
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DataError, IntegrityError
 
 
 class ErrorRead(BaseModel):
@@ -41,6 +41,15 @@ def integrity_error_handler(request: Request, exc: Exception) -> JSONResponse:
         {"detail": f"conflicts with existing data ({constraint})"},
         status_code=status.HTTP_409_CONFLICT,
     )
+
+
+def data_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    """A value the database cannot store (a NUL character in a text, a number out of
+    range) is a 422 in the shape of FastAPI's validation errors, not a 500."""
+    assert isinstance(exc, DataError)
+    message = str(exc.orig).splitlines()[0] if exc.orig is not None else "invalid value"
+    error = {"type": "invalid_value", "loc": ["body"], "msg": message, "input": None}
+    return JSONResponse({"detail": [error]}, status_code=status.HTTP_422_UNPROCESSABLE_CONTENT)
 
 
 def unprocessable(

@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from ep.api import (
     artists,
     covers,
+    details,
     health,
     imports,
     musicbrainz,
@@ -29,6 +30,7 @@ router.include_router(radio.appearances_router)
 router.include_router(covers.router)
 router.include_router(search.router)
 router.include_router(notes.router)
+router.include_router(details.router)
 router.include_router(tags.router)
 router.include_router(musicbrainz.router)
 router.include_router(imports.router)

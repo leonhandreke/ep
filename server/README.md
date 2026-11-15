@@ -70,6 +70,13 @@ uv run alembic revision --autogenerate -m "add catalogue"
 - Constraint violations (`IntegrityError` on flush or commit) become `409` through an app
   exception handler (`ep.api.errors`); endpoints just call `session.commit()`. Document
   expected errors per route with `responses=NOT_FOUND | CONFLICT` (body `ErrorRead`).
+  A value the database cannot store (`DataError`: a NUL character, a number out of
+  range) is a `422` in the `HTTPValidationError` shape, never a 500.
+- Request bodies have no required nullable fields: a generated Swift client leaves out
+  `nil` fields, so a field that may be null has a default (`NoteWrite.base_updated_at`).
+  (The exception is clearing a field with `PATCH`, which needs an explicit `null`.)
+- Text ranges in responses (`TextRange`: note links, snippet highlights) are in UTF-16
+  code units, `end` exclusive, as NSString/NSRange count; the schema says so.
 - A body that references a missing row is a `422` in FastAPI's `HTTPValidationError`
   shape (`ep.api.deps.get_or_422`), never a bare string detail.
 - Artist credits are shared and never edited in place; use `ep.credits`
@@ -80,7 +87,7 @@ uv run alembic revision --autogenerate -m "add catalogue"
   Deleting as a side effect (radio clean-up) must spare annotated entities
   (`ep.notes.store.annotated`).
 - Entities named in a path by "MBID or ID" (`/notes`, `/backlinks`, `/entity-tags`,
-  `/resolve`) go through `ep.entities.resolve_ref`; mixed-type lists render entities
+  `/entity-details`, `/resolve`) go through `ep.entities.resolve_ref`; mixed-type lists render entities
   with `ep.api.entities.entity_reads` (`EntityRead`: title, subtitle, cover, link).
 
 ## Sources, playback, covers
@@ -348,16 +355,26 @@ uv run alembic revision --autogenerate -m "add catalogue"
 - `GET /notes/{type}/{id}` (MBID or ID; no note reads as an empty one, 404 only for a
   missing entity): body, `updated_at`, links with their range in **UTF-16 code units**
   (NSRange) and the target as `EntityRead` (title, subtitle, cover URL, MBID). `PUT`
-  saves (blank deletes) with `base_updated_at`, the `updated_at` the edit started from:
-  if the note changed since and the body differs, 409 `NoteConflictRead` with the
-  current note (the row is locked; a concurrent first save is a 409 too).
+  saves (blank deletes) with `base_updated_at`, the `updated_at` the edit started from
+  (omitted or null: from an empty note): if the note changed since and the body
+  differs, 409 `NoteConflictRead` with the current note (the row is locked; of two
+  concurrent first saves one wins, the other is a 409: `tests/test_note_concurrency.py`).
 - `GET /backlinks/{type}/{id}`: notes linking to exactly this entity, newest edit first,
   each with its entity and the line around each link (links shown as display text or
   title, long lines cut, highlight range).
 - `GET /notes/search?q=`: Postgres full-text search, `websearch_to_tsquery` on an
   expression GIN index over `to_tsvector('ep_notes', ep_note_text(body))` (migration
-  0010): `ep_note_text` shows links as their display text, `ep_notes` is `simple` (no
-  stemming) with `unaccent`; snippets from `ts_headline` with highlight ranges.
+  0010): `ep_note_text` shows links as their display text (links in code left as
+  written: one-line single-backtick spans and fences without the fence character inside,
+  an approximation of the parser's CommonMark rules), `ep_notes` is `simple` (no
+  stemming) with `unaccent` (which migration 0004 had dropped for matching; 0010 brings
+  it back for this dictionary only); snippets from `ts_headline` with highlight ranges.
+  The query goes to `websearch_to_tsquery` as a bound parameter: any text is a valid
+  query.
+- `GET /entity-details/{type}/{id}` is the detail panel in one request (`ep.api.details`):
+  the entity (`EntityRead`), its note, tags, backlinks and (recordings, artists) radio
+  appearances, the same reads as the single endpoints, which stay for refreshing one
+  part after an edit (`PUT /notes` answers with the note, tag changes with the tags).
 - Tags (`ep.notes.tags`, `ep.api.tags`): `GET /tags` (counts, `prefix`),
   `GET/PATCH/DELETE /tags/{id}` (renaming onto an existing name merges),
   `GET /tags/{id}/entities` (by type, newest first), `GET/POST /entity-tags/{type}/{id}`

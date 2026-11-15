@@ -17,7 +17,7 @@ class Health(BaseModel):
 
 
 @router.get("/health")
-def health(session: Annotated[Session, Depends(get_session)]) -> Health:
+def get_health(session: Annotated[Session, Depends(get_session)]) -> Health:
     try:
         session.connection().execute(text("SELECT 1"))
     except SQLAlchemyError as exc:
