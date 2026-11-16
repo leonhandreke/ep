@@ -23,8 +23,6 @@ nonisolated final class HTTPRangeSource: @unchecked Sendable {
     let url: URL
     /// The whole file's length in bytes.
     let size: Int64
-    /// The first bytes of the file (what `open` fetched), for recognising the format.
-    let head: Data
 
     private let session: URLSession
     private let lock = NSLock()
@@ -39,7 +37,6 @@ nonisolated final class HTTPRangeSource: @unchecked Sendable {
     private init(url: URL, size: Int64, head: Data, session: URLSession) {
         self.url = url
         self.size = size
-        self.head = head
         self.session = session
         if !head.isEmpty { store(head, from: 0) }
     }
@@ -172,18 +169,20 @@ private nonisolated final class ResultBox: @unchecked Sendable {
     var result: Result<Data, any Error>?
 }
 
-/// The containers the app recognises by their first bytes.
+/// The containers the app tells apart, from the file's media type (`PlaybackRead.mediaType`,
+/// the stream's `Content-Type`): Ogg and Matroska/WebM go to `DecodingEngine`, everything
+/// else to AVPlayer.
 nonisolated enum AudioContainer: Equatable {
     case ogg, matroska, other
 
-    init(head: Data) {
-        let bytes = [UInt8](head.prefix(4))
-        if bytes == Array("OggS".utf8) {
-            self = .ogg
-        } else if bytes == [0x1A, 0x45, 0xDF, 0xA3] {
-            self = .matroska
-        } else {
-            self = .other
+    init(mediaType: String) {
+        let essence = mediaType.split(separator: ";").first.map {
+            $0.trimmingCharacters(in: .whitespaces).lowercased()
+        }
+        switch essence {
+        case "audio/ogg", "application/ogg": self = .ogg
+        case "audio/webm", "video/webm", "audio/x-matroska", "video/x-matroska": self = .matroska
+        default: self = .other
         }
     }
 }

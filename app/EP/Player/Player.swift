@@ -145,7 +145,7 @@ final class Player {
         let start = Double(positionMS) / 1000
         loadTask = Task {
             do {
-                try await engine.load(url, at: start)
+                try await engine.load(url, mediaType: item.mediaType, at: start)
                 guard !Task.isCancelled, current?.id == item.id else { return }
                 isLoading = false
                 resume()

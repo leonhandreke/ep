@@ -98,7 +98,7 @@ struct AudioDecodingTests {
         RangeFileServer.serve(data, at: "/\(name)")
         let source = try await HTTPRangeSource.open(
             URL(string: "http://files.test/\(name)")!, session: RangeFileServer.session)
-        let container = AudioContainer(head: source.head)
+        let container = AudioContainer(mediaType: name.hasSuffix(".ogg") ? "audio/ogg" : "audio/webm")
         let decoder: any PCMDecoder =
             container == .matroska ? try WebMOpusDecoder(source: source) : try AudioFileDecoder(source: source)
         return (decoder, source)
@@ -108,8 +108,7 @@ struct AudioDecodingTests {
     func decodesAndSeeksOverHTTPRange(_ name: String) async throws {
         let arguments = AudioFixtures.formats.first { $0.name == name }!.arguments
         let data = try AudioFixtures.make(name, arguments)
-        let (decoder, source) = try await decoder(for: data, name: name)
-        #expect(AudioContainer(head: source.head) == (name.hasSuffix(".ogg") ? .ogg : .matroska))
+        let (decoder, _) = try await decoder(for: data, name: name)
         #expect(decoder.format.channelCount == 2)
         let buffer = try #require(AVAudioPCMBuffer(pcmFormat: decoder.format, frameCapacity: 4800))
 
@@ -155,11 +154,14 @@ struct AudioDecodingTests {
         }
     }
 
-    @Test func recognisesContainersByTheirFirstBytes() {
-        #expect(AudioContainer(head: Data("OggS\0\u{2}".utf8)) == .ogg)
-        #expect(AudioContainer(head: Data([0x1A, 0x45, 0xDF, 0xA3, 0x01])) == .matroska)
-        #expect(AudioContainer(head: Data("fLaC".utf8)) == .other)
-        #expect(AudioContainer(head: Data("ID3\u{3}".utf8)) == .other)
+    @Test func choosesTheContainerFromTheMediaType() {
+        #expect(AudioContainer(mediaType: "audio/ogg") == .ogg)
+        #expect(AudioContainer(mediaType: "Audio/Ogg; codecs=opus") == .ogg)
+        #expect(AudioContainer(mediaType: "audio/webm") == .matroska)
+        #expect(AudioContainer(mediaType: "audio/x-matroska") == .matroska)
+        #expect(AudioContainer(mediaType: "audio/flac") == .other)
+        #expect(AudioContainer(mediaType: "audio/mpeg") == .other)
+        #expect(AudioContainer(mediaType: "application/octet-stream") == .other)
         #expect(HTTPRangeSource.totalLength("bytes 0-65535/1234567") == 1_234_567)
     }
 }
@@ -179,7 +181,7 @@ struct DecodingEngineTests {
         var ended = false
         engine.onEnd = { ended = true }
 
-        try await engine.load(source, container: AudioContainer(head: source.head), at: 2)
+        try await engine.load(source, container: name.hasSuffix(".ogg") ? .ogg : .matroska, at: 2)
         engine.play()
         try await Task.sleep(for: .milliseconds(600))
         #expect(engine.currentTime > 2.3 && engine.currentTime < 3.2)

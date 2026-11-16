@@ -574,7 +574,8 @@ public protocol APIProtocol: Sendable {
     /// Update Source
     ///
     /// Change a source; a file's new ``uri`` (to locate a moved file) may be a host path
-    /// (``EP_HOST_PATHS``).
+    /// (``EP_HOST_PATHS``). A file found at its new ``uri`` is read again (media type,
+    /// codec, ...: it may have been re-encoded).
     ///
     /// - Remark: HTTP `PATCH /sources/{id}`.
     /// - Remark: Generated from `#/paths//sources/{id}/patch(update_source)`.
@@ -1863,7 +1864,8 @@ extension APIProtocol {
     /// Update Source
     ///
     /// Change a source; a file's new ``uri`` (to locate a moved file) may be a host path
-    /// (``EP_HOST_PATHS``).
+    /// (``EP_HOST_PATHS``). A file found at its new ``uri`` is read again (media type,
+    /// codec, ...: it may have been re-encoded).
     ///
     /// - Remark: HTTP `PATCH /sources/{id}`.
     /// - Remark: Generated from `#/paths//sources/{id}/patch(update_source)`.

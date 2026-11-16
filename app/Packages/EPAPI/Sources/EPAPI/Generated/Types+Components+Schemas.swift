@@ -851,6 +851,8 @@ extension Components {
             public var exists: Swift.Bool
             /// - Remark: Generated from `#/components/schemas/FileRead/host_path`.
             public var hostPath: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/FileRead/media_type`.
+            public var mediaType: Swift.String
             /// - Remark: Generated from `#/components/schemas/FileRead/path`.
             public var path: Swift.String
             /// - Remark: Generated from `#/components/schemas/FileRead/sample_rate`.
@@ -866,6 +868,7 @@ extension Components {
             ///   - durationMs:
             ///   - exists:
             ///   - hostPath:
+            ///   - mediaType:
             ///   - path:
             ///   - sampleRate:
             ///   - sourceId:
@@ -876,6 +879,7 @@ extension Components {
                 durationMs: Swift.Int? = nil,
                 exists: Swift.Bool,
                 hostPath: Swift.String? = nil,
+                mediaType: Swift.String,
                 path: Swift.String,
                 sampleRate: Swift.Int? = nil,
                 sourceId: Swift.String
@@ -886,6 +890,7 @@ extension Components {
                 self.durationMs = durationMs
                 self.exists = exists
                 self.hostPath = hostPath
+                self.mediaType = mediaType
                 self.path = path
                 self.sampleRate = sampleRate
                 self.sourceId = sourceId
@@ -897,6 +902,7 @@ extension Components {
                 case durationMs = "duration_ms"
                 case exists
                 case hostPath = "host_path"
+                case mediaType = "media_type"
                 case path
                 case sampleRate = "sample_rate"
                 case sourceId = "source_id"
@@ -1538,6 +1544,8 @@ extension Components {
             public var key: Swift.String
             /// - Remark: Generated from `#/components/schemas/IncomingMedium/managed`.
             public var managed: Swift.Bool
+            /// - Remark: Generated from `#/components/schemas/IncomingMedium/media_type`.
+            public var mediaType: Swift.String?
             /// - Remark: Generated from `#/components/schemas/IncomingMedium/origin`.
             public var origin: Components.Schemas.Origin?
             /// - Remark: Generated from `#/components/schemas/IncomingMedium/path`.
@@ -1559,6 +1567,7 @@ extension Components {
             ///   - durationMs:
             ///   - key:
             ///   - managed:
+            ///   - mediaType:
             ///   - origin:
             ///   - path:
             ///   - sampleRate:
@@ -1573,6 +1582,7 @@ extension Components {
                 durationMs: Swift.Int? = nil,
                 key: Swift.String,
                 managed: Swift.Bool,
+                mediaType: Swift.String? = nil,
                 origin: Components.Schemas.Origin? = nil,
                 path: Swift.String? = nil,
                 sampleRate: Swift.Int? = nil,
@@ -1587,6 +1597,7 @@ extension Components {
                 self.durationMs = durationMs
                 self.key = key
                 self.managed = managed
+                self.mediaType = mediaType
                 self.origin = origin
                 self.path = path
                 self.sampleRate = sampleRate
@@ -1602,6 +1613,7 @@ extension Components {
                 case durationMs = "duration_ms"
                 case key
                 case managed
+                case mediaType = "media_type"
                 case origin
                 case path
                 case sampleRate = "sample_rate"
@@ -2917,12 +2929,16 @@ extension Components {
         ///
         /// - Remark: Generated from `#/components/schemas/PlaybackRead`.
         public struct PlaybackRead: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PlaybackRead/codec`.
+            public var codec: Swift.String?
             /// - Remark: Generated from `#/components/schemas/PlaybackRead/end_ms`.
             public var endMs: Swift.Int?
             /// - Remark: Generated from `#/components/schemas/PlaybackRead/file_duration_ms`.
             public var fileDurationMs: Swift.Int?
             /// - Remark: Generated from `#/components/schemas/PlaybackRead/file_source_id`.
             public var fileSourceId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PlaybackRead/media_type`.
+            public var mediaType: Swift.String
             /// - Remark: Generated from `#/components/schemas/PlaybackRead/source_id`.
             public var sourceId: Swift.String
             /// - Remark: Generated from `#/components/schemas/PlaybackRead/start_ms`.
@@ -2930,28 +2946,36 @@ extension Components {
             /// Creates a new `PlaybackRead`.
             ///
             /// - Parameters:
+            ///   - codec:
             ///   - endMs:
             ///   - fileDurationMs:
             ///   - fileSourceId:
+            ///   - mediaType:
             ///   - sourceId:
             ///   - startMs:
             public init(
+                codec: Swift.String? = nil,
                 endMs: Swift.Int? = nil,
                 fileDurationMs: Swift.Int? = nil,
                 fileSourceId: Swift.String,
+                mediaType: Swift.String,
                 sourceId: Swift.String,
                 startMs: Swift.Int
             ) {
+                self.codec = codec
                 self.endMs = endMs
                 self.fileDurationMs = fileDurationMs
                 self.fileSourceId = fileSourceId
+                self.mediaType = mediaType
                 self.sourceId = sourceId
                 self.startMs = startMs
             }
             public enum CodingKeys: String, CodingKey {
+                case codec
                 case endMs = "end_ms"
                 case fileDurationMs = "file_duration_ms"
                 case fileSourceId = "file_source_id"
+                case mediaType = "media_type"
                 case sourceId = "source_id"
                 case startMs = "start_ms"
             }
@@ -4873,6 +4897,8 @@ extension Components {
             public var kind: Components.Schemas.SourceKind
             /// - Remark: Generated from `#/components/schemas/SourceRead/managed`.
             public var managed: Swift.Bool
+            /// - Remark: Generated from `#/components/schemas/SourceRead/media_type`.
+            public var mediaType: Swift.String?
             /// - Remark: Generated from `#/components/schemas/SourceRead/parent_id`.
             public var parentId: Swift.String?
             /// - Remark: Generated from `#/components/schemas/SourceRead/playback`.
@@ -4905,6 +4931,7 @@ extension Components {
             ///   - id:
             ///   - kind:
             ///   - managed:
+            ///   - mediaType:
             ///   - parentId:
             ///   - playback:
             ///   - recordingId:
@@ -4926,6 +4953,7 @@ extension Components {
                 id: Swift.String,
                 kind: Components.Schemas.SourceKind,
                 managed: Swift.Bool,
+                mediaType: Swift.String? = nil,
                 parentId: Swift.String? = nil,
                 playback: Components.Schemas.PlaybackRead? = nil,
                 recordingId: Swift.String? = nil,
@@ -4947,6 +4975,7 @@ extension Components {
                 self.id = id
                 self.kind = kind
                 self.managed = managed
+                self.mediaType = mediaType
                 self.parentId = parentId
                 self.playback = playback
                 self.recordingId = recordingId
@@ -4969,6 +4998,7 @@ extension Components {
                 case id
                 case kind
                 case managed
+                case mediaType = "media_type"
                 case parentId = "parent_id"
                 case playback
                 case recordingId = "recording_id"

@@ -18,6 +18,8 @@ struct PlayItem: Identifiable, Equatable {
     /// What the title and "Show playing" navigate to when no entry says otherwise.
     var target: LibraryEntity?
     var fileSourceID: String
+    /// The file's media type (`audio/ogg`, …): which engine plays it.
+    var mediaType: String
     /// The scrubber's scale (`file_duration_ms`), else the recording's length.
     var durationMS: Int?
     /// The span that plays: `startMS` to `endMS` (nil: the end of the file).
@@ -155,6 +157,7 @@ extension PlayItem {
         self.init(
             kind: kind, title: row.title, subtitle: Self.subtitle(artist: row.artistName, album: album?.title),
             coverPath: album?.coverUrl, target: row.libraryEntity, fileSourceID: playback.fileSourceId,
+            mediaType: playback.mediaType,
             durationMS: playback.fileDurationMs ?? row.lengthMS, startMS: playback.startMs, endMS: playback.endMs,
             playFromMS: playback.startMs, entries: entries)
     }
@@ -169,7 +172,7 @@ extension PlayItem {
         return PlayItem(
             kind: .singleFile(album: album?.title ?? row.title, trackCount: album?.trackCount ?? trackCount),
             title: album?.title ?? row.title, subtitle: row.artistName, coverPath: album?.coverUrl,
-            target: row.libraryEntity, fileSourceID: playback.fileSourceId,
+            target: row.libraryEntity, fileSourceID: playback.fileSourceId, mediaType: playback.mediaType,
             durationMS: playback.fileDurationMs, startMS: entries.first?.startMS ?? playback.startMs,
             endMS: last?.endMs, playFromMS: playback.startMs, entries: entries)
     }
@@ -182,6 +185,7 @@ extension PlayItem {
         self.init(
             kind: .episode(Self.episodeInfo(episode)), title: episode.name, subtitle: episode.show.name,
             coverPath: episode.imageUrl, target: nil, fileSourceID: playback.fileSourceId,
+            mediaType: playback.mediaType,
             durationMS: episode.durationMs ?? playback.fileDurationMs, startMS: playback.startMs,
             endMS: playback.endMs, playFromMS: start, entries: entries)
     }

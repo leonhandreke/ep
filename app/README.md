@@ -135,7 +135,8 @@ names).
   An item is a span of one file streamed from `GET /sources/{id}/stream`; a
   single-file album or an episode is one item whose entries (tracks, tracklist) give
   the marks, the title and previous/next. `AudioOutput` picks the engine from the
-  file's first bytes: AVPlayer for what AVFoundation plays, `DecodingEngine` for Ogg
+  file's `PlaybackRead.mediaType` (the stream's `Content-Type`), before fetching
+  anything: AVPlayer for what AVFoundation plays, `DecodingEngine` for Ogg
   (Opus, Vorbis; AudioToolbox reads Ogg since macOS 15) and WebM/Opus. No third-party
   audio code. Unit tests generate Ogg/WebM fixtures with `ffmpeg` (skipped without it).
 - **Tests**: Swift Testing; happy path and the most important failures only.

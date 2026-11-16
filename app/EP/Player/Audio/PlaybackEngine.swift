@@ -4,8 +4,8 @@ import Foundation
 /// What the player needs from an audio engine: play one file from a time, report the
 /// time, and say when the file ended. Times are seconds in the file.
 protocol PlaybackEngine: AnyObject {
-    /// Prepares `url`, paused at `seconds`.
-    func load(_ url: URL, at seconds: Double) async throws
+    /// Prepares `url`, a file of `mediaType`, paused at `seconds`.
+    func load(_ url: URL, mediaType: String, at seconds: Double) async throws
     func play()
     func pause()
     func seek(to seconds: Double)
@@ -21,7 +21,7 @@ protocol PlaybackEngine: AnyObject {
 
 /// The app's engine: AVPlayer for what AVFoundation plays (MP3, AAC/ALAC, FLAC, WAV,
 /// AIFF), `DecodingEngine` for Ogg (Opus, Vorbis) and WebM (Opus), which AVPlayer cannot
-/// decode. The file's first bytes decide; one small Range request finds them.
+/// decode. The file's media type (from the playback info) decides.
 final class AudioOutput: PlaybackEngine {
     private let avPlayer = AVPlayerEngine()
     private let decoding = DecodingEngine()
@@ -51,17 +51,14 @@ final class AudioOutput: PlaybackEngine {
         }
     }
 
-    func load(_ url: URL, at seconds: Double) async throws {
+    func load(_ url: URL, mediaType: String, at seconds: Double) async throws {
         current?.stop()
-        current = nil
-        let source = try await HTTPRangeSource.open(url, session: session)
-        let container = AudioContainer(head: source.head)
-        let engine: any PlaybackEngine = container == .other ? avPlayer : decoding
-        current = engine
+        let container = AudioContainer(mediaType: mediaType)
+        current = container == .other ? avPlayer : decoding
         if container == .other {
-            source.cancel()
-            try await avPlayer.load(url, at: seconds)
+            try await avPlayer.load(url, mediaType: mediaType, at: seconds)
         } else {
+            let source = try await HTTPRangeSource.open(url, session: session)
             try await decoding.load(source, container: container, at: seconds)
         }
     }
@@ -91,7 +88,7 @@ final class AVPlayerEngine: PlaybackEngine {
         set { player.volume = newValue }
     }
 
-    func load(_ url: URL, at seconds: Double) async throws {
+    func load(_ url: URL, mediaType: String, at seconds: Double) async throws {
         stop()
         let asset = AVURLAsset(url: url)
         guard try await asset.load(.isPlayable) else { throw DecoderError("This file’s format cannot be played") }
@@ -159,9 +156,9 @@ final class DecodingEngine: PlaybackEngine {
         }
     }
 
-    func load(_ url: URL, at seconds: Double) async throws {
+    func load(_ url: URL, mediaType: String, at seconds: Double) async throws {
         let source = try await HTTPRangeSource.open(url)
-        try await load(source, container: AudioContainer(head: source.head), at: seconds)
+        try await load(source, container: AudioContainer(mediaType: mediaType), at: seconds)
     }
 
     func load(_ source: HTTPRangeSource, container: AudioContainer, at seconds: Double) async throws {

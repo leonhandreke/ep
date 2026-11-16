@@ -7,7 +7,7 @@ import Testing
 /// An engine that plays nothing: records loads and seeks; the test sets its time and
 /// ends files.
 final class StubEngine: PlaybackEngine {
-    var loads: [(url: URL, seconds: Double)] = []
+    var loads: [(url: URL, mediaType: String, seconds: Double)] = []
     var seeks: [Double] = []
     var playing = false
     var currentTime: Double = 0
@@ -16,8 +16,8 @@ final class StubEngine: PlaybackEngine {
     var onFailure: ((String) -> Void)?
     var loadError: (any Error)?
 
-    func load(_ url: URL, at seconds: Double) async throws {
-        loads.append((url, seconds))
+    func load(_ url: URL, mediaType: String, at seconds: Double) async throws {
+        loads.append((url, mediaType, seconds))
         currentTime = seconds
         if let loadError { throw loadError }
     }
@@ -37,8 +37,10 @@ final class StubEngine: PlaybackEngine {
 nonisolated enum PlayerFixtures {
     typealias F = LibraryFixtures
 
-    static func playback(file: String, start: Int = 0, end: Int? = nil, duration: Int? = 4000) -> String {
-        #"{"source_id": "s-\#(file)-\#(start)", "file_source_id": "\#(file)", "start_ms": \#(start), "end_ms": \#(end.map(String.init) ?? "null"), "file_duration_ms": \#(duration.map(String.init) ?? "null")}"#
+    static func playback(
+        file: String, start: Int = 0, end: Int? = nil, duration: Int? = 4000, mediaType: String = "audio/flac"
+    ) -> String {
+        #"{"source_id": "s-\#(file)-\#(start)", "file_source_id": "\#(file)", "start_ms": \#(start), "end_ms": \#(end.map(String.init) ?? "null"), "file_duration_ms": \#(duration.map(String.init) ?? "null"), "media_type": "\#(mediaType)", "codec": null}"#
     }
 
     static func playability(_ state: String, playback: String? = nil, episode: String? = nil, link: String? = nil)
@@ -95,7 +97,7 @@ nonisolated enum PlayerFixtures {
          "description": "", "broadcast_at": "2025-03-14T22:00:00.000Z", "location": "London", "url": "https://nts",
          "source_id": "epfile", "show": {"id": "show1", \(F.stamp), "station": "nts", "slug": "lnt",
            "name": "Late Night Tapes", "description": "", "image_url": null, "link": "l"},
-         "playback": \(playback(file: "ep1", start: 0, end: nil, duration: 60000)), "duration_ms": 60000,
+         "playback": \(playback(file: "ep1", start: 0, end: nil, duration: 60000, mediaType: "audio/ogg")), "duration_ms": 60000,
          "tracks": [\(entry(1, start: 5000, end: 15000)), \(entry(2, start: 15000, end: 25000, estimated: true)),
                     \(entry(3, start: 30000, end: nil, recording: false)), \(entry(4, start: nil, end: nil))],
          "image_url": "/covers/radio-episode/ep1", "link": "l"}
@@ -279,6 +281,7 @@ struct EpisodePlaybackTests {
 
         #expect(engine.loads.last?.url.absoluteString == "http://ep.test/sources/ep1/stream")
         #expect(engine.loads.last?.seconds == 15)
+        #expect(engine.loads.last?.mediaType == "audio/ogg")  // the engine's choice
         let item = try #require(player.current)
         // Untimed entries get no mark; estimated ones are marked as such.
         #expect(item.entries.map(\.id) == ["e1", "e2", "e3"])
@@ -311,7 +314,8 @@ struct EpisodePlaybackTests {
 
     @Test func anEpisodeWithoutAudioDoesNotPlay() async throws {
         let silent = P.episode.replacingOccurrences(
-            of: #""playback": \#(P.playback(file: "ep1", start: 0, end: nil, duration: 60000))"#,
+            of:
+                #""playback": \#(P.playback(file: "ep1", start: 0, end: nil, duration: 60000, mediaType: "audio/ogg"))"#,
             with: #""playback": null"#)
         let client = Client.ep(serverURL: URL(string: "http://ep.test")!, transport: StubTransport(json: silent))
         let detail = try await client.getRadioEpisode(path: .init(id: "ep1")).ok.body.json
@@ -329,7 +333,7 @@ struct EpisodePlaybackTests {
         ]
         let item = PlayItem(
             kind: .singleFile(album: "X", trackCount: 3), title: "X", subtitle: "", fileSourceID: "f",
-            durationMS: 12000, startMS: 0, endMS: 9000, playFromMS: 0, entries: entries)
+            mediaType: "audio/flac", durationMS: 12000, startMS: 0, endMS: 9000, playFromMS: 0, entries: entries)
         #expect(item.entry(at: 3999)?.id == "a")
         #expect(item.entry(at: 4000)?.id == "b")
         #expect(item.entry(at: 9000) == nil)  // a gap

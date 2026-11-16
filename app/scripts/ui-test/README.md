@@ -44,7 +44,10 @@ this Mac (16 GB) with a warm build.
   seeded once by `ep.seed` into the template database `ep_seed`; the API (`uvicorn`, no
   worker) serves a copy, `ep`, on `http://127.0.0.1:18439`. `reset` recreates `ep` from the
   template and restores the library folder from a clone. Ports: `EP_UITEST_DB_PORT`,
-  `EP_UITEST_API_PORT`. Never the dev database, never `~/Music`.
+  `EP_UITEST_API_PORT`. Never the dev database, never `~/Music`. The seeded audio covers
+  every engine path: FLAC, MP3, M4A (AVPlayer); Sigur Rós's Svefn-g-englar (Ogg Vorbis),
+  Björk's loose "Loose Tone" (WebM/Opus) and the episode "Homage to the night shift" (Ogg
+  Opus) (`DecodingEngine`); the episode "Strings only" (Cocoon's excerpt) is M4A.
 - App: a copy of the Debug build, `app/build/ui-test/EP.app`, with bundle id
   `de.ndreke.ep.uitest`, so its settings and window frames never touch `de.ndreke.ep` or
   `de.ndreke.ep.debug`. Its defaults are wiped before every run, with `serverURL` saved as
