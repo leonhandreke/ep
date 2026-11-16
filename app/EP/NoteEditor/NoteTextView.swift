@@ -42,6 +42,7 @@ final class NoteTextView: NSTextView {
         view.textContainerInset = .zero
         view.textContainer?.lineFragmentPadding = 0
         view.textContainer?.widthTracksTextView = true
+        view.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
         view.isVerticallyResizable = false
         view.isHorizontallyResizable = false
         view.insertionPointColor = NSPalette.accent

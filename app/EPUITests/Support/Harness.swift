@@ -39,6 +39,22 @@ enum Harness {
         }
         return try JSONSerialization.jsonObject(with: data)
     }
+
+    /// `PUT <path>` with a JSON body on the private backend (to change something behind
+    /// the app's back, e.g. a note edited elsewhere).
+    @discardableResult
+    static func put(_ path: String, json: [String: Any]) async throws -> Any {
+        var request = URLRequest(url: try requireAPI().appending(path: path))
+        request.httpMethod = "PUT"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: json)
+        let (data, response) = try await URLSession.shared.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard status == 200 else {
+            throw HarnessError("PUT \(path): HTTP \(status): \(String(decoding: data, as: UTF8.self))")
+        }
+        return try JSONSerialization.jsonObject(with: data)
+    }
 }
 
 enum Appearance: String {
@@ -77,6 +93,14 @@ enum Seed {
     static let hunterTrack = "21da786f-467c-521c-8860-b4d8ed89225a"
     static let jogaTrack = "074901fa-ee92-5673-84b9-824423f92176"
     static let bacheloretteTrack = "329a58d2-9ccb-5552-98bb-f556699b1fa2"
+    /// Homogenic's 3 Unravel (file missing) and 5 All Is Full of Love; notes and tags are
+    /// their recordings'. Bachelorette's recording. None has a note in the seed.
+    static let unravelTrack = "362415ee-abfc-51ff-a4b6-2ba37bf2e156"
+    static let unravelRecording = "bd61c959-25d3-549f-8510-c06b8a854217"
+    static let allIsFullTrack = "25fc64dd-f770-55ad-934c-0e1efeb94884"
+    static let bacheloretteRecording = "db5c57ea-ca9d-577d-9d7c-65d029b110ea"
+    /// Mark Bell: linked from Björk's and Homogenic's notes; his own note has headings.
+    static let markBell = "c43c42f9-3537-5b6b-afe3-a72893f0ce0d"
     /// Vespertine's Cocoon: plays only as an excerpt of the "Strings only" episode
     /// (estimated times).
     static let cocoonTrack = "3d5b5b0c-d1fa-5b06-8689-aa21bd66c13c"

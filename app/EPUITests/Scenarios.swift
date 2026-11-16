@@ -111,6 +111,74 @@ final class Scenarios: EPUITestCase {
         screenshot("playerQueue")
     }
 
+    /// Detail panels: Björk → Homogenic → Jóga, each panel with its note (links, Björk's
+    /// broken one), tags and Linked from (backlinks, radio appearances).
+    func testDetailPanels() throws {
+        let app = try launchConnected()
+        app.row("artists", id: Seed.bjork).click()
+        waitFor(app.row("releaseGroups", id: Seed.homogenic)).click()
+        waitFor(app.row("tracks", id: Seed.jogaTrack)).click()
+        waitFor(app.element("detail.track.note.editor"))
+        waitFor(app.element("detail.album.note.editor"))
+        waitFor(app.element("detail.artist.note.editor"))
+        screenshot("detailPanels")
+    }
+
+    /// Mark Bell's note: headings, a paragraph and a list item with a link.
+    func testNoteLinks() throws {
+        let app = try launchConnected()
+        waitFor(app.row("artists", id: Seed.markBell)).click()
+        waitForText("Homogenic", in: app.element("detail.artist.note.editor"))
+        screenshot("noteLinks", of: app.element("detail.artist"))
+    }
+
+    /// Björk's note close up: the link to The Sugarcubes is broken.
+    func testNoteBrokenLink() throws {
+        let app = try launchConnected()
+        app.row("artists", id: Seed.bjork).click()
+        waitForText("Sugarcubes", in: app.element("detail.artist.note.editor"))
+        screenshot("noteBrokenLink", of: app.element("detail.artist"))
+    }
+
+    /// Typing "[[homgen" in a track's note: the link suggestions (typo tolerant).
+    func testNoteAutocomplete() throws {
+        let app = try launchConnected()
+        app.row("artists", id: Seed.bjork).click()
+        waitFor(app.row("releaseGroups", id: Seed.homogenic)).click()
+        waitFor(app.row("tracks", id: Seed.allIsFullTrack)).click()
+        let editor = waitFor(app.element("detail.track.note.editor"))
+        editor.click()
+        editor.typeText("Pairs with [[homgen")
+        waitFor(app.element("linkSuggestions.row.0"))
+        screenshot("noteAutocomplete")
+    }
+
+    /// The note changed on the server while it was edited here: Keep Mine / Use Theirs.
+    func testNoteConflict() async throws {
+        let app = try launchConnected()
+        app.row("artists", id: Seed.bjork).click()
+        waitFor(app.row("releaseGroups", id: Seed.homogenic)).click()
+        waitFor(app.row("tracks", id: Seed.bacheloretteTrack)).click()
+        let editor = waitFor(app.element("detail.track.note.editor"))
+        try await Harness.put(
+            "notes/recording/\(Seed.bacheloretteRecording)", json: ["body": "Written in another window."])
+        editor.click()
+        editor.typeText("Mine")
+        waitFor(app.element("detail.track.note.conflict"))
+        screenshot("noteConflict")
+    }
+
+    /// The detail panels collapsed (⌥⌘D): only their headers stay.
+    func testDetailCollapsed() throws {
+        let app = try launchConnected()
+        app.row("artists", id: Seed.bjork).click()
+        waitFor(app.row("releaseGroups", id: Seed.homogenic)).click()
+        waitFor(app.element("detail.album.tags"))
+        app.typeKey("d", modifierFlags: [.command, .option])
+        waitForAbsence(app.element("detail.album.tags"))
+        screenshot("detailCollapsed")
+    }
+
     /// The main window switched to Radio.
     func testRadio() throws {
         let app = try launchConnected()

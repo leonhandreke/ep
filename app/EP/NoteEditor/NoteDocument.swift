@@ -31,10 +31,14 @@ final class NoteDocument {
     /// text view takes it over; edits typed in the view do not bump it.
     private(set) var revision = 0
     /// Link targets as the server resolved them: nil value = broken (target gone).
-    private(set) var targets: [LinkKey: LinkTarget?] = [:]
+    private(set) var targets: [LinkKey: LinkTarget?] = [:] {
+        didSet { onTargetsChanged?() }
+    }
 
     /// Called after every successful save (other panels may show new backlinks).
     @ObservationIgnored var onSaved: (() -> Void)?
+    /// Called when the server told more about link targets (the editor restyles).
+    @ObservationIgnored var onTargetsChanged: (() -> Void)?
 
     @ObservationIgnored private(set) var baseUpdatedAt: Date?
     @ObservationIgnored private let connection: ServerConnection

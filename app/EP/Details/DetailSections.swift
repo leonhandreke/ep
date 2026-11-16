@@ -65,14 +65,12 @@ struct DetailSection<Accessory: View, Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline) {
-                Text(title).sectionLabelStyle()
+                Text(title).sectionLabelStyle().accessibilityAddTraits(.isHeader)
                 Spacer(minLength: 8)
                 accessory
             }
             .padding(.bottom, 6)
             .overlay(alignment: .bottom) { HairlineDivider() }
-            .accessibilityElement(children: .combine)
-            .accessibilityAddTraits(.isHeader)
             content
         }
         .frame(maxWidth: .infinity, alignment: .leading)

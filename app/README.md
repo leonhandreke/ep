@@ -19,6 +19,13 @@ EP/                   the app target
   Shell/              main window frame: toolbar, list columns, detail panels, player bar
   Library/            artists / albums / tracks columns: ArtistList and LibraryBrowser
                       (per window: selection, history, navigate(to:)), CoverImages
+  Details/            detail panels: EntityDetails (one entity's note, tags, backlinks, radio
+                      appearances from GET /entity-details), the Note / Tags / Linked from
+                      sections (the Radio view hosts them in tabs), tag suggestions,
+                      FloatingPopup (suggestion lists over the window), OpenEntityAction
+  NoteEditor/         the note editor: NoteLinks, NoteStyling, LinkQuery (pure, UTF-16
+                      NSRange), NoteDocument (autosave, 409), LinkAutocomplete, NoteTextView
+                      (TextKit 2) and its SwiftUI wrapper
   Player/             Player (one for the app: item, queue, transport), PlayItem (spans,
                       long-file entries), player bar, Now Playing, Space key
     Audio/            engines: AVPlayer, and AVAudioEngine fed by decoders for Ogg
@@ -117,7 +124,11 @@ names).
   `releaseGroups.row.<release group>` and `releaseGroups.row.looseTracks`,
   `tracks.row.<track>`, or `<recording>` among loose tracks). Areas so far: `toolbar`, `connection`,
   `settings`, `player` (`player.bar`, `.title`, `.playPause`, `.scrubber`, `.queue`,
-  `.notice`, …), `detail` (`detail.<artist|album|track|episode>`), and one per
+  `.notice`, …), `detail` (`detail.<artist|album|track|episode>` with `.title`,
+  `.collapse`, `.note`, `.note.editor`, `.note.status`, `.note.conflict` (`.keepMine`,
+  `.useTheirs`), `.tags`, `.tag.<tag>` (`.remove`), `.addTag` (`.suggestions.row.<n>`),
+  `.linkedFrom`, `.backlink.<entity>`, `.radio.<entry>` (`.play`)), `linkSuggestions`
+  (`.row.<n>`, `.newArtist`, `.newOther`, `.searchMusicBrainz`), and one per
   list column (`artists`, `releaseGroups`, `tracks`, `shows`, `episodes`, `tracklist`;
   the column itself is `<area>.column`). Containers a test needs to find (columns,
   panels, banner, player bar) use `.accessibilityElement(children: .contain)` plus an
@@ -126,6 +137,15 @@ names).
 - **State**: `@Observable` stores, injected with `.environment(...)`; per-window UI
   state in `@SceneStorage`; menu commands reach the focused window via `@FocusedValue`.
   Per-window stores (`ArtistList`, `LibraryBrowser`) are created by `MainWindow`.
+- **Opening things**: note links, backlinks and radio appearances call the window's
+  `OpenEntityAction` (environment `openEntity`): Library entities through
+  `LibraryBrowser.navigate(to:)`, radio shows and episodes to the Radio view (stage 7),
+  or a new main window (⌥⌘-click; `WindowGroup(for: WindowTarget.self)`). A tag click
+  calls the environment's `showTag` (nil until the search palette, decision 7).
+- **Notes**: the body is edited as stored (`[[type:uuid|Display]]`), styled by attributes
+  only; ranges are UTF-16 (`NSRange`), as the API counts. A track's note and tags are its
+  recording's. `NoteDocument` saves 1 s after the last edit with `base_updated_at`; a 409
+  keeps the edit and asks (Keep Mine / Use Theirs); notes are read-only while unreachable.
 - **Navigation**: anything that shows an entity in the Library (links, search results,
   "Show playing") calls `LibraryBrowser.navigate(to:)`, which resolves the artist →
   album → track path and records it in the window's Back/Forward history. Playing goes

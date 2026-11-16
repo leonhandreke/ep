@@ -82,7 +82,6 @@ final class NoteEditorCoordinator: NSObject, NSTextViewDelegate {
     private let connection: ServerConnection
     private var document: NoteDocument?
     private var revision = -1
-    private var observation: Task<Void, Never>?
 
     init(connection: ServerConnection) {
         self.connection = connection
@@ -96,8 +95,13 @@ final class NoteEditorCoordinator: NSObject, NSTextViewDelegate {
         let isNew = document !== self.document
         guard isNew || document.revision != revision else { return }
         if isNew {
+            self.document?.onTargetsChanged = nil
             self.document = document
-            observeTargets(of: document)
+            // Restyle when the server tells more about link targets (after a save).
+            document.onTargetsChanged = { [weak self] in
+                self?.textView?.restyle()
+                self?.updateHeight()
+            }
         }
         revision = document.revision
         if textView.string != document.text {
@@ -109,29 +113,6 @@ final class NoteEditorCoordinator: NSObject, NSTextViewDelegate {
         popup.hide()
         textView.restyle()
         updateHeight()
-    }
-
-    /// Restyles when the server tells more about link targets (after a save).
-    private func observeTargets(of document: NoteDocument) {
-        observation?.cancel()
-        observation = Task { [weak self, weak document] in
-            while !Task.isCancelled, let document {
-                await withCheckedContinuation { continuation in
-                    withObservationTracking {
-                        _ = document.targets
-                    } onChange: {
-                        continuation.resume()
-                    }
-                }
-                guard !Task.isCancelled else { return }
-                self?.textView?.restyle()
-                self?.updateHeight()
-            }
-        }
-    }
-
-    deinit {
-        observation?.cancel()
     }
 
     func state(of link: NoteLink) -> NoteTextView.LinkState {
