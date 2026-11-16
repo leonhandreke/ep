@@ -82,4 +82,10 @@ enum Seed {
     static let cocoonTrack = "3d5b5b0c-d1fa-5b06-8689-aa21bd66c13c"
     /// Medúlla's track 2: a range of the album's one file.
     static let medullaTrack2 = "cc168657-7f75-57d8-bf13-4b7e252f54a3"
+    /// Sigur Rós: "Svefn-g-englar" on Ágætis byrjun (Ogg Vorbis), and Björk's loose
+    /// "Loose Tone" (WebM/Opus).
+    static let sigurRos = "f153cd55-29ee-525d-8193-0ce740fcebf9"
+    static let agaetisByrjun = "ffffebf0-10df-5bfd-88ee-bdbe79721add"
+    static let svefnTrack = "127d6f5e-1eb8-59d3-9424-365b62a4b069"
+    static let looseTone = "68639e66-9269-5435-92c9-fbf4fa9ab941"
 }
