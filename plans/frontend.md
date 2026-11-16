@@ -190,14 +190,14 @@ unverified.
 ## Status and operating notes (updated 2026-11-16)
 
 Done: backend stages 1–8 and the fit pass (stage 0); app stage 1 (scaffold, 4665772)
-and stage 2 (harness, 9f9f532; cold smoke run passed). Stage 3 is in progress.
+and stage 2 (harness, 9f9f532; cold smoke run passed).
 
 How the remaining work is run (user's instructions, to limit usage):
 - Implementers: Opus 5.5, medium effort. **Reviewers: Sonnet.** Harness passes: Sonnet,
   light theme only, sparingly.
 - Remaining stages are merged into fewer agents:
-  - 3 Library browsing (in progress)
-  - 4 Player (includes Ogg/Opus/WebM decoding in the app)
+  - 3 Library browsing (done)
+  - 4 Player (done; AVPlayer plus an in-app engine for Ogg and WebM)
   - 5+6 Detail panels and note editor
   - 7+8 Radio view, search, sources, editing
   - 9 Import
