@@ -11,6 +11,8 @@ struct TracksColumn: View {
 
     @Environment(LibraryBrowser.self) private var browser
     @Environment(Player.self) private var player
+    /// The row whose sources popover is open (its state icon, or "Sources…").
+    @State private var sourcesRowID: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -119,6 +121,8 @@ struct TracksColumn: View {
             }
             .contextMenu(forSelectionType: String.self) { ids in
                 if let row = ids.first.flatMap(row(id:)) {
+                    Button("Sources…") { sourcesRowID = row.id }
+                    Divider()
                     Button("Copy Link") { copyNoteLink(row.link) }
                 }
             } primaryAction: { ids in
@@ -137,7 +141,9 @@ struct TracksColumn: View {
         ForEach(rows) { row in
             TrackRowView(
                 row: row, emphasized: focus.wrappedValue == .tracks && row.id == browser.location.trackID,
-                isPlaying: player.isPlaying(row)
+                isPlaying: player.isPlaying(row),
+                showsSources: Binding(
+                    get: { sourcesRowID == row.id }, set: { sourcesRowID = $0 ? row.id : nil })
             )
             .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
             .listRowSeparator(.hidden)
@@ -152,12 +158,28 @@ private struct TrackRowView: View {
     let emphasized: Bool
     /// The now-playing bars replace the number.
     let isPlaying: Bool
+    @Binding var showsSources: Bool
+
+    @Environment(ServerConnection.self) private var connection
+    @Environment(LibraryBrowser.self) private var browser
 
     var body: some View {
         let colors = RowForeground(emphasized: emphasized)
         HStack(spacing: 0) {
-            PlayStateIcon(state: row.playState, emphasized: emphasized)
-                .frame(width: Metrics.trackIconColumn)
+            Button {
+                showsSources = true
+            } label: {
+                PlayStateIcon(state: row.playState, emphasized: emphasized)
+                    .frame(width: Metrics.trackIconColumn, height: RowHeight.track)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(String(localized: "\(row.playState.label) — click for sources"))
+            .accessibilityLabel("Sources of \(row.title): \(row.playState.label)")
+            .accessibilityIdentifier("tracks.row.\(row.id).sources")
+            .popover(isPresented: $showsSources, arrowEdge: .trailing) {
+                SourcesPopover(title: row.title, store: makeSources())
+            }
             Group {
                 if isPlaying {
                     Image(systemName: "chart.bar.fill")
@@ -207,6 +229,13 @@ private struct TrackRowView: View {
         .help(row.playState.label)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("tracks.row.\(row.id)")
+    }
+
+    private func makeSources() -> SourcesStore {
+        let store = SourcesStore(
+            recordingID: row.recordingID, playingSourceID: row.playability.playback?.sourceId, connection: connection)
+        store.onChange = { [weak browser] in browser?.reload() }
+        return store
     }
 }
 
