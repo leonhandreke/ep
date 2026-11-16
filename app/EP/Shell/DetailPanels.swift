@@ -1,3 +1,4 @@
+import EPAPI
 import SwiftUI
 
 /// The detail panels under the lists (§3.7, decision 1). Library: three panels side by
@@ -7,17 +8,28 @@ import SwiftUI
 struct DetailPanels: View {
     let section: AppSection
     @Binding var collapsed: Bool
+    @Environment(LibraryBrowser.self) private var browser
 
     var body: some View {
         switch section {
         case .library:
             ColumnGrid(spec: .library) {
-                DetailPanel(id: "artist", badge: "Artist", collapsed: $collapsed)
-                DetailPanel(id: "album", badge: "Album", collapsed: $collapsed)
-                DetailPanel(id: "track", badge: "Track", collapsed: $collapsed, trailingBorder: false)
+                DetailPanel(id: "artist", badge: "Artist", title: browser.artist?.name, collapsed: $collapsed)
+                DetailPanel(id: "album", badge: "Album", title: albumTitle, collapsed: $collapsed)
+                DetailPanel(
+                    id: "track", badge: "Track", title: browser.selectedTrack?.title, collapsed: $collapsed,
+                    trailingBorder: false)
             }
         case .radio:
             DetailPanel(id: "episode", badge: "Episode", collapsed: $collapsed, trailingBorder: false)
+        }
+    }
+
+    private var albumTitle: String? {
+        switch browser.location.album {
+        case .releaseGroup(let id): browser.releaseGroup.flatMap { $0.id == id ? $0.title : nil }
+        case .looseTracks: String(localized: "Loose tracks")
+        case nil: nil
         }
     }
 }
@@ -25,6 +37,7 @@ struct DetailPanels: View {
 private struct DetailPanel: View {
     let id: String
     let badge: LocalizedStringKey
+    var title: String?
     @Binding var collapsed: Bool
     var trailingBorder = true
 
@@ -48,6 +61,13 @@ private struct DetailPanel: View {
     private var header: some View {
         HStack(spacing: 8) {
             KindBadge(label: badge)
+            if let title {
+                Text(title)
+                    .font(Typography.name)
+                    .foregroundStyle(Palette.text)
+                    .lineLimit(1)
+                    .accessibilityIdentifier("detail.\(id).title")
+            }
             Spacer(minLength: 0)
             Button {
                 collapsed.toggle()

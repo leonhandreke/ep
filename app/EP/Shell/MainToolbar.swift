@@ -1,23 +1,25 @@
 import SwiftUI
 
 /// The main window's toolbar (design §3.1): back, forward, import; the Library | Radio
-/// switch centred; the search field on the right. Only the switch works yet: history
-/// (stage 3), import (stage 9) and search (stage 8) come later.
+/// switch centred; the search field on the right. Import (stage 9) and search (stage 8)
+/// come later.
 struct MainToolbar: ToolbarContent {
     @Binding var section: AppSection
+    let browser: LibraryBrowser
 
     var body: some ToolbarContent {
         ToolbarItemGroup(placement: .navigation) {
-            Button("Back", systemImage: "chevron.left") {}
+            // ⌘[ / ⌘] are on the Go menu items (AppCommands), which call the same methods.
+            Button("Back", systemImage: "chevron.left") { browser.goBack() }
                 .help("Back (⌘[)")
                 .accessibilityLabel("Back (⌘[)")
                 .accessibilityIdentifier("toolbar.back")
-                .disabled(true)
-            Button("Forward", systemImage: "chevron.right") {}
+                .disabled(!browser.canGoBack)
+            Button("Forward", systemImage: "chevron.right") { browser.goForward() }
                 .help("Forward (⌘])")
                 .accessibilityLabel("Forward (⌘])")
                 .accessibilityIdentifier("toolbar.forward")
-                .disabled(true)
+                .disabled(!browser.canGoForward)
             Button("Import", systemImage: "plus") {}
                 .help("Import")
                 .accessibilityIdentifier("toolbar.import")

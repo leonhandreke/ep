@@ -46,6 +46,8 @@ enum Palette {
     static let ok = Color(light: 0x1D7A3A, dark: 0x5FD187)
     /// Badge text on `warn` / `danger`.
     static let badgeText = Color.white
+    /// Cover thumbnails' inner hairline (`inset 0 0 0 1px rgba(0,0,0,.08)`).
+    static let coverHairline = Color.black.opacity(0.08)
 }
 
 /// `--shadow`: popovers, palettes, toasts.
@@ -121,6 +123,8 @@ enum Radius {
     static let sheet: CGFloat = 12
     /// Codec chips, kind badges, key caps.
     static let chip: CGFloat = 4
+    /// Artist filter field.
+    static let filterField: CGFloat = 6
     /// Tag chips (height 26) and pills: fully round.
     static let tagChip: CGFloat = 13
     static let pill: CGFloat = 10
@@ -177,6 +181,20 @@ enum Metrics {
     static let rowPadding: CGFloat = 8
     /// Space between stacked detail-panel sections.
     static let sectionSpacing: CGFloat = 22
+    /// Artist filter field (height 24, radius 6) and the radio-only button beside it.
+    static let filterFieldHeight: CGFloat = 24
+    static let radioOnlyButton = CGSize(width: 26, height: 24)
+    /// Track row grid `22px 26px minmax(0,1fr) 160px 46px` (§3.4).
+    static let trackIconColumn: CGFloat = 22
+    static let trackNumberColumn: CGFloat = 26
+    static let trackNoteColumn: CGFloat = 160
+    static let trackLengthColumn: CGFloat = 46
+    /// Play-state icons (§3.5).
+    static let playStateIcon: CGFloat = 14
+    /// Loading skeletons appear only for loads slower than this (§11.3).
+    static let skeletonDelay: Duration = .milliseconds(300)
+    /// Type-to-select keeps typed letters together for this long.
+    static let typeSelectTimeout: Duration = .seconds(1)
 }
 
 /// A track grid `minmax(minimum, fraction fr)` per column, as in the design's CSS grids.

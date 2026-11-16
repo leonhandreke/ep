@@ -4,6 +4,7 @@ import SwiftUI
 struct EPApp: App {
     @State private var settings: AppSettings
     @State private var connection: ServerConnection
+    @State private var covers = CoverImages()
 
     init() {
         let settings = AppSettings()
@@ -23,9 +24,10 @@ struct EPApp: App {
 
     var body: some Scene {
         WindowGroup("EP", id: "main") {
-            MainWindow()
+            MainWindow(connection: connection)
                 .environment(settings)
                 .environment(connection)
+                .environment(covers)
         }
         .defaultSize(LaunchOptions.windowSize)
         .windowToolbarStyle(.unified(showsTitle: false))
@@ -42,8 +44,17 @@ struct EPApp: App {
 /// Menu bar additions. Commands act on the focused main window through focused values.
 struct AppCommands: Commands {
     @FocusedValue(\.detailPanelsCollapsed) private var detailPanelsCollapsed
+    @FocusedValue(\.libraryBrowser) private var browser
 
     var body: some Commands {
+        CommandMenu("Go") {
+            Button("Back") { browser?.goBack() }
+                .keyboardShortcut("[", modifiers: .command)
+                .disabled(browser?.canGoBack != true)
+            Button("Forward") { browser?.goForward() }
+                .keyboardShortcut("]", modifiers: .command)
+                .disabled(browser?.canGoForward != true)
+        }
         CommandGroup(after: .toolbar) {
             Button(detailPanelsCollapsed?.wrappedValue == true ? "Show Detail Panels" : "Hide Detail Panels") {
                 detailPanelsCollapsed?.wrappedValue.toggle()
@@ -58,4 +69,6 @@ struct AppCommands: Commands {
 extension FocusedValues {
     /// Whether the focused main window's detail panels are collapsed (⌥⌘D).
     @Entry var detailPanelsCollapsed: Binding<Bool>?
+    /// The focused main window's Library (Back / Forward).
+    @Entry var libraryBrowser: LibraryBrowser?
 }

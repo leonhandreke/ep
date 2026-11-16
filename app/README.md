@@ -17,6 +17,8 @@ EP/                   the app target
   Design/             Tokens.swift (all colours, fonts, sizes), ColumnGrid layout
   Settings/           AppSettings (UserDefaults + launch overrides), Settings window
   Shell/              main window frame: toolbar, list columns, detail panels, player bar
+  Library/            artists / albums / tracks columns: ArtistList and LibraryBrowser
+                      (per window: selection, history, navigate(to:)), CoverImages
   Info.plist          only what build settings cannot say (App Transport Security)
 EPTests/              unit tests (Swift Testing) against StubTransport
 EPUITests/            XCUITest: harness support (Support/), screenshot Scenarios, flow tests
@@ -107,7 +109,9 @@ names).
   label (the design's aria-label text where it gives one). Identifiers are
   `area.element[.detail]` in lowerCamelCase segments: `toolbar.back`, `toolbar.section`,
   `artists.column`, `detail.artist.collapse`, `connection.retry`, `settings.serverURL`.
-  Rows: `area.row.<id>` with the entity ID. Areas so far: `toolbar`, `connection`,
+  Rows: `area.row.<id>` with the entity ID (`artists.row.<artist>`,
+  `releaseGroups.row.<release group>` and `releaseGroups.row.looseTracks`,
+  `tracks.row.<track>`, or `<recording>` among loose tracks). Areas so far: `toolbar`, `connection`,
   `settings`, `player`, `detail` (`detail.<artist|album|track|episode>`), and one per
   list column (`artists`, `releaseGroups`, `tracks`, `shows`, `episodes`, `tracklist`;
   the column itself is `<area>.column`). Containers a test needs to find (columns,
@@ -116,5 +120,10 @@ names).
   not rename them casually.
 - **State**: `@Observable` stores, injected with `.environment(...)`; per-window UI
   state in `@SceneStorage`; menu commands reach the focused window via `@FocusedValue`.
+  Per-window stores (`ArtistList`, `LibraryBrowser`) are created by `MainWindow`.
+- **Navigation**: anything that shows an entity in the Library (links, search results,
+  "Show playing") calls `LibraryBrowser.navigate(to:)`, which resolves the artist →
+  album → track path and records it in the window's Back/Forward history. Playing goes
+  through `LibraryBrowser.play(_:)` (`onPlay`, set by the player).
 - **Tests**: Swift Testing; happy path and the most important failures only.
 - Formatting: `swift format` (toolchain) with `.swift-format` in this directory.
