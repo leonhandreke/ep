@@ -13,6 +13,10 @@ struct TrackRow: Identifiable, Hashable {
     let title: String
     let lengthMS: Int?
     let playState: Components.Schemas.PlayState
+    /// How the row plays (the player's input: what to stream, the radio entry, the link).
+    let playability: Components.Schemas.PlayabilityRead
+    /// The recording's artist credit, as shown ("Björk feat. Mark Bell").
+    let artistName: String
     /// The 160 pt note column: the state, or a credit that differs from the album's.
     let note: Note?
     /// The note link to the recording ("Copy Link").
@@ -34,6 +38,8 @@ struct TrackRow: Identifiable, Hashable {
         title = track.title ?? recording.title
         lengthMS = recording.lengthMs
         playState = track.playability.state
+        playability = track.playability
+        artistName = recording.artistCredit.name
         link = recording.link
         let credit = recording.artistCredit
         note = Self.note(
@@ -50,6 +56,8 @@ struct TrackRow: Identifiable, Hashable {
         title = recording.title
         lengthMS = recording.lengthMs
         playState = recording.playability.state
+        playability = recording.playability
+        artistName = recording.artistCredit.name
         link = recording.link
         let names = recording.artistCredit.names
         let differs = names.count != 1 || names.first?.artistId != artistID

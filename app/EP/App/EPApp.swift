@@ -5,15 +5,21 @@ struct EPApp: App {
     @State private var settings: AppSettings
     @State private var connection: ServerConnection
     @State private var covers = CoverImages()
+    /// The one player all windows share (decision 13).
+    @State private var player: Player
 
     init() {
         let settings = AppSettings()
         let connection = ServerConnection(serverURL: settings.serverURL)
+        let player = Player(connection: connection, engine: AudioOutput())
         _settings = State(initialValue: settings)
         _connection = State(initialValue: connection)
+        _player = State(initialValue: player)
         LaunchOptions.applyAppearance()
         // As the unit tests' host the app stays offline: tests use their own stubs.
         if !Self.isUnitTestHost {
+            player.nowPlaying = NowPlayingCenter(player: player)
+            PlaybackKeys.install(player)
             Task { await connection.connect() }
         }
     }
@@ -24,14 +30,15 @@ struct EPApp: App {
 
     var body: some Scene {
         WindowGroup("EP", id: "main") {
-            MainWindow(connection: connection)
+            MainWindow(connection: connection, player: player)
                 .environment(settings)
                 .environment(connection)
                 .environment(covers)
+                .environment(player)
         }
         .defaultSize(LaunchOptions.windowSize)
         .windowToolbarStyle(.unified(showsTitle: false))
-        .commands { AppCommands() }
+        .commands { AppCommands(player: player) }
 
         Settings {
             SettingsView()
@@ -43,8 +50,10 @@ struct EPApp: App {
 
 /// Menu bar additions. Commands act on the focused main window through focused values.
 struct AppCommands: Commands {
+    let player: Player
     @FocusedValue(\.detailPanelsCollapsed) private var detailPanelsCollapsed
     @FocusedValue(\.libraryBrowser) private var browser
+    @FocusedValue(\.showPlaying) private var showPlaying
 
     var body: some Commands {
         CommandMenu("Go") {
@@ -63,6 +72,20 @@ struct AppCommands: Commands {
             .disabled(detailPanelsCollapsed == nil)
             Divider()
         }
+        // Space plays and pauses outside text fields (`PlaybackKeys`); a menu key
+        // equivalent would also take it from text fields, so these items have none.
+        CommandMenu("Controls") {
+            Button(player.isPlaying ? "Pause" : "Play") { player.togglePlayPause() }
+                .disabled(player.current == nil)
+            Button("Next") { player.next() }
+                .disabled(player.current == nil)
+            Button("Previous") { player.previous() }
+                .disabled(player.current == nil)
+            Divider()
+            Button("Show Playing") { showPlaying?() }
+                .keyboardShortcut("l", modifiers: .command)
+                .disabled(showPlaying == nil || player.libraryTarget == nil)
+        }
     }
 }
 
@@ -71,4 +94,6 @@ extension FocusedValues {
     @Entry var detailPanelsCollapsed: Binding<Bool>?
     /// The focused main window's Library (Back / Forward).
     @Entry var libraryBrowser: LibraryBrowser?
+    /// Shows what plays in the focused main window's Library (⌘L).
+    @Entry var showPlaying: (() -> Void)?
 }

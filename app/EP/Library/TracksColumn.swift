@@ -10,6 +10,7 @@ struct TracksColumn: View {
     let moveLeft: () -> Void
 
     @Environment(LibraryBrowser.self) private var browser
+    @Environment(Player.self) private var player
 
     var body: some View {
         VStack(spacing: 0) {
@@ -122,7 +123,7 @@ struct TracksColumn: View {
                 }
             } primaryAction: { ids in
                 if let row = ids.first.flatMap(row(id:)) {
-                    browser.play(.track(row, in: browser.tracks))
+                    browser.play(.track(row, in: browser.tracks, album: browser.releaseGroup))
                 }
             }
             .onChange(of: browser.location.trackID) { _, id in
@@ -134,9 +135,12 @@ struct TracksColumn: View {
 
     private func rows(_ rows: [TrackRow]) -> some View {
         ForEach(rows) { row in
-            TrackRowView(row: row, emphasized: focus.wrappedValue == .tracks && row.id == browser.location.trackID)
-                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-                .listRowSeparator(.hidden)
+            TrackRowView(
+                row: row, emphasized: focus.wrappedValue == .tracks && row.id == browser.location.trackID,
+                isPlaying: player.isPlaying(row)
+            )
+            .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+            .listRowSeparator(.hidden)
         }
     }
 
@@ -146,18 +150,29 @@ struct TracksColumn: View {
 private struct TrackRowView: View {
     let row: TrackRow
     let emphasized: Bool
+    /// The now-playing bars replace the number.
+    let isPlaying: Bool
 
     var body: some View {
         let colors = RowForeground(emphasized: emphasized)
         HStack(spacing: 0) {
             PlayStateIcon(state: row.playState, emphasized: emphasized)
                 .frame(width: Metrics.trackIconColumn)
-            Text(row.number.map(String.init) ?? "")
-                .font(Typography.body)
-                .monospacedDigit()
-                .foregroundStyle(colors.tertiary)
-                .frame(width: Metrics.trackNumberColumn - 6, alignment: .trailing)
-                .padding(.trailing, 6)
+            Group {
+                if isPlaying {
+                    Image(systemName: "chart.bar.fill")
+                        .font(.system(size: 10))
+                        .accessibilityLabel("Now playing")
+                        .accessibilityIdentifier("tracks.nowPlaying")
+                } else {
+                    Text(row.number.map(String.init) ?? "")
+                        .font(Typography.body)
+                        .monospacedDigit()
+                }
+            }
+            .foregroundStyle(colors.tertiary)
+            .frame(width: Metrics.trackNumberColumn - 6, alignment: .trailing)
+            .padding(.trailing, 6)
             Text(row.title)
                 .font(Typography.body)
                 .italic(row.isItalic)

@@ -17,9 +17,10 @@ final class LibraryBrowser {
         case failed(String)
     }
 
-    /// What double-click / Return / Play album asks the player for (stage 4).
+    /// What double-click / Return / Play album asks the player for: a track with the list
+    /// it is in (the rest of it is queued) and its album, if any; or a whole album by ID.
     enum PlayRequest: Equatable {
-        case track(TrackRow, in: [TrackRow])
+        case track(TrackRow, in: [TrackRow], album: Components.Schemas.ReleaseGroupDetail?)
         case album(String)
     }
 
@@ -40,7 +41,7 @@ final class LibraryBrowser {
         return tracks.first { $0.id == id }
     }
 
-    /// The stage 4 hook: the player sets this to play what the user asked for.
+    /// Set by the window to hand play requests to the app's player.
     @ObservationIgnored var onPlay: ((PlayRequest) -> Void)?
 
     @ObservationIgnored private let connection: ServerConnection
@@ -167,7 +168,7 @@ final class LibraryBrowser {
     }
 
     /// Plays a track (double-click, Return) or the album (Play album): the one place the
-    /// player hooks in (stage 4).
+    /// player hooks in.
     func play(_ request: PlayRequest) {
         onPlay?(request)
     }
