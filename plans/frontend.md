@@ -210,7 +210,21 @@ Backend items waiting for the next backend-friction round: none (2026-11-16 roun
 artist position lookup, versioned cover URLs, `X-Total-Count` on paged lists, dropped-
 letter search, non-blocking unreadable files, stale work-dir clean-up).
 
+Progress since: stage 3 (reviewed, ec5246f), a second backend round (8c40f83:
+`media_type`/`codec` on playback, Ogg and WebM in the seed), stage 4 Player (4a935a2,
+reviewed d890448). Stages 5+6 in progress.
+
+Owed harness pass (the screen was locked, so nothing of stage 4 has been seen running):
+player scenarios, `PlayerFlowTests` incl. `testEveryFormatPlaysAndSeeks` and
+`testSpaceInTypeToSelectDoesNotTogglePlayback`, library scenarios with the paged artist
+list. Any agent about to use the harness first checks the screen is unlocked and skips
+the harness (reporting it) if not.
+
+Left for stage 10: unfocused selection colour (`--selsoft`), Now Playing cover art,
+persisting volume, an artist hidden by the filter having no highlighted row.
+
 Waiting on the user:
+- The screen must be unlocked for harness runs.
 - Bandcamp answers the Docker container with a bot check. Options: add yt-dlp's
   `curl-cffi` impersonation extra, run the worker on the host, or leave it failing.
   No circumvention is to be added without the user's decision.
