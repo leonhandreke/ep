@@ -19,10 +19,10 @@ EP/                   the app target
   Shell/              main window frame: toolbar, list columns, detail panels, player bar
   Info.plist          only what build settings cannot say (App Transport Security)
 EPTests/              unit tests (Swift Testing) against StubTransport
-EPUITests/            XCUITest (the stage 2 harness builds here)
+EPUITests/            XCUITest: harness support (Support/), screenshot Scenarios, flow tests
 Packages/EPAPI/       the API client (local Swift package; Generated/ is checked in)
 Packages/EPAPIGenerator/  tools that generate it (not part of the app build)
-scripts/              build, run, test, generate-api wrappers
+scripts/              build, run, test, generate-api wrappers; ui-test/uitest (the harness)
 ```
 
 Later features go in `EP/<Feature>/` (`Library/`, `Player/`, `NoteEditor/`, `Radio/`,
@@ -36,7 +36,6 @@ app/scripts/build.sh                          # Debug build → app/build/Derive
 app/scripts/run.sh http://127.0.0.1:18000     # run against a server (for this run only)
 app/scripts/run.sh                            # run against the saved address (default localhost:8000)
 app/scripts/test.sh                           # unit tests
-app/scripts/test.sh --ui                      # UI tests (needs UI-automation permission)
 app/scripts/test.sh -only-testing:EPTests/AppSettingsTests   # extra arguments go to xcodebuild
 app/scripts/generate-api.sh                   # after server/openapi.json changed
 ```
@@ -47,22 +46,27 @@ compiled once and every later build only recompiles what changed. A clean build 
 about 30 s on an idle machine, a no-change build a few seconds. Do not delete
 `app/build` or pass `clean` without a reason.
 
-A private seeded backend to run against: `server/README.md`, "Demo data". Never point
-the app at the dev database for experiments.
+UI tests and screenshots go through the harness, `app/scripts/ui-test/uitest`: a private
+seeded backend, named screenshot scenarios and XCUITest flow tests. Use it sparingly and
+read [`scripts/ui-test/README.md`](scripts/ui-test/README.md) first. Never point the app at
+the dev database for experiments.
 
 ## Server address and isolation
 
 `AppSettings.serverURL` (UserDefaults key `serverURL`, default `http://localhost:8000`).
 For one run, `EP_SERVER_URL=<url>` or the launch argument `-serverURL <url>` overrides
 it; an overridden address is never saved. `-ApplePersistenceIgnoreState YES` keeps
-window restoration out of the way.
+window restoration out of the way. Two more launch arguments exist for deterministic
+screenshots (`EP/App/LaunchOptions.swift`): `-windowSize 1280x800` and
+`-appearance light|dark`.
 
-Debug builds (everything the scripts, tests and the harness build) are a separate app,
+Debug builds (everything the scripts and unit tests build) are a separate app,
 `de.ndreke.ep.debug`; Release builds are `de.ndreke.ep`. So everything a test or agent
 run stores (window frames, scene storage, settings, saved state) lives in the
 `de.ndreke.ep.debug` domain and never touches the real app's preferences. A run that
 needs fresh state clears that domain first (`defaults delete de.ndreke.ep.debug`), never
-`de.ndreke.ep`. As the unit tests' host the app does not connect to any server. App Transport Security allows plain HTTP only to
+`de.ndreke.ep`. The harness runs its own copy of the Debug app with bundle id
+`de.ndreke.ep.uitest`, so it touches neither domain. As the unit tests' host the app does not connect to any server. App Transport Security allows plain HTTP only to
 local hosts (`NSAllowsLocalNetworking`: localhost, IP addresses, `.local`, unqualified
 names).
 

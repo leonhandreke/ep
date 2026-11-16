@@ -1,0 +1,360 @@
+#!/usr/bin/env bash
+# UI test harness for EP: a private seeded backend, screenshots of named app states,
+# and the XCUITest flow tests with a compact summary. Guide: README.md next to this file.
+#
+#   uitest up                     start the private backend (idempotent)
+#   uitest down                   stop it, quit the app, remove its data and settings
+#   uitest reset                  restore the seeded database and library
+#   uitest status                 what is running
+#   uitest shot [options] NAME…   screenshots of scenarios (EPUITests/Scenarios.swift)
+#        --dark                   dark appearance (default and for now the norm: light)
+#        --size WxH               main window size in points (default 1440x900)
+#        --2x                     keep Retina pixels (default: scaled to points)
+#        --out DIR                where to write the PNGs (default build/ui-test/shots)
+#   uitest shot --list            the scenario names
+#   uitest test [FILTER…]         run the flow tests (Class or Class/testMethod)
+#   uitest api PATH               GET a path on the private backend, e.g. `uitest api server`
+#
+# shot and test start the backend if needed, build for testing (incremental), reset the
+# backend if an earlier run may have changed it, then run without building.
+# Environment: EP_UITEST_DIR (state, default app/build/ui-test), EP_UITEST_DB_PORT
+# (55439), EP_UITEST_API_PORT (18439).
+set -euo pipefail
+
+HERE="$(cd "$(dirname "$0")" && pwd)"
+source "$HERE/../common.sh"
+REPO="$(cd "$APP_DIR/.." && pwd)"
+SERVER="$REPO/server"
+STATE="${EP_UITEST_DIR:-$APP_DIR/build/ui-test}"
+DB_PORT="${EP_UITEST_DB_PORT:-55439}"
+API_PORT="${EP_UITEST_API_PORT:-18439}"
+API_URL="http://127.0.0.1:$API_PORT"
+CONTAINER=ep-uitest-db
+DB_URL="postgresql+psycopg://ep:ep@127.0.0.1:$DB_PORT"
+BUNDLE_ID=de.ndreke.ep.uitest # the harness copy of EP.app; Debug builds are de.ndreke.ep.debug
+HARNESS_APP="$STATE/EP.app"
+UITESTS_DIR="$APP_DIR/EPUITests"
+
+say() { printf '%s\n' "$*" >&2; }
+die() {
+    say "uitest: $*"
+    exit 1
+}
+now() { perl -MTime::HiRes=time -e 'printf "%.1f", time'; }
+elapsed() { perl -e "printf '%.1f', $(now) - $1"; }
+psql_() { docker exec "$CONTAINER" psql -q -v ON_ERROR_STOP=1 -U ep -d postgres -c "$1" >/dev/null; }
+api_ok() { curl -fsS -m 2 -o /dev/null "$API_URL/server" 2>/dev/null; }
+api_pid() { cat "$STATE/api.pid" 2>/dev/null || true; }
+
+# --- backend --------------------------------------------------------------------------
+
+is_up() {
+    [[ -f "$STATE/backend.ready" ]] &&
+        [[ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null)" == true ]] &&
+        kill -0 "$(api_pid)" 2>/dev/null && api_ok
+}
+
+stop_api() {
+    local pid
+    pid="$(api_pid)"
+    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+        kill "$pid" 2>/dev/null || true
+        for _ in {1..50}; do kill -0 "$pid" 2>/dev/null || break; sleep 0.1; done
+        kill -9 "$pid" 2>/dev/null || true
+    fi
+    # A server left by a crashed run (pid file gone): only ours, by its command line.
+    for pid in $(lsof -nP -t -iTCP:"$API_PORT" -sTCP:LISTEN 2>/dev/null); do
+        if ps -o command= -p "$pid" | grep -q 'ep.main:app'; then kill -9 "$pid" 2>/dev/null || true; fi
+    done
+    rm -f "$STATE/api.pid"
+}
+
+quit_apps() {
+    # Only the harness copy, never the user's EP.
+    pkill -f "$HARNESS_APP/Contents/MacOS/EP" 2>/dev/null || true
+}
+
+cmd_down() {
+    quit_apps
+    stop_api
+    docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
+    rm -rf "$STATE/data" "$STATE/seed" "$STATE/backend.ready" "$STATE/dirty"
+    defaults delete "$BUNDLE_ID" >/dev/null 2>&1 || true
+    rm -rf "$HOME/Library/HTTPStorages/$BUNDLE_ID" "$HOME/Library/Caches/$BUNDLE_ID" \
+        "$HOME/Library/Saved Application State/$BUNDLE_ID.savedState" \
+        "${TMPDIR:-/tmp}/$BUNDLE_ID.savedState"
+    say "uitest: down"
+}
+
+start_api() {
+    local py
+    py="$(cd "$SERVER" && uv run --frozen --quiet python -c 'import sys; print(sys.executable)')"
+    (
+        cd "$SERVER"
+        EP_DATABASE_URL="$DB_URL/ep" EP_LIBRARY_DIR="$STATE/data/library" \
+            EP_MEDIA_ROOTS="[\"$STATE/data/library\", \"$STATE/data/watch\"]" \
+            nohup "$py" -m uvicorn ep.main:app --host 127.0.0.1 --port "$API_PORT" >>"$STATE/api.log" 2>&1 &
+        echo $! >"$STATE/api.pid"
+    )
+    for _ in {1..150}; do
+        api_ok && return 0
+        kill -0 "$(api_pid)" 2>/dev/null || break
+        sleep 0.1
+    done
+    tail -20 "$STATE/api.log" >&2
+    die "the API did not start (log: $STATE/api.log)"
+}
+
+cmd_up() {
+    if is_up; then
+        say "uitest: up at $API_URL (already running)"
+        return
+    fi
+    local t0
+    t0="$(now)"
+    docker info >/dev/null 2>&1 || die "Docker is not running"
+    cmd_down 2>/dev/null # whatever a crashed run left behind
+    mkdir -p "$STATE"
+    : >"$STATE/api.log"
+    # Postgres on tmpfs without fsync: throwaway data, fast resets.
+    docker run -d --rm --name "$CONTAINER" --label ep.uitest=1 \
+        -e POSTGRES_USER=ep -e POSTGRES_PASSWORD=ep -e POSTGRES_DB=ep_seed \
+        -p "127.0.0.1:$DB_PORT:5432" --tmpfs /var/lib/postgresql postgres:18 \
+        -c fsync=off -c synchronous_commit=off -c full_page_writes=off >/dev/null
+    for _ in {1..100}; do
+        docker exec "$CONTAINER" pg_isready -q -h 127.0.0.1 -U ep -d ep_seed 2>/dev/null && break
+        sleep 0.2
+    done
+    docker exec "$CONTAINER" pg_isready -q -h 127.0.0.1 -U ep -d ep_seed || die "Postgres did not start"
+    # Seed once into ep_seed (the template); the API serves a copy, so reset is a copy.
+    if ! (cd "$SERVER" && uv run --frozen --quiet python -m ep.seed --database-url "$DB_URL/ep_seed" \
+        --library-dir "$STATE/data/library" --watch-dir "$STATE/data/watch") >"$STATE/seed.log" 2>&1; then
+        cat "$STATE/seed.log" >&2
+        die "seeding failed"
+    fi
+    cp -Rc "$STATE/data" "$STATE/seed"
+    psql_ "CREATE DATABASE ep TEMPLATE ep_seed"
+    start_api
+    touch "$STATE/backend.ready"
+    say "uitest: up at $API_URL ($(elapsed "$t0") s)"
+}
+
+cmd_reset() {
+    is_up || die "not up (run: uitest up)"
+    local t0
+    t0="$(now)"
+    quit_apps
+    # The API's pool pings connections before use, so it survives the database swap.
+    psql_ "DROP DATABASE IF EXISTS ep WITH (FORCE)"
+    psql_ "CREATE DATABASE ep TEMPLATE ep_seed"
+    rm -rf "$STATE/data"
+    cp -Rc "$STATE/seed" "$STATE/data"
+    rm -f "$STATE/dirty"
+    say "uitest: reset ($(elapsed "$t0") s)"
+}
+
+cmd_status() {
+    if is_up; then echo "backend: up at $API_URL (Postgres 127.0.0.1:$DB_PORT, container $CONTAINER)"; else echo "backend: down"; fi
+    pgrep -f "$HARNESS_APP/Contents/MacOS/EP" >/dev/null && echo "app: running" || echo "app: not running"
+    echo "state: $STATE"
+}
+
+cmd_api() {
+    [[ $# -eq 1 ]] || die "usage: uitest api PATH"
+    is_up || die "not up (run: uitest up)"
+    curl -fsS "$API_URL/${1#/}"
+    echo
+}
+
+# --- app and tests --------------------------------------------------------------------
+
+# Builds the app and the UI tests (incremental, shared derived data) and refreshes the
+# harness copy of EP.app under its own bundle id.
+build() {
+    local log="$STATE/build.log"
+    if ! "${XCODEBUILD[@]}" -quiet build-for-testing >"$log" 2>&1; then
+        grep -E 'error:' "$log" | head -20 >&2 || tail -20 "$log" >&2
+        die "build failed (log: $log)"
+    fi
+    if [[ ! -d "$HARNESS_APP" || "$APP_PATH/Contents/MacOS" -nt "$HARNESS_APP" ||
+        -n "$(find "$APP_PATH" -newer "$HARNESS_APP/Contents/Info.plist" -print -quit)" ]]; then
+        rm -rf "$HARNESS_APP"
+        cp -Rc "$APP_PATH" "$HARNESS_APP"
+        plutil -replace CFBundleIdentifier -string "$BUNDLE_ID" "$HARNESS_APP/Contents/Info.plist"
+        codesign --force --deep --sign - --preserve-metadata=entitlements "$HARNESS_APP" 2>/dev/null
+    fi
+}
+
+preflight() {
+    if ioreg -n Root -d1 | grep -q '"CGSSessionScreenIsLocked"=Yes'; then
+        die "the screen is locked: UI tests need an unlocked session (screenshots would fail)"
+    fi
+    [[ $(find "$UITESTS_DIR" -name '*.swift' | wc -l) -gt 0 ]] || die "no UI tests"
+}
+
+# Warns when a tiling window manager decides the window size instead of the app.
+check_window_manager() {
+    if pgrep -xq AeroSpace && ! grep -qs "$BUNDLE_ID" "$HOME/.aerospace.toml" "$HOME/.config/aerospace/aerospace.toml"; then
+        say "uitest: warning: AeroSpace tiles the harness window (size ignored, your layout reflows)."
+        say "        Add to your AeroSpace config: [[on-window-detected]] if.app-id = '$BUNDLE_ID' run = 'layout floating'"
+    fi
+}
+
+# run_tests ENV… -- TESTS…: runs EPUITests without building into $STATE/last.xcresult
+# and exports its attachments to $STATE/attachments. Keeps the display awake meanwhile.
+run_tests() {
+    local env=() only=() t
+    while [[ $# -gt 0 && "$1" != -- ]]; do env+=("$1"); shift; done
+    shift
+    for t in "$@"; do only+=("-only-testing:EPUITests/$t"); done
+    if [[ -f "$STATE/dirty" ]]; then cmd_reset; fi
+    # The app's settings: fresh each run, saved address = the private backend.
+    defaults delete "$BUNDLE_ID" >/dev/null 2>&1 || true
+    defaults write "$BUNDLE_ID" serverURL -string "$API_URL"
+    RESULT="$STATE/last.xcresult"
+    rm -rf "$RESULT" "$STATE/attachments"
+    touch "$STATE/dirty"
+    caffeinate -dimu -w $$ &
+    local awake=$!
+    disown "$awake"
+    # The .xctestrun that build-for-testing wrote: no project or package resolution (~2 s faster).
+    local xctestrun
+    xctestrun="$(ls -t "$DERIVED_DATA"/Build/Products/EP_EP_*.xctestrun | head -1)"
+    env TEST_RUNNER_EP_UITEST_API="$API_URL" TEST_RUNNER_EP_UITEST_APP="$HARNESS_APP" ${env[@]+"${env[@]}"} \
+        xcodebuild test-without-building -xctestrun "$xctestrun" -destination "platform=macOS,arch=$(uname -m)" \
+        -only-testing:EPUITests ${only[@]+"${only[@]}"} ${SKIP[@]+"${SKIP[@]}"} \
+        -resultBundlePath "$RESULT" -test-timeouts-enabled YES -default-test-execution-time-allowance 120 \
+        >"$STATE/xcodebuild.log" 2>&1 || true
+    kill "$awake" 2>/dev/null || true
+    quit_apps
+    if [[ ! -d "$RESULT" ]]; then
+        tail -30 "$STATE/xcodebuild.log" >&2
+        die "xcodebuild produced no result (log: $STATE/xcodebuild.log)"
+    fi
+    xcrun xcresulttool export attachments --path "$RESULT" --output-path "$STATE/attachments" >/dev/null
+}
+
+# attachments: "<test id>\t<name>\t<file>" per screenshot, the name without the
+# exporter's "_<n>_<uuid>.png" suffix.
+attachments() {
+    jq -r '.[] | .testIdentifier as $t | .attachments[] |
+        "\($t)\t\(.suggestedHumanReadableName | sub("_[0-9]+_[0-9A-F-]+\\.png$"; ""))\t\(.exportedFileName)"' \
+        "$STATE/attachments/manifest.json"
+}
+
+# save_png SRC NAME DEST: NAME is "<name>@<w>x<h>" (window points); scales SRC (Retina
+# pixels) to points unless --2x, and prints DEST with its pixel size.
+save_png() {
+    local src="$1" size="${2##*@}" dest="$3"
+    if [[ $SCALE == 1 && "$2" == *@* ]]; then
+        sips -Z "$(tr x '\n' <<<"$size" | sort -n | tail -1)" "$src" --out "$dest" >/dev/null
+    else
+        cp "$src" "$dest"
+    fi
+    printf '%s  %s\n' "$dest" "$(sips -g pixelWidth -g pixelHeight "$dest" | awk '/pixel/ {printf "%s", (n++ ? "x" : "") $2}')"
+}
+
+# Prints one line per test (PASS/FAIL/SKIP), failure messages and failure screenshots,
+# then a summary; returns 1 if anything failed or nothing ran.
+report() {
+    local t0="$1" json failures="$STATE/failures" test name file
+    json="$(xcrun xcresulttool get test-results tests --path "$RESULT")"
+    rm -rf "$failures"
+    mkdir -p "$failures"
+    while IFS=$'\t' read -r test name file; do
+        test="${test%()}"
+        if [[ "$name" == failure* ]]; then
+            save_png "$STATE/attachments/$file" "$name" "$failures/${test//\//-}.png" >/dev/null
+        fi
+    done < <(attachments)
+    jq -r '.. | objects | select(.nodeType? == "Test Case")
+        | [.result, .nodeIdentifier, (.duration // ""),
+           ([.children[]? | select(.nodeType == "Failure Message") | .name] | join("\n"))] | @tsv' <<<"$json" |
+        while IFS=$'\t' read -r result id duration message; do
+            id="${id%()}"
+            case "$result" in
+                Passed) printf 'PASS  %s  %s\n' "$id" "$duration" ;;
+                Skipped) printf 'SKIP  %s\n' "$id" ;;
+                *)
+                    printf 'FAIL  %s  %s\n' "$id" "$duration"
+                    printf '%b\n' "$message" | sed 's/^/      /'
+                    if [[ -f "$failures/${id//\//-}.png" ]]; then
+                        printf '      screenshot: %s\n' "$failures/${id//\//-}.png"
+                    fi
+                    ;;
+            esac
+        done
+    local counts
+    counts="$(jq -r '[.. | objects | select(.nodeType? == "Test Case") | .result] |
+        "\(length) tests, \(map(select(. == "Passed")) | length) passed, \(map(select(. != "Passed" and . != "Skipped")) | length) failed"' <<<"$json")"
+    echo "$counts ($(elapsed "$t0") s). Log: $STATE/xcodebuild.log"
+    [[ "$counts" == *", 0 failed" && "$counts" != "0 tests"* ]]
+}
+
+cmd_test() {
+    local t0
+    t0="$(now)"
+    preflight
+    cmd_up
+    build
+    # Scenarios are for `shot`; `test` runs everything else unless a filter names them.
+    if [[ $# -eq 0 ]]; then SKIP=(-skip-testing:EPUITests/Scenarios); fi
+    run_tests -- "$@"
+    report "$t0"
+}
+
+SCALE=1
+SKIP=()
+cmd_shot() {
+    local appearance=light size="" out="$STATE/shots" names=() n
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --dark) appearance=dark ;;
+            --size) size="$2"; shift ;;
+            --2x) SCALE=2 ;;
+            --out) out="$2"; shift ;;
+            --list)
+                sed -n 's/.*func test\([A-Z][A-Za-z0-9]*\)().*/\1/p' "$UITESTS_DIR/Scenarios.swift" |
+                    perl -pe 's/^(.)/\l$1/'
+                return
+                ;;
+            -*) die "unknown option $1" ;;
+            *) names+=("$1") ;;
+        esac
+        shift
+    done
+    [[ ${#names[@]} -gt 0 ]] || die "usage: uitest shot [--dark] [--size WxH] [--2x] [--out DIR] SCENARIO… (or --list)"
+    local t0 tests=()
+    t0="$(now)"
+    for n in "${names[@]}"; do tests+=("Scenarios/test$(perl -e 'print ucfirst shift' "$n")"); done
+    preflight
+    cmd_up
+    build
+    check_window_manager
+    local env=(TEST_RUNNER_EP_UITEST_APPEARANCE="$appearance")
+    if [[ -n "$size" ]]; then env+=(TEST_RUNNER_EP_UITEST_SIZE="$size"); fi
+    run_tests "${env[@]}" -- "${tests[@]}"
+    mkdir -p "$out"
+    out="$(cd "$out" && pwd)"
+    local suffix="" test name file
+    [[ $appearance == light ]] || suffix="-$appearance"
+    while IFS=$'\t' read -r test name file; do
+        [[ "$name" == failure* ]] && continue
+        save_png "$STATE/attachments/$file" "$name" "$out/${name%@*}$suffix.png"
+    done < <(attachments | sort -k2)
+    # A scenario that failed: say why (with its failure screenshot).
+    if ! report "$t0" >"$STATE/shot-report.txt"; then
+        grep -v '^PASS' "$STATE/shot-report.txt"
+        return 1
+    fi
+    tail -1 "$STATE/shot-report.txt"
+}
+
+case "${1:-}" in
+    up | down | reset | status | api | shot | test)
+        cmd="$1"
+        shift
+        "cmd_$cmd" "$@"
+        ;;
+    *) sed -n '2,21s/^# \{0,1\}//p' "$0" && exit 2 ;;
+esac

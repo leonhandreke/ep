@@ -63,3 +63,13 @@ struct ColumnGridTests {
         #expect(ColumnSpec.playerBar.minimumWidth == 932)
     }
 }
+
+struct LaunchOptionsTests {
+    @Test func parsesLaunchWindowSizes() {
+        #expect(LaunchOptions.parseSize("1280x800") == CGSize(width: 1280, height: 800))
+        #expect(LaunchOptions.parseSize("1280X800") == CGSize(width: 1280, height: 800))
+        #expect(LaunchOptions.parseSize("1280") == nil)
+        #expect(LaunchOptions.parseSize("0x800") == nil)
+        #expect(LaunchOptions.parseSize("wide") == nil)
+    }
+}

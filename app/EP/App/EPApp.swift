@@ -10,6 +10,7 @@ struct EPApp: App {
         let connection = ServerConnection(serverURL: settings.serverURL)
         _settings = State(initialValue: settings)
         _connection = State(initialValue: connection)
+        LaunchOptions.applyAppearance()
         // As the unit tests' host the app stays offline: tests use their own stubs.
         if !Self.isUnitTestHost {
             Task { await connection.connect() }
@@ -26,7 +27,7 @@ struct EPApp: App {
                 .environment(settings)
                 .environment(connection)
         }
-        .defaultSize(WindowMetrics.defaultSize)
+        .defaultSize(LaunchOptions.windowSize)
         .windowToolbarStyle(.unified(showsTitle: false))
         .commands { AppCommands() }
 
