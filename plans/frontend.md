@@ -186,3 +186,35 @@ At most 15 lines: what was built; decisions made where the design or this plan w
 silent; test results; commit hashes; **Backend friction** (each item: what the UI
 needs, what the API gives, the change you would make to the backend); anything
 unverified.
+
+## Status and operating notes (updated 2026-11-16)
+
+Done: backend stages 1–8 and the fit pass (stage 0); app stage 1 (scaffold, 4665772)
+and stage 2 (harness, 9f9f532; cold smoke run passed). Stage 3 is in progress.
+
+How the remaining work is run (user's instructions, to limit usage):
+- Implementers: Opus 5.5, medium effort. **Reviewers: Sonnet.** Harness passes: Sonnet,
+  light theme only, sparingly.
+- Remaining stages are merged into fewer agents:
+  - 3 Library browsing (in progress)
+  - 4 Player (includes Ogg/Opus/WebM decoding in the app)
+  - 5+6 Detail panels and note editor
+  - 7+8 Radio view, search, sources, editing
+  - 9 Import
+  - 10 Settings, states, polish
+- Each agent is pointed at only the sections of `plans/frontend-design.md` it needs.
+- Commits are authorised; co-author line names the model that did the work.
+
+Backend items waiting for the next backend-friction round:
+- `/search?q=homgen` (the design's typo example) finds nothing.
+- A folder import with one unreadable file blocks the whole folder.
+- A cancelled job's work dir is not cleaned if the worker dies.
+
+Waiting on the user:
+- Bandcamp answers the Docker container with a bot check. Options: add yt-dlp's
+  `curl-cffi` impersonation extra, run the worker on the host, or leave it failing.
+  No circumvention is to be added without the user's decision.
+
+Environment notes: Xcode 26.3 is active; UI-automation mode is enabled; harness runs
+take focus; AeroSpace (window manager) was quit by the user — if it runs again, the
+harness window needs a floating rule for `de.ndreke.ep.uitest`.
