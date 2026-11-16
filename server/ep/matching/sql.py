@@ -11,7 +11,8 @@ text on both sides.
 
 Indexes serve the pg_trgm *operators*, not the functions: ``query <% value`` (word
 similarity of the query to the best-matching part of the value, at least
-``pg_trgm.word_similarity_threshold``) and ``LIKE``. The threshold is a setting, so
+``pg_trgm.word_similarity_threshold``), ``query <<% value`` (the same over whole words,
+``pg_trgm.strict_word_similarity_threshold``) and ``LIKE``. The threshold is a setting, so
 ``trigram_queries`` sets it for the current transaction (``set_config(..., true)``:
 reset at commit or rollback, so it never leaks into another request on a pooled
 connection). ``word_similarity`` and ``similarity`` (functions) then rank the rows found.
@@ -29,18 +30,26 @@ def word_similar(query: str, value: Mapped[str] | ColumnElement[str]) -> ColumnE
     return literal(query).bool_op("<%")(value)
 
 
-def trigram_queries(session: Session, threshold: float, *texts: str) -> list[str]:
+def strict_word_similar(query: str, value: Mapped[str] | ColumnElement[str]) -> ColumnElement[bool]:
+    """SQL ``query <<% value``: the strict word similarity (whole words of ``value``) is
+    at least the ``strict_threshold`` set by ``trigram_queries``. Index-backed."""
+    return literal(query).bool_op("<<%")(value)
+
+
+def trigram_queries(
+    session: Session, threshold: float, *texts: str, strict_threshold: float | None = None
+) -> list[str]:
     """Prepare trigram queries, in one statement: set ``pg_trgm.word_similarity_threshold``
-    (0-1) until the end of the transaction, and return ``texts`` as ``ep_normalize`` gives
-    them, i.e. normalised exactly like the stored ``*_normalized`` columns."""
+    (0-1), and ``pg_trgm.strict_word_similarity_threshold`` if given, until the end of
+    the transaction, and return ``texts`` as ``ep_normalize`` gives them, i.e.
+    normalised exactly like the stored ``*_normalized`` columns."""
+    settings = [func.set_config("pg_trgm.word_similarity_threshold", str(threshold), True)]
+    if strict_threshold is not None:
+        name = "pg_trgm.strict_word_similarity_threshold"
+        settings.append(func.set_config(name, str(strict_threshold), True))
     row = (
         session.connection()
-        .execute(
-            sa.select(
-                func.set_config("pg_trgm.word_similarity_threshold", str(threshold), True),
-                *(func.ep_normalize(text) for text in texts),
-            )
-        )
+        .execute(sa.select(*settings, *(func.ep_normalize(text) for text in texts)))
         .one()
     )
-    return list(row[1:])
+    return list(row[len(settings) :])

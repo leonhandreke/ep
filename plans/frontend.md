@@ -206,10 +206,9 @@ How the remaining work is run (user's instructions, to limit usage):
   the whole app; its brief names the sections its stage implements, to read closely.
 - Commits are authorised; co-author line names the model that did the work.
 
-Backend items waiting for the next backend-friction round:
-- `/search?q=homgen` (the design's typo example) finds nothing.
-- A folder import with one unreadable file blocks the whole folder.
-- A cancelled job's work dir is not cleaned if the worker dies.
+Backend items waiting for the next backend-friction round: none (2026-11-16 round:
+artist position lookup, versioned cover URLs, `X-Total-Count` on paged lists, dropped-
+letter search, non-blocking unreadable files, stale work-dir clean-up).
 
 Waiting on the user:
 - Bandcamp answers the Docker container with a bot check. Options: add yt-dlp's

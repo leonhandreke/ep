@@ -412,7 +412,7 @@ def test_radio_endpoints(
     run()
     [show] = client.get("/radio/shows").json()
     assert show["name"] == "The Early Bird Show w/ PAM"
-    assert show["image_url"] == f"/covers/radio-show/{show['id']}"
+    assert show["image_url"].startswith(f"/covers/radio-show/{show['id']}?v=")
     assert client.get(show["image_url"]).headers["content-type"] == "image/png"
     assert client.get(f"/radio/shows/{show['id']}").json() == {**show, "episode_count": 1}
     [episode] = client.get(f"/radio/shows/{show['id']}/episodes").json()
@@ -500,17 +500,18 @@ def test_radio_list_query_counts(
     show = session.exec(select(RadioShow)).one()
     episode = session.exec(select(RadioEpisode)).one()
     for path, expected in [
-        ("/radio/shows", 1),
-        (f"/radio/shows/{show.id}/episodes", 2),
+        # Paged lists: one more for the total.
+        ("/radio/shows", 2),
+        (f"/radio/shows/{show.id}/episodes", 3),
         # episode + show, tracks + recordings + credits, credit names, sources + ancestors
         (f"/radio/episodes/{episode.id}", 4),
         # recording, entries + episodes + shows + recording credits + slices, names,
         # slices + ancestors
         (f"/recordings/{library['ruth']['id']}/radio-appearances", 4),
         (f"/artists/{library['kozelek']['id']}/radio-appearances", 4),
-        ("/artists", 1),
-        # artist, recordings + credits, names, sources + ancestors
-        (f"/artists/{library['kozelek']['id']}/recordings", 4),
+        ("/artists", 2),
+        # artist, total, recordings + credits, names, sources + ancestors
+        (f"/artists/{library['kozelek']['id']}/recordings", 5),
     ]:
         with count_selects(session) as statements:
             response = client.get(path)

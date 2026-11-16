@@ -19,20 +19,31 @@ def test_upload_get_replace_and_delete_cover(client: TestClient, library_dir: Pa
 
     response = client.put(url, content=PNG, headers={"Content-Type": "image/png"})
     assert response.status_code == 200
-    assert response.json()["cover_url"] == url
-    assert client.get(f"/release-groups/{id}").json()["cover_url"] == url
-    stored = library_dir / "_covers" / "release-group" / f"{id}.png"
+    cover_url = response.json()["cover_url"]
+    assert cover_url.startswith(f"{url}?v=")
+    assert client.get(f"/release-groups/{id}").json()["cover_url"] == cover_url
+    [stored] = (library_dir / "_covers" / "release-group").iterdir()
     assert stored.read_bytes() == PNG
 
-    response = client.get(url)
+    # The versioned URL may be cached for good; the bare one is revalidated by ETag.
+    response = client.get(cover_url)
     assert response.status_code == 200
     assert response.headers["content-type"] == "image/png"
     assert response.content == PNG
+    assert "immutable" in response.headers["cache-control"]
+    etag = response.headers["etag"]
+    assert client.get(url).headers["cache-control"] == "no-cache"
+    assert client.get(url, headers={"If-None-Match": etag}).status_code == 304
 
-    # Replacing with another format removes the old file.
+    # Replacing the image changes the URL and the ETag, and removes the old file.
     assert client.put(url, content=JPEG, headers={"Content-Type": "image/jpeg"}).status_code == 200
+    replaced = client.get(f"/release-groups/{id}").json()["cover_url"]
+    assert replaced != cover_url
     assert not stored.exists()
-    assert client.get(url).headers["content-type"] == "image/jpeg"
+    response = client.get(url, headers={"If-None-Match": etag})
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/jpeg"
+    assert client.get(cover_url).headers["cache-control"] == "no-cache"  # an old version
 
     assert client.delete(url).status_code == 204
     assert client.get(url).status_code == 404

@@ -353,8 +353,9 @@ class Issue(Model):
     choices: list[Choice]
     # The user's answer; null while the issue is open.
     answer: Answer | None = None
-    # While open, the job does not apply. Non-blocking issues concern ``optional``
-    # tracks: the job applies without them and waits for the answer afterwards.
+    # While open, the job does not apply. Non-blocking issues (about ``optional`` tracks,
+    # failed downloads, unreadable files) leave out what they concern: the job applies
+    # without it and waits for the answer afterwards.
     blocking: bool = True
 
 

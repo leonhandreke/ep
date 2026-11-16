@@ -8,10 +8,10 @@ from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import ColumnElement
 from sqlmodel import Session, col, func, select
 
-from ep.api.deps import PageDep, SessionDep, get_or_404
+from ep.api.deps import PAGED, PageDep, Paging, SessionDep, get_or_404
 from ep.api.entities import entity_reads, get_entity_or_404
 from ep.api.errors import CONFLICT, NOT_FOUND
-from ep.api.schemas import EntityRead, Page, TagAdd, TagRead, TagUpdate
+from ep.api.schemas import EntityRead, TagAdd, TagRead, TagUpdate
 from ep.entities import load_entities
 from ep.models import EntityTag, EntityType, Tag
 from ep.notes.tags import rename_tag, tag_entity
@@ -20,7 +20,7 @@ router = APIRouter(tags=["tags"])
 
 
 def _tag_reads(
-    session: Session, *where: ColumnElement[bool], page: Page | None = None
+    session: Session, *where: ColumnElement[bool], page: Paging | None = None
 ) -> list[TagRead]:
     """Tags with their usage counts, by name (one query)."""
     count = func.count(col(EntityTag.id))
@@ -32,7 +32,7 @@ def _tag_reads(
         .order_by(func.lower(Tag.name), col(Tag.id))
     )
     if page is not None:
-        query = query.limit(page.limit).offset(page.offset)
+        query = page.apply(session, query)
     return [TagRead(id=tag.id, name=tag.name, count=n) for tag, n in session.exec(query)]
 
 
@@ -41,7 +41,7 @@ def _tag_read(session: Session, id: uuid.UUID) -> TagRead:
     return read
 
 
-@router.get("/tags")
+@router.get("/tags", responses=PAGED)
 def list_tags(
     session: SessionDep,
     page: PageDep,
@@ -78,7 +78,7 @@ def delete_tag(id: uuid.UUID, session: SessionDep) -> None:
     session.commit()
 
 
-@router.get("/tags/{id}/entities", responses=NOT_FOUND)
+@router.get("/tags/{id}/entities", responses=NOT_FOUND | PAGED)
 def list_tag_entities(
     id: uuid.UUID,
     session: SessionDep,
@@ -93,11 +93,9 @@ def list_tag_entities(
     if types:
         query = query.where(col(EntityTag.entity_type).in_(types))
     rows = session.exec(
-        query.order_by(
+        page.apply(session, query).order_by(
             col(EntityTag.entity_type), col(EntityTag.created_at).desc(), col(EntityTag.id)
         )
-        .limit(page.limit)
-        .offset(page.offset)
     ).all()
     keys = [(EntityType(entity_type), entity_id) for entity_type, entity_id in rows]
     entities = load_entities(session, keys)

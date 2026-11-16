@@ -20,6 +20,7 @@ from ep.importers.framework import (
     Importer,
     ImportFailed,
     JobContext,
+    discard_stale_work,
     job_work_dir,
 )
 from ep.importers.proposal import (
@@ -464,3 +465,21 @@ def test_worker_start_requeues_interrupted_and_lost_jobs(
         [str(job.id), str(lost.id)]
     )
     assert recover_interrupted_jobs(session) == []  # queued once only
+
+
+def test_worker_start_removes_work_dirs_of_finished_jobs(
+    session: Session, job: ImportJob, library_dir: Path
+) -> None:
+    """A worker that stopped before removing a done or dismissed job's work directory
+    (or one of a deleted job): the next one removes it, and keeps those of jobs that may
+    still use theirs (partial downloads for a retry)."""
+    failed = create_import(session, ImportKind.youtube, "https://example.com/failed")
+    failed.state = JobState.failed
+    job.state = JobState.dismissed
+    session.commit()
+    gone = uuid.uuid4()
+    for job_id in job.id, failed.id, gone:
+        (job_work_dir(library_dir, job_id) / "medium").mkdir(parents=True)
+    assert set(discard_stale_work(session, library_dir)) == {job.id, gone}
+    assert not job_work_dir(library_dir, job.id).exists()
+    assert (job_work_dir(library_dir, failed.id) / "medium").is_dir()

@@ -1,8 +1,9 @@
 import mimetypes
 import uuid
 from pathlib import Path
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from sqlmodel import Session
@@ -17,33 +18,64 @@ from ep.settings import Settings
 router = APIRouter(prefix="/covers", tags=["covers"])
 
 
-IMAGE = NOT_FOUND | {status.HTTP_200_OK: {"content": {"image/*": {}}}}
+IMAGE = NOT_FOUND | {
+    status.HTTP_200_OK: {"content": {"image/*": {}}},
+    status.HTTP_304_NOT_MODIFIED: {"description": "Not modified (``If-None-Match``)"},
+}
+# Cache an image for good when asked for by its current URL (the version changes with the
+# image); otherwise revalidate with the ETag (the version as well).
+IMMUTABLE = "public, max-age=31536000, immutable"
+REVALIDATE = "no-cache"
+
+Version = Annotated[
+    str | None,
+    Query(description="The image's version, as in the URL the API gives (``cover_url``)."),
+]
 
 
-def _image(what: str, id: uuid.UUID, path_text: str | None) -> FileResponse:
+def _image(
+    what: str, id: uuid.UUID, path_text: str | None, v: str | None, request: Request
+) -> Response:
     if not path_text or not Path(path_text).is_file():
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"{what} {id} has no image")
+    version = covers.image_version(path_text)
+    headers = {
+        "ETag": f'"{version}"',
+        "Cache-Control": IMMUTABLE if v == version else REVALIDATE,
+    }
+    if request.headers.get("if-none-match") == headers["ETag"]:
+        return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=headers)
     path = Path(path_text)
     media_type = mimetypes.guess_file_type(path)[0] or "application/octet-stream"
-    return FileResponse(path, media_type=media_type)
+    return FileResponse(path, media_type=media_type, headers=headers)
 
 
 @router.get("/release-group/{id}", response_class=FileResponse, responses=IMAGE)
-def get_release_group_cover(id: uuid.UUID, session: SessionDep) -> FileResponse:
+def get_release_group_cover(
+    id: uuid.UUID, request: Request, session: SessionDep, v: Version = None
+) -> Response:
+    """A release group's cover. Cached for good when ``v`` is the current version
+    (the URL in ``cover_url``), otherwise revalidated by ETag."""
     release_group = get_or_404(session, ReleaseGroup, id)
-    return _image("release_group", id, release_group.cover_path)
+    return _image("release_group", id, release_group.cover_path, v, request)
 
 
 @router.get("/radio-show/{id}", response_class=FileResponse, responses=IMAGE)
-def get_radio_show_image(id: uuid.UUID, session: SessionDep) -> FileResponse:
-    """A radio show's image (from the station)."""
-    return _image("radio_show", id, get_or_404(session, RadioShow, id).image_path)
+def get_radio_show_image(
+    id: uuid.UUID, request: Request, session: SessionDep, v: Version = None
+) -> Response:
+    """A radio show's image (from the station); cached as covers are."""
+    show = get_or_404(session, RadioShow, id)
+    return _image("radio_show", id, show.image_path, v, request)
 
 
 @router.get("/radio-episode/{id}", response_class=FileResponse, responses=IMAGE)
-def get_radio_episode_image(id: uuid.UUID, session: SessionDep) -> FileResponse:
-    """A radio episode's image (from the station)."""
-    return _image("radio_episode", id, get_or_404(session, RadioEpisode, id).image_path)
+def get_radio_episode_image(
+    id: uuid.UUID, request: Request, session: SessionDep, v: Version = None
+) -> Response:
+    """A radio episode's image (from the station); cached as covers are."""
+    episode = get_or_404(session, RadioEpisode, id)
+    return _image("radio_episode", id, episode.image_path, v, request)
 
 
 _IMAGE_BODY = {"schema": {"type": "string", "format": "binary"}}

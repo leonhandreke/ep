@@ -4,13 +4,20 @@ from collections import Counter
 from fastapi import APIRouter, HTTPException, status
 from pydantic import MISSING
 from sqlalchemy.orm import selectinload
-from sqlmodel import col, select
+from sqlmodel import Session, col, select
+from sqlmodel.sql.expression import SelectOfScalar
 
-from ep.api.deps import PageDep, SessionDep, SettingsDep, artist_credit_from_input, get_or_404
+from ep.api.deps import (
+    PAGED,
+    PageDep,
+    SessionDep,
+    SettingsDep,
+    artist_credit_from_input,
+    get_or_404,
+)
 from ep.api.errors import CONFLICT, NOT_FOUND, unprocessable
 from ep.api.external_ids import add_external_id_routes
 from ep.api.schemas import (
-    Page,
     ReleaseGroupCreate,
     ReleaseGroupDetail,
     ReleaseGroupRead,
@@ -111,19 +118,20 @@ def delete_release_group(id: uuid.UUID, session: SessionDep, settings: SettingsD
         remove_cover_file(cover_path, settings.library_dir)
 
 
-@router.get("/{id}/tracks", responses=NOT_FOUND)
+@router.get("/{id}/tracks", responses=NOT_FOUND | PAGED)
 def list_release_group_tracks(id: uuid.UUID, session: SessionDep, page: PageDep) -> list[TrackRead]:
     """Tracks in disc and position order, each with its recording and how to play it."""
     get_or_404(session, ReleaseGroup, id)
-    tracks = session.exec(
-        select(Track)
-        .where(Track.release_group_id == id)
-        .order_by(col(Track.disc), col(Track.position))
-        .limit(page.limit)
-        .offset(page.offset)
-        .options(with_recording)
-    ).all()
-    return track_reads(session, tracks)
+    return _track_reads(session, page.apply(session, _tracks_of(id)))
+
+
+def _tracks_of(release_group_id: uuid.UUID) -> SelectOfScalar[Track]:
+    return select(Track).where(Track.release_group_id == release_group_id)
+
+
+def _track_reads(session: Session, query: SelectOfScalar[Track]) -> list[TrackRead]:
+    ordered = query.order_by(col(Track.disc), col(Track.position)).options(with_recording)
+    return track_reads(session, session.exec(ordered).all())
 
 
 @router.put("/{id}/track-order", responses=NOT_FOUND | CONFLICT)
@@ -149,7 +157,7 @@ def set_release_group_track_order(
     for place in body.tracks:
         tracks[place.id].disc, tracks[place.id].position = place.disc, place.position
     session.commit()
-    return list_release_group_tracks(id, session, Page(limit=1000))
+    return _track_reads(session, _tracks_of(id))
 
 
 add_external_id_routes(router, ReleaseGroup, EntityType.release_group, "")

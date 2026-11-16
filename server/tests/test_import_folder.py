@@ -319,8 +319,11 @@ def test_unreadable_file(client: TestClient, session: Session, music: Path, run:
     album = sine_waves(music / "Sine Waves", tracks=2)
     (album / "3.mp3").write_bytes(b"not audio at all")
     job = post_import(client, album)
+    # The readable files are imported; the unreadable one waits in the inbox.
     assert run() == {uuid.UUID(job["id"]): JobState.needs_review}
+    assert count(session, Source) == 2
     [issue] = get_job(client, job["id"])["proposal"]["issues"]
+    assert issue["blocking"] is False
     assert issue["kind"] == "unreadable_file"
     assert issue["id"] == f"unreadable_file:{album / '3.mp3'}"
     assert issue["subject"]["type"] == "medium"

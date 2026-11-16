@@ -4,7 +4,9 @@ Input: a directory under the media roots. The importer
 
 1. fetches: lists the audio files below it (recursively; hidden entries are ignored),
    leaves out files that are already sources, reads tags with ``ep.probe`` and hashes
-   each file (an unreadable file is an ``unreadable_file`` issue, not a crash);
+   each file (an unreadable file is an ``unreadable_file`` issue, not a crash; it does
+   not hold up the job: the other files are imported, and the issue stays in the inbox
+   until it is answered: retry reads the file again, skip leaves it out);
 2. groups the files into albums: by tagged MusicBrainz release, else by album tag and
    album artist (or directory), else by directory. A directory with one cue sheet for
    one of its audio files makes that file a single-file album: one ``file`` source and a
@@ -173,6 +175,7 @@ class FolderImporter(Importer):
                 message=f"{path.name} cannot be read as audio: {e}",
                 subject=Subject(type=SubjectType.medium, key=str(path), label=str(path)),
                 choices=[Choice.skip, Choice.retry],
+                blocking=False,
             )
             if ctx.raise_issue(issue) is not None:
                 ctx.log(f"skipped unreadable file {path}")

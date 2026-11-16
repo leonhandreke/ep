@@ -19,7 +19,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import contains_eager, selectinload
 from sqlmodel import Session, col, select
 
-from ep.api.deps import PageDep, SessionDep
+from ep.api.deps import PAGED, PageDep, SessionDep
 from ep.api.entities import entity_reads, get_entity_or_404
 from ep.api.errors import NOT_FOUND
 from ep.api.schemas import (
@@ -103,7 +103,7 @@ def note_read(
     )
 
 
-@router.get("/notes/search")
+@router.get("/notes/search", responses=PAGED)
 def search_notes(
     session: SessionDep,
     page: PageDep,
@@ -119,16 +119,14 @@ def search_notes(
     document = note_document(col(Note.body))
     rank = func.ts_rank(document, query)
     headline = func.ts_headline(config, func.ep_note_text(Note.body), query, _HEADLINE_OPTIONS)
-    statement = (
-        select(Note, rank, headline)
-        .where(document.op("@@")(query))
-        .order_by(rank.desc(), col(Note.updated_at).desc(), col(Note.id))
-        .limit(page.limit)
-        .offset(page.offset)
-    )
+    statement = select(Note, rank, headline).where(document.op("@@")(query))
     if types:
         statement = statement.where(col(Note.entity_type).in_(types))
-    rows = session.exec(statement).all()
+    rows = session.exec(
+        page.apply(session, statement).order_by(
+            rank.desc(), col(Note.updated_at).desc(), col(Note.id)
+        )
+    ).all()
     sources = _sources(session, [note for note, _, _ in rows])
     return [
         NoteSearchHitRead(

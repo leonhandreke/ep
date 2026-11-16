@@ -26,6 +26,7 @@ from pydantic import (
     model_validator,
 )
 
+from ep import covers
 from ep.importers.proposal import Choice, IssueKind, LogEntry, Proposal
 from ep.links import LinkKind
 from ep.models import (
@@ -184,6 +185,13 @@ class ArtistDetail(ArtistRead):
     radio_only: bool
 
 
+class ArtistPositionRead(BaseModel):
+    # Index of the artist's row in ``GET /artists`` (the list asked about).
+    offset: int
+    # The artist at ``offset``; null if ``offset`` is past the end of the list.
+    id: uuid.UUID | None
+
+
 # Release groups
 
 
@@ -222,8 +230,9 @@ class ReleaseGroupRead(Read):
     @computed_field
     @property
     def cover_url(self) -> str | None:
-        """Path of the cover image (``GET /covers/release-group/{id}``), if there is one."""
-        return f"/covers/release-group/{self.id}" if self.cover_path else None
+        """Path of the cover image (``GET /covers/release-group/{id}``, with a version
+        that changes with the image), if there is one."""
+        return covers.image_url("release-group", self.id, self.cover_path)
 
     @computed_field
     @property
@@ -438,8 +447,8 @@ class RadioShowRead(Read):
     @computed_field
     @property
     def image_url(self) -> str | None:
-        """Path of the show's image (``GET /covers/radio-show/{id}``), if there is one."""
-        return f"/covers/radio-show/{self.id}" if self.image_path else None
+        """Path of the show's image (``GET /covers/radio-show/{id}``, versioned), if any."""
+        return covers.image_url("radio-show", self.id, self.image_path)
 
     @computed_field
     @property
@@ -477,8 +486,9 @@ class RadioEpisodeRead(Read):
     @computed_field
     @property
     def image_url(self) -> str | None:
-        """Path of the episode's image (``GET /covers/radio-episode/{id}``), if any."""
-        return f"/covers/radio-episode/{self.id}" if self.image_path else None
+        """Path of the episode's image (``GET /covers/radio-episode/{id}``, versioned), if
+        any."""
+        return covers.image_url("radio-episode", self.id, self.image_path)
 
     @computed_field
     @property

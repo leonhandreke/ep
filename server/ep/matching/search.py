@@ -7,8 +7,13 @@ Query and names/titles are compared normalised by ``ep_normalize`` (the query th
 value is a hit when it starts with the query, a word in it starts with the query (so
 that short prefixes find something: "bjo" -> "Björk", "sim" -> "Nina Simone"), or the
 query's trigram word similarity to it is at least ``SEARCH_MIN_SIMILARITY`` (finds a query
-inside a longer value, tolerates small typos). All three are served by the GIN trigram
-indexes (``LIKE`` and ``<%``, see ``ep.matching.sql``).
+inside a longer value, tolerates small typos). A one-word query of at least
+``DROPPED_LETTERS_MIN_LENGTH`` characters also finds a word it is the start of with
+letters dropped, at most one between any two of its letters ("homgen" -> "Homogenic"):
+dropped letters cost too many trigrams for word similarity, so such a word needs only
+``DROPPED_LETTERS_MIN_SIMILARITY`` strict word similarity (which makes it index-backed),
+and a regular expression keeps the hit precise. All of these are served by the GIN
+trigram indexes (``LIKE``, ``<%`` and ``<<%``, see ``ep.matching.sql``).
 
 Rank: word similarity + overall similarity (closer to the whole value) + a bonus for a
 prefix match (more for the start of the value than for the start of a later word).
@@ -27,6 +32,7 @@ show (for the hit's subtitle). Artists and recordings only known from radio trac
 (``ep.radio``) are left out unless ``include_radio_only``.
 """
 
+import re
 import uuid
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -37,7 +43,7 @@ from sqlalchemy.orm import Mapped, QueryableAttribute, contains_eager, joinedloa
 from sqlmodel import Session, col, select
 from sqlmodel.sql.expression import SelectOfScalar
 
-from ep.matching.sql import trigram_queries, word_similar
+from ep.matching.sql import strict_word_similar, trigram_queries, word_similar
 from ep.models import (
     Artist,
     ArtistCredit,
@@ -56,6 +62,8 @@ from ep.radio import visible_artists, visible_recordings
 SEARCH_MIN_SIMILARITY = 0.5
 PREFIX_BONUS = 1.0
 WORD_PREFIX_BONUS = 0.5
+DROPPED_LETTERS_MIN_LENGTH = 4
+DROPPED_LETTERS_MIN_SIMILARITY = 0.25
 # Longer queries are not split into artist and title (2 * words - 1 selects).
 COMBINED_MAX_WORDS = 6
 
@@ -125,7 +133,9 @@ def search(
 ) -> list[SearchHit]:
     """The best ``limit`` hits across ``types`` (of ``SEARCH_TYPES``), best first; at
     most ``per_type`` of each type; only entities with the tag ``tag_id``."""
-    [normalized] = trigram_queries(session, SEARCH_MIN_SIMILARITY, query)
+    [normalized] = trigram_queries(
+        session, SEARCH_MIN_SIMILARITY, query, strict_threshold=DROPPED_LETTERS_MIN_SIMILARITY
+    )
     words = normalized.split()
     if not words:
         return []
@@ -163,6 +173,12 @@ def _hit_and_rank(
     starts = target.startswith(query)
     word_starts = target.contains(" " + query)
     hit = starts | word_starts | word_similar(query, target)
+    if " " not in query and len(query) >= DROPPED_LETTERS_MIN_LENGTH:
+        # Each letter of the query, in order, at most one dropped letter in between,
+        # from the start of a word. The normalised query has only letters and digits.
+        letters = "[^ ]?".join(re.escape(letter) for letter in query)
+        dropped = strict_word_similar(query, target) & target.regexp_match(f"(^| ){letters}")
+        hit = hit | dropped
     rank: ColumnElement[float] = (
         func.word_similarity(query, target)
         + func.similarity(query, target)

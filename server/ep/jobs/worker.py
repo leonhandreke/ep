@@ -3,7 +3,8 @@
 Runs the Procrastinate worker for the import queue with concurrency 1 (one import at a
 time: MusicBrainz is rate limited per process, and imports are I/O on the same disks)
 and, in the same event loop, the watcher (``ep.jobs.watcher``). On start, jobs a
-previous worker left running are queued again.
+previous worker left running are queued again, and the work directories of finished
+or dismissed jobs it did not get to remove are removed.
 """
 
 import asyncio
@@ -12,6 +13,7 @@ import logging
 from sqlmodel import Session
 
 from ep.db import get_engine
+from ep.importers.framework import discard_stale_work
 from ep.jobs.queue import IMPORT_QUEUE, app
 from ep.jobs.tasks import recover_interrupted_jobs
 from ep.jobs.watcher import Watcher
@@ -24,6 +26,8 @@ def _recover() -> None:
     with Session(get_engine()) as session:
         if recovered := recover_interrupted_jobs(session):
             logger.info("queued %d interrupted import job(s) again", len(recovered))
+        if removed := discard_stale_work(session, get_settings().library_dir):
+            logger.info("removed the work directories of %d finished job(s)", len(removed))
 
 
 async def main() -> None:

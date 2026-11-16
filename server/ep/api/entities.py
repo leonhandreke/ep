@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from fastapi import HTTPException, status
 from sqlmodel import Session, col, select
 
+from ep import covers
 from ep.api.schemas import EntityRead
 from ep.entities import entity_type_of, link_ref, mbid_of, resolve_ref
 from ep.models import (
@@ -28,10 +29,6 @@ def get_entity_or_404(session: Session, entity_type: EntityType, ref: uuid.UUID)
     if (entity := resolve_ref(session, entity_type, ref, summary=True)) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"{entity_type} {ref} not found")
     return entity
-
-
-def _release_group_cover(id: uuid.UUID) -> str:
-    return f"/covers/release-group/{id}"
 
 
 @dataclass(frozen=True)
@@ -60,7 +57,8 @@ def recording_albums(
     for recording_id, release_group_id, title, cover_path in rows:
         album = albums.get(recording_id) or RecordingAlbum(title=title)
         if album.cover_url is None and cover_path:
-            album = RecordingAlbum(album.title, _release_group_cover(release_group_id))
+            cover = covers.image_url("release-group", release_group_id, cover_path)
+            album = RecordingAlbum(album.title, cover)
         albums[recording_id] = album
     return albums
 
@@ -75,7 +73,7 @@ def entity_read(entity: Base, albums: dict[uuid.UUID, RecordingAlbum]) -> Entity
             title, subtitle, cover = entity.name, entity.disambiguation or None, None
         case ReleaseGroup():
             title, subtitle = entity.title, entity.artist_credit.name
-            cover = _release_group_cover(entity.id) if entity.cover_path else None
+            cover = covers.image_url("release-group", entity.id, entity.cover_path)
             release_group_type, date = entity.type, entity.date
         case Recording():
             album = albums.get(entity.id, RecordingAlbum())
@@ -83,12 +81,12 @@ def entity_read(entity: Base, albums: dict[uuid.UUID, RecordingAlbum]) -> Entity
             length, album_title = entity.length_ms, album.title
         case RadioShow():
             title, subtitle = entity.name, entity.station.upper()
-            cover = f"/covers/radio-show/{entity.id}" if entity.image_path else None
+            cover = covers.image_url("radio-show", entity.id, entity.image_path)
         case RadioEpisode():
             title, subtitle = entity.name, entity.show.name
             if entity.broadcast_at is not None:
                 date = f"{entity.broadcast_at:%Y-%m-%d}"
-            cover = f"/covers/radio-episode/{entity.id}" if entity.image_path else None
+            cover = covers.image_url("radio-episode", entity.id, entity.image_path)
         case _:
             raise TypeError(f"unexpected entity {entity!r}")
     entity_type = entity_type_of(entity)

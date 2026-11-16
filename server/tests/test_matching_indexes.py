@@ -25,6 +25,7 @@ CASES: list[tuple[str, Callable[[Session], object]]] = [
     ("match_release_group", lambda s: match_release_group(s, "Pastel Blues", artist="Nina")),
     ("search_one_word", lambda s: search(s, "sinner")),
     ("search_artist_title", lambda s: search(s, "nina simone sinnerman")),
+    ("search_dropped_letters", lambda s: search(s, "sinrman")),
 ]
 
 

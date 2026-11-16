@@ -78,13 +78,14 @@ def build_library(client: TestClient, audio_file: Path, size: int) -> dict[str, 
     return {"artist": nina["id"], "release_group": album["id"], "recording": recording["id"]}
 
 
+# Paged lists (``PageDep``) count their rows for ``X-Total-Count``: one statement more.
 CASES: list[tuple[str, Callable[[dict[str, str]], str], int]] = [
-    # release group, tracks + recordings + credits, credit names, sources + ancestors
-    ("release_group_tracks", lambda ids: f"/release-groups/{ids['release_group']}/tracks", 4),
-    # artist, release groups + credits, credit names
-    ("artist_release_groups", lambda ids: f"/artists/{ids['artist']}/release-groups", 3),
+    # release group, total, tracks + recordings + credits, credit names, sources + ancestors
+    ("release_group_tracks", lambda ids: f"/release-groups/{ids['release_group']}/tracks", 5),
+    # artist, total, release groups + credits, credit names
+    ("artist_release_groups", lambda ids: f"/artists/{ids['artist']}/release-groups", 4),
     # ... and sources + ancestors (playability)
-    ("artist_recordings", lambda ids: f"/artists/{ids['artist']}/recordings", 4),
+    ("artist_recordings", lambda ids: f"/artists/{ids['artist']}/recordings", 5),
     # artist, its counts (one statement)
     ("artist_detail", lambda ids: f"/artists/{ids['artist']}", 2),
     # recording + credit + tracks + release groups + their credits, names for each
@@ -131,7 +132,7 @@ def test_list_endpoint_query_count(client: TestClient, session: Session, audio_d
 
 def test_import_lists_query_count(client: TestClient, session: Session, settings: Settings) -> None:
     """One statement per list, however many jobs (with proposals) or watch dirs; the
-    job list one more for the queue order (queued jobs)."""
+    job list one more for its total and one for the queue order (queued jobs)."""
     music = settings.media_roots[2]
     counts = []
     for size in (1, 5):
@@ -147,7 +148,7 @@ def test_import_lists_query_count(client: TestClient, session: Session, settings
                 response = client.get(list_path)
             assert response.status_code == 200
             counts.append(len(statements))
-    assert counts == [2, 1, 2, 1]
+    assert counts == [3, 1, 3, 1]
 
 
 def build_notes(client: TestClient, size: int) -> dict[str, str]:
@@ -183,11 +184,11 @@ NOTE_CASES: list[tuple[str, Callable[[dict[str, str]], str], int]] = [
     ("backlinks", lambda ids: f"/backlinks/artist/{ids['target']}", 8),
     # entity; note; its links; link targets per type (3); covers
     ("note", lambda ids: f"/notes/recording/{ids['recording']}", 7),
-    # notes; owners per type (3); covers
-    ("note_search", lambda ids: f"/notes/search?q={ids['word']}", 5),
-    ("tags", lambda ids: "/tags", 1),
-    # tag; tagged rows; entities per type (3); covers
-    ("tag_entities", lambda ids: f"/tags/{ids['tag']}/entities", 6),
+    # total; notes; owners per type (3); covers (paged lists: one more for the total)
+    ("note_search", lambda ids: f"/notes/search?q={ids['word']}", 6),
+    ("tags", lambda ids: "/tags", 2),
+    # tag; total; tagged rows; entities per type (3); covers
+    ("tag_entities", lambda ids: f"/tags/{ids['tag']}/entities", 7),
     # entity; tags with counts
     ("entity_tags", lambda ids: f"/entity-tags/artist/{ids['target']}", 2),
     # entity; note (none: no links); tags; backlinks (as above, less the entity);

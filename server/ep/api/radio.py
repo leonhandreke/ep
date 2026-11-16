@@ -15,7 +15,7 @@ from sqlalchemy import ColumnElement, or_
 from sqlalchemy.orm import contains_eager, joinedload, selectinload
 from sqlmodel import Session, col, func, select
 
-from ep.api.deps import PageDep, SessionDep, SettingsDep, get_or_404, get_or_422
+from ep.api.deps import PAGED, PageDep, SessionDep, SettingsDep, get_or_404, get_or_422
 from ep.api.errors import CONFLICT, NOT_FOUND, unprocessable
 from ep.api.schemas import (
     RadioAppearanceRead,
@@ -79,14 +79,11 @@ def _protected(session: Session, settings: Settings) -> list[Path]:
 # Shows
 
 
-@router.get("/shows")
+@router.get("/shows", responses=PAGED)
 def list_radio_shows(session: SessionDep, page: PageDep) -> list[RadioShowRead]:
     """Radio shows, by name."""
     shows = session.exec(
-        select(RadioShow)
-        .order_by(col(RadioShow.name), col(RadioShow.id))
-        .limit(page.limit)
-        .offset(page.offset)
+        page.apply(session, select(RadioShow)).order_by(col(RadioShow.name), col(RadioShow.id))
     )
     return [RadioShowRead.model_validate(show) for show in shows]
 
@@ -129,19 +126,14 @@ def delete_radio_show(
     _remove_files(files)
 
 
-@router.get("/shows/{id}/episodes", responses=NOT_FOUND)
+@router.get("/shows/{id}/episodes", responses=NOT_FOUND | PAGED)
 def list_radio_show_episodes(
     id: uuid.UUID, session: SessionDep, page: PageDep
 ) -> list[RadioEpisodeRead]:
     """A show's episodes, newest first."""
     get_or_404(session, RadioShow, id)
-    episodes = session.exec(
-        select(RadioEpisode)
-        .where(RadioEpisode.show_id == id)
-        .order_by(*_episode_order)
-        .limit(page.limit)
-        .offset(page.offset)
-    )
+    query = select(RadioEpisode).where(RadioEpisode.show_id == id)
+    episodes = session.exec(page.apply(session, query).order_by(*_episode_order))
     return [RadioEpisodeRead.model_validate(episode) for episode in episodes]
 
 

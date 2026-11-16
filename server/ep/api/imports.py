@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy import select as sa_select
 from sqlmodel import Session, col, func, select
 
-from ep.api.deps import PageDep, SessionDep, SettingsDep, get_or_404
+from ep.api.deps import PAGED, PageDep, SessionDep, SettingsDep, get_or_404
 from ep.api.entities import entity_reads
 from ep.api.errors import CONFLICT, NOT_FOUND, ErrorRead, unprocessable
 from ep.api.schemas import (
@@ -343,7 +343,7 @@ def get_imports_summary(session: SessionDep) -> ImportsSummaryRead:
     )
 
 
-@router.get("")
+@router.get("", responses=PAGED)
 def list_import_jobs(
     session: SessionDep,
     settings: SettingsDep,
@@ -360,9 +360,7 @@ def list_import_jobs(
     if kind:
         statement = statement.where(ImportJob.kind == kind)
     jobs = session.exec(
-        statement.order_by(col(ImportJob.created_at).desc(), col(ImportJob.id))
-        .limit(page.limit)
-        .offset(page.offset)
+        page.apply(session, statement).order_by(col(ImportJob.created_at).desc(), col(ImportJob.id))
     ).all()
     return job_summaries(session, settings, jobs)
 

@@ -2,10 +2,12 @@
 
 import uuid
 from collections.abc import Sequence
-from typing import Annotated
+from dataclasses import dataclass
+from typing import Annotated, Any
 
-from fastapi import Depends, HTTPException, Query, status
-from sqlmodel import Session, SQLModel
+from fastapi import Depends, HTTPException, Query, Response, status
+from sqlalchemy.sql.selectable import GenerativeSelect
+from sqlmodel import Session, SQLModel, func, select
 
 from ep.api.errors import unprocessable
 from ep.api.schemas import ArtistCreditNameIn, Page
@@ -16,7 +18,44 @@ from ep.settings import Settings, get_settings
 
 SessionDep = Annotated[Session, Depends(get_session)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
-PageDep = Annotated[Page, Query()]
+
+TOTAL_COUNT = "X-Total-Count"
+PAGED: dict[int | str, dict[str, Any]] = {
+    status.HTTP_200_OK: {
+        "headers": {
+            TOTAL_COUNT: {
+                "description": "Number of items in the whole list (all pages).",
+                "required": True,
+                "schema": {"type": "integer"},
+            }
+        }
+    }
+}
+"""``responses=`` of every endpoint that takes ``PageDep``."""
+
+
+@dataclass
+class Paging:
+    """``limit``/``offset`` of a list endpoint (``Page``), which also reports the number
+    of items in the whole list in the ``X-Total-Count`` header (``PAGED``)."""
+
+    limit: int
+    offset: int
+    response: Response
+
+    def apply[Q: GenerativeSelect](self, session: Session, query: Q) -> Q:
+        """``query`` limited to this page; counts all its rows for the header."""
+        rows = query.order_by(None).subquery()
+        total = session.exec(select(func.count()).select_from(rows)).one()
+        self.response.headers[TOTAL_COUNT] = str(total)
+        return query.limit(self.limit).offset(self.offset)
+
+
+def _paging(page: Annotated[Page, Query()], response: Response) -> Paging:
+    return Paging(page.limit, page.offset, response)
+
+
+PageDep = Annotated[Paging, Depends(_paging)]
 
 
 def get_or_404[T: SQLModel](session: Session, model: type[T], id: uuid.UUID) -> T:

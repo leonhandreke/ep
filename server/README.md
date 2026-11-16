@@ -64,6 +64,10 @@ uv run alembic revision --autogenerate -m "add catalogue"
   joins on (Postgres does not index foreign keys) unless a unique constraint starts
   with it.
 
+- Paged lists take `limit` (1–1000, default 100) and `offset` (`ep.api.deps.PageDep`)
+  and return a bare JSON array; every one reports the length of the whole list (with
+  its filters) in the `X-Total-Count` header (`Paging.apply`; `responses=PAGED`
+  documents it, `tests/test_openapi.py` checks that every endpoint with `offset` does).
 - The OpenAPI document is committed as `openapi.json` (clients are generated from it):
   `uv run python -m ep.openapi` rewrites it, `--check` tells whether it is current, and
   `tests/test_openapi.py` fails when it is stale. Operation IDs are the endpoint function
@@ -128,7 +132,10 @@ uv run alembic revision --autogenerate -m "add catalogue"
   episodes, radio-only), `GET /release-groups/{id}` (tracks, discs, length, tracks per
   play state, kinds of link of link-only tracks), `GET /radio/shows/{id}` (episodes).
   `GET /artists?q=` filters by name (index-backed `LIKE` on the normalised columns, in
-  sort order; `/search` ranks).
+  sort order; `/search` ranks). `GET /artists/position` (same `include_radio_only` and
+  `q`) gives the offset of a row in that list, for loading the page that has it: of an
+  artist (`id`; navigate-to) or of the first artist sorting at or after a text
+  (`sort_name`; type-to-select, in the database collation's order, the list's own).
 - Edits: `PUT /release-groups/{id}/track-order` (every track's disc and position in
   one request), `POST /tracks` with `new_recording` (credited like the release group
   unless given) and an optional position (default: last on its disc), credits with
@@ -227,6 +234,10 @@ docker rm -f ep-harness-db && rm -rf "$D"     # tear down
 - Covers are uploaded with `PUT /covers/release-group/{id}` (the image file as the
   body) and stored in
   `EP_LIBRARY_DIR/_covers/` (`ep.covers`), never next to files in watched directories.
+  A stored image's file name has a hash of its content, and its URL (`cover_url`,
+  `image_url`, `EntityRead.cover_url`) a version `?v=` derived from the path: a new
+  image is a new URL. `GET /covers/...` answers `Cache-Control: immutable` (a year) for
+  the current `v`, else `no-cache`, with the version as `ETag` (`If-None-Match` → 304).
 
 ## MusicBrainz, matching, search
 
@@ -260,7 +271,10 @@ docker rm -f ep-harness-db && rm -rf "$D"     # tear down
 - `GET /search?q=` (autocomplete) ranks by trigram word similarity of the normalised
   text plus a prefix bonus, so short prefixes work ("bjo" finds "Björk"); a query of
   several words also matches "artist title" of recordings and release groups ("nina
-  simone sinnerman"). `GET /resolve/{type}/{id}` finds an entity by internal ID or
+  simone sinnerman"). A one-word query of 4+ characters also finds a word it starts
+  with letters dropped, one at most between two of its letters ("homgen" finds
+  "Homogenic"): strict word similarity ≥ 0.25 (`<<%`, index-backed) and a regular
+  expression for precision. `GET /resolve/{type}/{id}` finds an entity by internal ID or
   MBID (or a release group by its release MBID).
 - Matching and search run in Postgres on indexes: `artist.name`, `artist.sort_name`, `artist_credit.name`,
   `release_group.title` and `recording.title` each have a stored generated
@@ -330,7 +344,8 @@ docker rm -f ep-harness-db && rm -rf "$D"     # tear down
   importer again), reads the file's facts, and on apply links (or moves) it to
   `Importer.library_path` in the library (default `Artist/Release Group/NN Title.ext`),
   undone if the transaction fails. The work directory is deleted when the job is done or
-  dismissed. A medium whose origin is already the parent of a file source is not
+  dismissed, and at worker start for such jobs (and deleted ones) if a worker stopped
+  first (`discard_stale_work`). A medium whose origin is already the parent of a file source is not
   downloaded again.
 - A new importer: subclass `Importer`, register it in `ep.jobs.tasks.IMPORTERS`, describe
   everything as `Proposal` items (single-file albums: tracks with `start_ms`/`end_ms` on
@@ -338,7 +353,8 @@ docker rm -f ep-harness-db && rm -rf "$D"     # tear down
   catalogue (radio) go in further `Proposal` fields and `Importer.apply`, which gets the
   recordings and sources the tracks became (`Applied`), in the apply transaction.
 - Folder importer (`ep.importers.folder`): see its docstring. Files are indexed in place
-  (`managed=false`, with `sha256`); covers go through `ep.covers`.
+  (`managed=false`, with `sha256`); covers go through `ep.covers`. An unreadable file
+  is a non-blocking `unreadable_file` issue: the rest of the folder is imported.
 - Resolving to MusicBrainz is shared (`ep.importers.resolve`): `search_release` (title,
   artist, track count; a few candidates fetched and checked by position and length;
   otherwise-exact candidates that do not fit are an `uncertain_metadata` issue),

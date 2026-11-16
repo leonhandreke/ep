@@ -58,17 +58,24 @@ def test_search_word_prefix_and_typos(client: TestClient) -> None:
     assert titles(search(client, "nian simone"))[0] == "Nina Simone"
 
 
+def test_search_finds_words_with_dropped_letters(client: TestClient) -> None:
+    bjork = make_artist(client, "Björk")
+    make_release_group(client, bjork, "Homogenic")
+    for other in ("Home Again", "Homegrown", "Hogan", "Gene"):
+        make_release_group(client, bjork, other)
+    assert titles(search(client, "homgen", types="release_group")) == ["Homogenic"]
+    assert titles(search(client, "hmogenic", types="release_group")) == ["Homogenic"]
+    assert search(client, "hmgn", types="release_group") == []  # too many dropped
+
+
 def test_search_across_types_with_subtitles_and_covers(client: TestClient) -> None:
     nina = make_artist(client, "Nina Simone")
     pastel = make_release_group(client, nina, "Pastel Blues")
-    assert (
-        client.put(
-            f"/covers/release-group/{pastel['id']}",
-            content=COVER,
-            headers={"Content-Type": "image/png"},
-        ).status_code
-        == 200
-    )
+    cover_url = client.put(
+        f"/covers/release-group/{pastel['id']}",
+        content=COVER,
+        headers={"Content-Type": "image/png"},
+    ).json()["cover_url"]
     sinnerman = make_recording(client, nina, "Sinnerman")
     make_track(client, pastel, sinnerman)
     loose = make_recording(client, nina, "Sinnerman (live)")
@@ -79,14 +86,14 @@ def test_search_across_types_with_subtitles_and_covers(client: TestClient) -> No
         ("recording", "Sinnerman (live)"),
     ]
     assert hits[0]["subtitle"] == "Nina Simone"
-    assert hits[0]["cover_url"] == f"/covers/release-group/{pastel['id']}"
+    assert hits[0]["cover_url"] == cover_url
     assert hits[1]["id"] == loose["id"]
     assert hits[1]["cover_url"] is None
 
     [rg] = search(client, "pastel")
     assert rg["type"] == "release_group"
     assert rg["subtitle"] == "Nina Simone"
-    assert rg["cover_url"] == f"/covers/release-group/{pastel['id']}"
+    assert rg["cover_url"] == cover_url
 
 
 def test_search_types_and_limit(client: TestClient) -> None:

@@ -49,9 +49,37 @@ def test_list_artists_by_sort_name_with_pagination(client: TestClient) -> None:
     make_artist(client, "ABBA")
     names = [a["name"] for a in client.get("/artists").json()]
     assert names == ["ABBA", "The Beatles", "Can"]
-    page = client.get("/artists", params={"limit": 1, "offset": 1}).json()
-    assert [a["name"] for a in page] == ["The Beatles"]
+    response = client.get("/artists", params={"limit": 1, "offset": 1})
+    assert [a["name"] for a in response.json()] == ["The Beatles"]
+    assert response.headers["X-Total-Count"] == "3"
+    assert client.get("/artists", params={"q": "b"}).headers["X-Total-Count"] == "2"
     assert client.get("/artists", params={"limit": 0}).status_code == 422
+
+
+def test_artist_position_in_the_list(client: TestClient) -> None:
+    abba = make_artist(client, "ABBA")
+    beatles = make_artist(client, "The Beatles", sort_name="Beatles, The")
+    bjork = make_artist(client, "Björk")
+    can = make_artist(client, "Can")
+
+    def position(**params: str) -> dict:
+        response = client.get("/artists/position", params=params)
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    # Type-to-select: the first artist at or after the text, ignoring case and accents.
+    assert position(sort_name="bjo") == {"offset": 2, "id": bjork["id"]}
+    assert position(sort_name="B") == {"offset": 1, "id": beatles["id"]}
+    assert position(sort_name="zz") == {"offset": 4, "id": None}
+    # Navigate-to: where an artist is, in the list with the same filter.
+    assert position(id=can["id"]) == {"offset": 3, "id": can["id"]}
+    assert position(id=can["id"], q="c") == {"offset": 0, "id": can["id"]}
+    assert position(sort_name="bk", q="a") == {"offset": 2, "id": can["id"]}  # no Björk
+    response = client.get("/artists/position", params={"id": bjork["id"], "q": "c"})
+    assert response.status_code == 404  # filtered out
+    assert client.get("/artists/position").status_code == 422
+    both = {"id": abba["id"], "sort_name": "a"}
+    assert client.get("/artists/position", params=both).status_code == 422
 
 
 def test_update_artist(client: TestClient) -> None:

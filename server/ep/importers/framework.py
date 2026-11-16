@@ -11,9 +11,10 @@ framework does the rest, identically for every kind:
 - ``run_job``: the job state machine. A job with open (blocking) issues stops at
   ``needs_review``; answers (``record_answers``) re-run it from the start, each stage
   consulting the answers by issue id, until nothing is open. Then it downloads and
-  applies. Issues about ``optional`` tracks (radio tracklist entries) do not block: the
-  job applies without those tracks and stays in ``needs_review`` until they are
-  answered (re-running it then adds them; everything else is reused);
+  applies. Issues about ``optional`` tracks (radio tracklist entries), failed downloads
+  and unreadable files do not block: the job applies without what they concern and
+  stays in ``needs_review`` until they are answered (re-running it then adds it;
+  everything else is reused);
 - downloads (``_download``): cover URLs are fetched (``Importer.fetch_cover``) and
   each pending medium is downloaded into its own work
   directory of the job (``job_work_dir``), which survives failures and re-runs: a
@@ -152,12 +153,39 @@ CANCELLABLE = frozenset({JobState.queued, JobState.running})
 def job_work_dir(library_dir: Path, job_id: uuid.UUID) -> Path:
     """Where a job keeps its downloads until it is done or dismissed (hidden, so that a
     folder import of the library never picks up a partial download)."""
-    return library_dir / ".downloads" / str(job_id)
+    return _downloads_dir(library_dir) / str(job_id)
+
+
+def _downloads_dir(library_dir: Path) -> Path:
+    return library_dir / ".downloads"
 
 
 def discard_work(library_dir: Path, job_id: uuid.UUID) -> None:
     """Remove a job's work directory (downloads not applied); for done or dismissed jobs."""
     shutil.rmtree(job_work_dir(library_dir, job_id), ignore_errors=True)
+
+
+def discard_stale_work(session: Session, library_dir: Path) -> list[uuid.UUID]:
+    """Remove the work directories that ``discard_work`` should have removed (a worker
+    stopped first): those of done or dismissed jobs and of jobs that no longer exist.
+    For worker start-up. Returns the jobs whose directory was removed."""
+    root = _downloads_dir(library_dir)
+    found: dict[uuid.UUID, Path] = {}
+    for path in root.iterdir() if root.is_dir() else ():
+        try:
+            found[uuid.UUID(path.name)] = path
+        except ValueError:
+            continue  # not a job's
+    live = session.exec(
+        select(ImportJob.id).where(
+            col(ImportJob.id).in_(found),
+            col(ImportJob.state).not_in([JobState.done, JobState.dismissed]),
+        )
+    ).all()
+    stale = sorted(set(found) - set(live), key=str)
+    for job_id in stale:
+        discard_work(library_dir, job_id)
+    return stale
 
 
 class JobContext:

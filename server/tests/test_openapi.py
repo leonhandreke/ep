@@ -79,6 +79,20 @@ def test_error_responses_are_documented(client: TestClient) -> None:
     assert "404" not in schema["paths"]["/artists"]["get"]["responses"]
 
 
+def test_paged_lists_document_their_total(client: TestClient) -> None:
+    schema = client.get("/openapi.json").json()
+    paged = [
+        (path, method)
+        for path, operations in schema["paths"].items()
+        for method, operation in operations.items()
+        if any(p["name"] == "offset" for p in operation.get("parameters", []))
+    ]
+    assert ("/artists/{id}/release-groups", "get") in paged
+    for path, method in paged:
+        headers = schema["paths"][path][method]["responses"]["200"].get("headers", {})
+        assert headers.get("X-Total-Count", {}).get("required") is True, path
+
+
 def test_stream_is_documented_as_audio(client: TestClient) -> None:
     schema = client.get("/openapi.json").json()
     responses = schema["paths"]["/sources/{id}/stream"]["get"]["responses"]

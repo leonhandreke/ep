@@ -109,7 +109,7 @@ def test_links_resolve_by_mbid_or_id_with_chips(client: TestClient) -> None:
         "mbid": None,
         "title": "Sinnerman",
         "subtitle": "Nina Simone",
-        "cover_url": f"/covers/release-group/{album['id']}",
+        "cover_url": cover.json()["cover_url"],
         "release_group_type": None,
         "date": None,
         "length_ms": None,
@@ -450,14 +450,15 @@ def test_note_search_uses_the_index(client: TestClient, session: Session) -> Non
     finally:
         event.remove(connection, "before_cursor_execute", capture)
     assert hit["source"]["id"] == nina["id"]
-    [(statement, parameters)] = statements
+    assert len(statements) == 2  # the total and the page
     # A tiny table: without these, Postgres scans it anyway.
     connection.execute(text("SET LOCAL enable_seqscan = off"))
     connection.execute(text("SET LOCAL enable_indexscan = off"))
-    plan = "\n".join(
-        line for (line,) in connection.exec_driver_sql("EXPLAIN " + statement, parameters)
-    )
-    assert "ix_note_search" in plan, plan
+    for statement, parameters in statements:
+        plan = "\n".join(
+            line for (line,) in connection.exec_driver_sql("EXPLAIN " + statement, parameters)
+        )
+        assert "ix_note_search" in plan, plan
 
 
 def test_a_uuid_names_entities_of_each_type_separately(client: TestClient) -> None:
