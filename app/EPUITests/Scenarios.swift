@@ -11,6 +11,52 @@ final class Scenarios: EPUITestCase {
         screenshot("main")
     }
 
+    /// Library: Björk → Homogenic (every track state but slice and excerpt), Jóga selected.
+    func testLibraryAlbum() throws {
+        let app = try launchConnected()
+        app.row("artists", id: Seed.bjork).click()
+        waitFor(app.row("releaseGroups", id: Seed.homogenic)).click()
+        waitFor(app.row("tracks", id: Seed.jogaTrack)).click()
+        waitForText("Jóga", in: app.element("detail.track.title"))
+        screenshot("libraryAlbum")
+    }
+
+    /// Library: Björk's "Loose tracks" entry selected.
+    func testLibraryLooseTracks() throws {
+        let app = try launchConnected()
+        app.row("artists", id: Seed.bjork).click()
+        waitFor(app.row("releaseGroups", id: "looseTracks")).click()
+        waitForText("Loose tracks", in: app.element("tracks.header"))
+        waitFor(app.element("tracks.list"))
+        screenshot("libraryLooseTracks")
+    }
+
+    /// Library: an artist with no releases (Mùm, credited on nothing).
+    func testLibraryNoReleases() throws {
+        let app = try launchConnected()
+        app.row("artists", id: Seed.mum).click()
+        waitFor(app.element("releaseGroups.empty"))
+        screenshot("libraryNoReleases")
+    }
+
+    /// Library: Fennesz → Agora, an album with nothing that plays (banner).
+    func testLibraryNoPlayable() throws {
+        let app = try launchConnected()
+        app.row("artists", id: Seed.fennesz).click()
+        waitFor(app.row("releaseGroups", id: Seed.agora)).click()
+        waitFor(app.element("tracks.banner"))
+        screenshot("libraryNoPlayable")
+    }
+
+    /// Library: radio-only artists shown; Beverly Glenn-Copeland (known from radio only).
+    func testLibraryRadioOnly() throws {
+        let app = try launchConnected()
+        app.element("artists.radioOnly").click()
+        waitFor(app.row("artists", id: Seed.glennCopeland)).click()
+        waitFor(app.element("releaseGroups.empty"))
+        screenshot("libraryRadioOnly")
+    }
+
     /// The main window switched to Radio.
     func testRadio() throws {
         let app = try launchConnected()

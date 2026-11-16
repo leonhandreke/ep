@@ -7,8 +7,9 @@ final class ConnectionFlowTests: EPUITestCase {
         let api = try Harness.requireAPI()
         // The saved address (uitest sets it to the private backend), so Settings can edit it.
         let app = try launch(server: .saved)
-        let main = app.window(containing: "connection.status")
-        waitForText("Connected to \(api.host()!):\(api.port!)", in: main.element("connection.status"))
+        let main = app.window(containing: "artists.column")
+        // Connected: the artists column lists the seeded artists.
+        waitFor(main.row("artists", id: Seed.bjork), timeout: 15)
 
         app.typeKey(",", modifierFlags: .command)
         let settings = app.window(containing: "settings.serverURL")
@@ -26,7 +27,8 @@ final class ConnectionFlowTests: EPUITestCase {
         address.replaceText(with: "127.0.0.1:9")
         waitForText("Not reachable", in: status)
         waitFor(main.element("connection.banner"))
-        waitForText("Not connected", in: main.element("connection.status"))
+        // What was loaded stays visible while unreachable.
+        XCTAssertTrue(main.row("artists", id: Seed.bjork).exists)
 
         // Back to the private backend.
         address.replaceText(with: api.absoluteString)

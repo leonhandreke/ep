@@ -61,3 +61,16 @@ struct HarnessError: Error, CustomStringConvertible {
     let description: String
     init(_ description: String) { self.description = description }
 }
+
+/// IDs from the seeded demo library (`ep.seed`: deterministic IDs).
+enum Seed {
+    static let bjork = "c100693e-b568-5ae6-9048-cada7a052a49"
+    static let mum = "eede71ed-2e3c-58d6-9d0f-939c663768bf"
+    static let fennesz = "4b85c2f2-4f70-5980-8394-00da568b1312"
+    static let glennCopeland = "4a547d21-9b55-5eae-b141-eba121acca0f"
+    static let homogenic = "b05eeaa0-9ef9-5e93-9bd4-72e74a3f73f2"
+    static let vespertine = "4097e792-0ffd-542d-a5d9-0149722906ca"
+    static let agora = "98bbb7ab-bd36-5f60-9235-b15196648d4f"
+    /// Homogenic's track 2.
+    static let jogaTrack = "074901fa-ee92-5673-84b9-824423f92176"
+}

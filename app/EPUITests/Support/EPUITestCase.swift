@@ -57,11 +57,11 @@ class EPUITestCase: XCTestCase {
     }
 
     /// Launches against the private backend and waits until the main window shows it
-    /// is connected.
+    /// is connected: the artists column lists the seeded artists.
     @discardableResult
     func launchConnected(appearance: Appearance = Harness.appearance) throws -> XCUIApplication {
         let app = try launch(server: .harness, appearance: appearance)
-        waitForText("Connected to", in: app.element("connection.status"))
+        waitFor(app.row("artists", id: Seed.bjork), timeout: 15)
         return app
     }
 
@@ -132,6 +132,11 @@ extension XCUIElement {
     /// its type.
     func element(_ identifier: String) -> XCUIElement {
         descendants(matching: .any).matching(identifier: identifier).firstMatch
+    }
+
+    /// The list row `<area>.row.<id>` (`artists`, `releaseGroups`, `tracks`).
+    func row(_ area: String, id: String) -> XCUIElement {
+        element("\(area).row.\(id)")
     }
 
     /// The window that contains the element with this identifier.
