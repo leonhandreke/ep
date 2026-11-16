@@ -16,30 +16,30 @@ enum Palette {
     /// `--bar`: toolbar, player bar, settings title bar.
     static let bar = Color(light: 0xECECEF, dark: 0x2C2C2F)
     /// `--text`: primary text; play button fill.
-    static let text = Color(light: 0x1D1D1F, dark: 0xF2F2F4)
+    static let text = Color(nsColor: NSPalette.text)
     /// `--text2`: secondary text, scrubber progress and marks.
-    static let text2 = Color(light: 0x55555A, dark: 0xC0C0C6)
+    static let text2 = Color(nsColor: NSPalette.text2)
     /// `--text3`: tertiary text, section labels, numbers, icons, dimmed titles.
-    static let text3 = Color(light: 0x6B6B70, dark: 0xA0A0A7)
+    static let text3 = Color(nsColor: NSPalette.text3)
     /// `--line`: 1 pt separators and control borders, scrubber track.
-    static let line = Color(light: 0xDCDCE0, dark: 0x3B3B3F)
+    static let line = Color(nsColor: NSPalette.line)
     /// `--sel`: focused selection, primary buttons, focus borders (design: #0062cc / #0a5bc4).
     static let sel = Color(nsColor: .selectedContentBackgroundColor)
     /// `--seltext`: text on `sel`.
     static let selText = Color.white
     /// `--selsoft`: unfocused selection, chosen option, ⌘-hover link background
     /// (design: #dce7f7 / #33405a): the accent blended into the background.
-    static let selSoft = Color(nsColor: .accentBlend(light: 0xFFFFFF, dark: 0x1E1E20, fraction: (0.15, 0.3)))
+    static let selSoft = Color(nsColor: NSPalette.selSoft)
     /// `--accent`: links, text caret, progress, drop outline (design: #0062cc / #64adff).
     static let accent = Color.accentColor
     /// `--warn`: radio excerpt, review badge, "needs decision".
     static let warn = Color(light: 0x935300, dark: 0xF2A649)
     /// `--danger`: broken link, file missing, failed, server unreachable.
-    static let danger = Color(light: 0xBF2619, dark: 0xFF8478)
+    static let danger = Color(nsColor: NSPalette.danger)
     /// `--field`: text field background.
     static let field = Color(light: 0xFFFFFF, dark: 0x1A1A1C)
     /// `--chip`: segmented track, kind badges, tag chips, banners, codec chips.
-    static let chip = Color(light: 0xEBEBEF, dark: 0x36363A)
+    static let chip = Color(nsColor: NSPalette.chip)
     /// `--skel`: loading skeleton bars.
     static let skel = Color(light: 0xECECF0, dark: 0x2E2E31)
     /// `--ok`: "Connected" in Settings.
@@ -48,6 +48,19 @@ enum Palette {
     static let badgeText = Color.white
     /// Cover thumbnails' inner hairline (`inset 0 0 0 1px rgba(0,0,0,.08)`).
     static let coverHairline = Color.black.opacity(0.08)
+}
+
+/// The colours AppKit views draw with (the note editor's text view): the same tokens as
+/// `NSColor`s, appearance-dependent.
+enum NSPalette {
+    static let text = NSColor.dynamic(light: 0x1D1D1F, dark: 0xF2F2F4)
+    static let text2 = NSColor.dynamic(light: 0x55555A, dark: 0xC0C0C6)
+    static let text3 = NSColor.dynamic(light: 0x6B6B70, dark: 0xA0A0A7)
+    static let line = NSColor.dynamic(light: 0xDCDCE0, dark: 0x3B3B3F)
+    static let chip = NSColor.dynamic(light: 0xEBEBEF, dark: 0x36363A)
+    static let danger = NSColor.dynamic(light: 0xBF2619, dark: 0xFF8478)
+    static let selSoft = NSColor.accentBlend(light: 0xFFFFFF, dark: 0x1E1E20, fraction: (0.15, 0.3))
+    static let accent = NSColor.controlAccentColor
 }
 
 /// `--shadow`: popovers, palettes, toasts.
@@ -95,6 +108,8 @@ enum Typography {
     static let heading1 = Font.system(size: 22, weight: .semibold)
     static let heading2 = Font.system(size: 18, weight: .semibold)
     static let heading3 = Font.system(size: 15, weight: .semibold)
+    /// The note editor's sizes (AppKit): body 14, headings 22 / 18 / 15, code 12.5.
+    static let noteSizes = (body: 14.0, headings: [22.0, 18.0, 15.0], code: 12.5)
     /// 15 semibold: import review title.
     static let reviewTitle = Font.system(size: 15, weight: .semibold)
     /// 16 semibold: "Import" sheet heading.

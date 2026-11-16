@@ -31,7 +31,7 @@ final class NoteDocument {
     /// text view takes it over; edits typed in the view do not bump it.
     private(set) var revision = 0
     /// Link targets as the server resolved them: nil value = broken (target gone).
-    private(set) var targets: [LinkKey: Components.Schemas.EntityRead?] = [:]
+    private(set) var targets: [LinkKey: LinkTarget?] = [:]
 
     /// Called after every successful save (other panels may show new backlinks).
     @ObservationIgnored var onSaved: (() -> Void)?
@@ -72,12 +72,12 @@ final class NoteDocument {
     }
 
     /// A link the user just inserted: its target is known before the next save says so.
-    func remember(_ target: Components.Schemas.EntityRead, as key: LinkKey) {
+    func remember(_ target: LinkTarget, as key: LinkKey) {
         targets[key] = .some(target)
     }
 
     /// The target as last resolved: `.some(nil)` broken, nil not known yet.
-    func target(of key: LinkKey) -> Components.Schemas.EntityRead?? { targets[key] }
+    func target(of key: LinkKey) -> LinkTarget?? { targets[key] }
 
     // MARK: - Loading
 
@@ -187,9 +187,26 @@ final class NoteDocument {
         revision += 1
     }
 
-    private static func targets(of note: Components.Schemas.NoteRead) -> [LinkKey: Components.Schemas.EntityRead?] {
-        var targets: [LinkKey: Components.Schemas.EntityRead?] = [:]
-        for link in note.links { targets[LinkKey(type: link.targetType, ref: link.ref)] = .some(link.target) }
+    private static func targets(of note: Components.Schemas.NoteRead) -> [LinkKey: LinkTarget?] {
+        var targets: [LinkKey: LinkTarget?] = [:]
+        for link in note.links {
+            targets[LinkKey(type: link.targetType, ref: link.ref)] = .some(link.target.map(LinkTarget.init))
+        }
         return targets
+    }
+}
+
+/// What a link points to, as far as the editor needs it: where to open and what to call it.
+struct LinkTarget: Equatable {
+    var ref: EntityRef
+    var title: String
+
+    init(ref: EntityRef, title: String) {
+        self.ref = ref
+        self.title = title
+    }
+
+    init(_ entity: Components.Schemas.EntityRead) {
+        self.init(ref: EntityRef(type: entity._type, id: entity.id), title: entity.title)
     }
 }
