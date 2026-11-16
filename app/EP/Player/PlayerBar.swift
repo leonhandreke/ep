@@ -59,7 +59,7 @@ private struct NowPlayingInfo: View {
 
     var body: some View {
         let item = player.current
-        let navigable = player.libraryTarget != nil
+        let navigable = player.canShowPlaying
         HStack(spacing: 10) {
             CoverThumbnail(
                 path: item?.coverPath, size: Metrics.cover,
@@ -83,9 +83,9 @@ private struct NowPlayingInfo: View {
                 .buttonStyle(.plain)
                 .onHover { hovering = $0 }
                 .pointerStyle(navigable ? .link : nil)
-                .help(navigable ? String(localized: "Show in Library") : "")
+                .help(navigable ? String(localized: "Show playing") : "")
                 .accessibilityLabel(player.title)
-                .accessibilityHint(navigable ? String(localized: "Shows it in the Library") : "")
+                .accessibilityHint(navigable ? String(localized: "Shows what is playing") : "")
                 .accessibilityIdentifier("player.title")
                 subtitle
             }
@@ -369,7 +369,7 @@ private struct PlayerControls: View {
                 Image(systemName: "scope").font(.system(size: 11))
                 if label { Text("Show playing").font(Typography.secondary) }
             }
-            .foregroundStyle(player.libraryTarget == nil ? Palette.text3 : Palette.text)
+            .foregroundStyle(player.canShowPlaying ? Palette.text : Palette.text3)
             .padding(.horizontal, 8)
             .frame(height: 26)
             .background(Palette.bg, in: RoundedRectangle(cornerRadius: Radius.button))
@@ -379,7 +379,7 @@ private struct PlayerControls: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(player.libraryTarget == nil)
+        .disabled(!player.canShowPlaying)
         .help("Show playing — ⌘L")
         .accessibilityLabel("Show what is playing (⌘L)")
         .accessibilityIdentifier("player.showPlaying")

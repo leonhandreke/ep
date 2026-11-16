@@ -43,10 +43,11 @@ struct MainWindow: View {
     @State private var artistDetails: EntityDetails
     @State private var albumDetails: EntityDetails
     @State private var trackDetails: EntityDetails
+    /// This window's Radio view: shows, episodes, tracklist, history; its tabbed panel.
+    @State private var radio: RadioBrowser
+    @State private var radioDetails: EntityDetails
     /// What this window was opened to show (⌥⌘-click), shown once connected.
     @State private var pendingTarget: OpenTarget?
-    /// A radio show, episode or entry to show; the Radio view (stage 7) picks it up.
-    @State private var radioTarget: OpenTarget?
     @Environment(\.openWindow) private var openWindow
     @SceneStorage("section") private var section = AppSection.library
     @SceneStorage("detailPanelsCollapsed") private var detailPanelsCollapsed = false
@@ -68,7 +69,16 @@ struct MainWindow: View {
         _artistDetails = State(initialValue: artist)
         _albumDetails = State(initialValue: album)
         _trackDetails = State(initialValue: track)
+        let radio = RadioBrowser(connection: connection)
+        radio.onPlay = { [weak player] episode, entry in player?.playEpisode(episode, from: entry) }
+        _radio = State(initialValue: radio)
+        _radioDetails = State(initialValue: EntityDetails(connection: connection))
         _pendingTarget = State(initialValue: initialTarget)
+    }
+
+    /// The history Back / Forward act on: the shown view's.
+    private var history: any HistoryNavigating {
+        section == .radio ? radio : browser
     }
 
     var body: some View {
@@ -85,13 +95,13 @@ struct MainWindow: View {
                     if detailPanelsCollapsed {
                         DetailPanels(
                             section: section, collapsed: $detailPanelsCollapsed, artist: artistDetails,
-                            album: albumDetails, track: trackDetails)
+                            album: albumDetails, track: trackDetails, radio: radioDetails)
                             .frame(height: Metrics.panelHeaderHeight)
                     } else {
                         DetailDivider(height: panels, available: available) { detailPanelsHeight = $0 }
                         DetailPanels(
                             section: section, collapsed: $detailPanelsCollapsed, artist: artistDetails,
-                            album: albumDetails, track: trackDetails)
+                            album: albumDetails, track: trackDetails, radio: radioDetails)
                             .frame(height: panels)
                     }
                 }
@@ -103,11 +113,12 @@ struct MainWindow: View {
         .navigationTitle("EP")
         .environment(artists)
         .environment(browser)
+        .environment(radio)
         .environment(\.openEntity, OpenEntityAction(handler: open))
-        .toolbar { MainToolbar(section: $section, browser: browser) }
+        .toolbar { MainToolbar(section: $section, history: history) }
         .toolbarBackground(Palette.bar, for: .windowToolbar)
         .focusedSceneValue(\.detailPanelsCollapsed, $detailPanelsCollapsed)
-        .focusedSceneValue(\.libraryBrowser, browser)
+        .focusedSceneValue(\.history, history)
         .focusedSceneValue(\.showPlaying, showPlaying)
         // The server is the only source of truth and does not push: load once connected
         // (again after being unreachable), and reload when the window becomes active.
@@ -129,6 +140,12 @@ struct MainWindow: View {
         .onChange(of: browser.selectedTrack?.recordingID, initial: true) { _, id in
             trackDetails.show(id.map { EntityRef(type: .recording, id: $0) })
         }
+        // The Radio panel: the episode, else the show.
+        .onChange(of: radio.location, initial: true) { _, location in
+            radioDetails.show(
+                location.episodeID.map { EntityRef(type: .radioEpisode, id: $0) }
+                    ?? location.showID.map { EntityRef(type: .radioShow, id: $0) })
+        }
         .onChange(of: appearsActive) { _, active in
             guard active else { return }
             if connection.isConnected { reloadLibrary() }
@@ -136,11 +153,16 @@ struct MainWindow: View {
         }
     }
 
-    /// "Show playing" (⌘L, the player's title): the Library, at what plays.
+    /// "Show playing" (⌘L, the player's title): an episode played from the Radio view in
+    /// the Radio view at the entry playing; anything else in the Library.
     private func showPlaying() {
-        guard let target = player.libraryTarget else { return }
-        section = .library
-        browser.navigate(to: target)
+        if let target = player.radioTarget {
+            section = .radio
+            radio.navigate(to: target)
+        } else if let target = player.libraryTarget {
+            section = .library
+            browser.navigate(to: target)
+        }
     }
 
     private func reloadLibrary() {
@@ -150,6 +172,8 @@ struct MainWindow: View {
         artistDetails.reload()
         albumDetails.reload()
         trackDetails.reload()
+        radio.reload()
+        radioDetails.reload()
     }
 
     /// Opens a link, backlink or radio appearance target (`OpenEntityAction`): here, or in
@@ -161,8 +185,8 @@ struct MainWindow: View {
             section = .library
             browser.navigate(to: entity)
         } else {
-            radioTarget = target
             section = .radio
+            radio.navigate(to: target)
         }
     }
 

@@ -69,29 +69,7 @@ struct LinkSuggestionList: View {
         Group {
             switch row {
             case .hit(let hit):
-                HStack(spacing: 10) {
-                    if hit.roundImage {
-                        CoverThumbnail(path: hit.coverPath, size: 36, radius: 18)
-                    } else {
-                        CoverThumbnail(path: hit.coverPath, size: 36, radius: Radius.coverSmall)
-                    }
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(hit.title).font(Typography.name).foregroundStyle(foreground.primary).lineLimit(1)
-                        Text(hit.detail).font(Typography.secondary).foregroundStyle(foreground.secondary).lineLimit(1)
-                    }
-                    Spacer(minLength: 8)
-                    Text(hit.pill)
-                        .font(Typography.meta)
-                        .foregroundStyle(foreground.secondary)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .overlay(RoundedRectangle(cornerRadius: Radius.chip).strokeBorder(foreground.secondary))
-                }
-                .padding(.horizontal, 6)
-                .frame(height: RowHeight.searchHit)
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("\(hit.title), \(hit.detail), \(hit.pill)")
-                .accessibilityIdentifier("linkSuggestions.row.\(index)")
+                EntityHitRow(hit: hit, selected: selected, id: "linkSuggestions.row.\(index)")
             case .newArtist(let name):
                 action(
                     Label("New artist “\(name)”", systemImage: "plus"), key: "↩", id: "newArtist",
@@ -120,5 +98,41 @@ struct LinkSuggestionList: View {
         .frame(height: RowHeight.autocompleteAction)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("linkSuggestions.\(id)")
+    }
+}
+
+/// A mixed-type result row (46 pt, grid `36px 1fr auto`): image (round for artists,
+/// shows and episodes), name over the second line, and the type pill. Link suggestions
+/// and the search palette show the same rows.
+struct EntityHitRow: View {
+    let hit: EntitySummary
+    let selected: Bool
+    let id: String
+
+    var body: some View {
+        let foreground = RowForeground(emphasized: selected)
+        HStack(spacing: 10) {
+            if hit.roundImage {
+                CoverThumbnail(path: hit.coverPath, size: 36, radius: 18)
+            } else {
+                CoverThumbnail(path: hit.coverPath, size: 36, radius: Radius.coverSmall)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(hit.title).font(Typography.name).foregroundStyle(foreground.primary).lineLimit(1)
+                Text(hit.detail).font(Typography.secondary).foregroundStyle(foreground.secondary).lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            Text(hit.pill)
+                .font(Typography.meta)
+                .foregroundStyle(foreground.secondary)
+                .padding(.horizontal, 5)
+                .padding(.vertical, 1)
+                .overlay(RoundedRectangle(cornerRadius: Radius.chip).strokeBorder(foreground.secondary))
+        }
+        .padding(.horizontal, 6)
+        .frame(height: RowHeight.searchHit)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(hit.title), \(hit.detail), \(hit.pill)")
+        .accessibilityIdentifier(id)
     }
 }

@@ -3,7 +3,8 @@ import SwiftUI
 
 /// The detail panels under the lists (§3.7, decision 1). Library: three panels side by
 /// side on the column grid (artist, album, track), each with stacked Note / Tags /
-/// Linked from sections. Radio: one full-width panel for the episode (tabs: stage 7).
+/// Linked from sections. Radio: one full-width tabbed panel for the episode, or the show
+/// when no episode is selected (`RadioDetailPanel`).
 /// Collapsed, only the panel headers stay, so the chevron can expand them again.
 struct DetailPanels: View {
     let section: AppSection
@@ -11,6 +12,7 @@ struct DetailPanels: View {
     let artist: EntityDetails
     let album: EntityDetails
     let track: EntityDetails
+    let radio: EntityDetails
     @Environment(LibraryBrowser.self) private var browser
 
     var body: some View {
@@ -35,9 +37,7 @@ struct DetailPanels: View {
                 }
             }
         case .radio:
-            DetailPanel(id: "episode", badge: "Episode", collapsed: $collapsed, trailingBorder: false) {
-                Color.clear
-            }
+            RadioDetailPanel(details: radio, collapsed: $collapsed)
         }
     }
 
@@ -98,19 +98,7 @@ private struct DetailPanel<Content: View>: View {
                     .accessibilityIdentifier("detail.\(id).title")
             }
             Spacer(minLength: 0)
-            Button {
-                collapsed.toggle()
-            } label: {
-                Image(systemName: collapsed ? "chevron.up" : "chevron.down")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Palette.text3)
-                    .frame(width: Metrics.collapseButton, height: Metrics.collapseButton)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .help(collapsed ? "Expand panels" : "Collapse panels")
-            .accessibilityLabel(collapsed ? "Expand detail panels (⌥⌘D)" : "Collapse detail panels (⌥⌘D)")
-            .accessibilityIdentifier("detail.\(id).collapse")
+            CollapsePanelsButton(id: "detail.\(id).collapse", collapsed: $collapsed)
         }
         .padding(.leading, 14)
         .padding(.trailing, 8)
@@ -119,6 +107,28 @@ private struct DetailPanel<Content: View>: View {
         .overlay(alignment: .top) {
             if collapsed { HairlineDivider() }
         }
+    }
+}
+
+/// The chevron that collapses and expands the detail panels (⌥⌘D).
+struct CollapsePanelsButton: View {
+    let id: String
+    @Binding var collapsed: Bool
+
+    var body: some View {
+        Button {
+            collapsed.toggle()
+        } label: {
+            Image(systemName: collapsed ? "chevron.up" : "chevron.down")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Palette.text3)
+                .frame(width: Metrics.collapseButton, height: Metrics.collapseButton)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(collapsed ? "Expand panels" : "Collapse panels")
+        .accessibilityLabel(collapsed ? "Expand detail panels (⌥⌘D)" : "Collapse detail panels (⌥⌘D)")
+        .accessibilityIdentifier(id)
     }
 }
 

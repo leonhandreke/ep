@@ -11,7 +11,7 @@ import Observation
 /// `go(to:column:)`; `navigate(to:)` is the entry point for everything else that wants to
 /// show an entity (back/forward, links, search, "Show playing").
 @Observable
-final class LibraryBrowser {
+final class LibraryBrowser: HistoryNavigating {
     enum Phase: Equatable {
         case idle, loading, loaded
         case failed(String)
@@ -24,7 +24,7 @@ final class LibraryBrowser {
         case album(String)
     }
 
-    private(set) var history = NavigationHistory()
+    private(set) var history = NavigationHistory<LibraryLocation>()
     var location: LibraryLocation { history.current }
 
     private(set) var artist: Components.Schemas.ArtistDetail?
@@ -173,7 +173,7 @@ final class LibraryBrowser {
         onPlay?(request)
     }
 
-    private func go(to target: LibraryLocation, column: NavigationHistory.Column) {
+    private func go(to target: LibraryLocation, column: NavigationColumn) {
         let before = location
         history.push(target, column: column, at: clock())
         show(from: before)

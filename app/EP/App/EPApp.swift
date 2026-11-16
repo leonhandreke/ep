@@ -77,17 +77,17 @@ struct EPApp: App {
 struct AppCommands: Commands {
     let player: Player
     @FocusedValue(\.detailPanelsCollapsed) private var detailPanelsCollapsed
-    @FocusedValue(\.libraryBrowser) private var browser
+    @FocusedValue(\.history) private var history
     @FocusedValue(\.showPlaying) private var showPlaying
 
     var body: some Commands {
         CommandMenu("Go") {
-            Button("Back") { browser?.goBack() }
+            Button("Back") { history?.goBack() }
                 .keyboardShortcut("[", modifiers: .command)
-                .disabled(browser?.canGoBack != true)
-            Button("Forward") { browser?.goForward() }
+                .disabled(history?.canGoBack != true)
+            Button("Forward") { history?.goForward() }
                 .keyboardShortcut("]", modifiers: .command)
-                .disabled(browser?.canGoForward != true)
+                .disabled(history?.canGoForward != true)
         }
         CommandGroup(after: .toolbar) {
             Button(detailPanelsCollapsed?.wrappedValue == true ? "Show Detail Panels" : "Hide Detail Panels") {
@@ -109,7 +109,7 @@ struct AppCommands: Commands {
             Divider()
             Button("Show Playing") { showPlaying?() }
                 .keyboardShortcut("l", modifiers: .command)
-                .disabled(showPlaying == nil || player.libraryTarget == nil)
+                .disabled(showPlaying == nil || !player.canShowPlaying)
         }
     }
 }
@@ -117,8 +117,8 @@ struct AppCommands: Commands {
 extension FocusedValues {
     /// Whether the focused main window's detail panels are collapsed (⌥⌘D).
     @Entry var detailPanelsCollapsed: Binding<Bool>?
-    /// The focused main window's Library (Back / Forward).
-    @Entry var libraryBrowser: LibraryBrowser?
-    /// Shows what plays in the focused main window's Library (⌘L).
+    /// The focused main window's shown history: Library or Radio (Back / Forward).
+    @Entry var history: (any HistoryNavigating)?
+    /// Shows what plays in the focused main window (⌘L).
     @Entry var showPlaying: (() -> Void)?
 }

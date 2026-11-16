@@ -5,21 +5,22 @@ import SwiftUI
 /// come later.
 struct MainToolbar: ToolbarContent {
     @Binding var section: AppSection
-    let browser: LibraryBrowser
+    /// The shown view's history (Library or Radio).
+    let history: any HistoryNavigating
 
     var body: some ToolbarContent {
         ToolbarItemGroup(placement: .navigation) {
             // ⌘[ / ⌘] are on the Go menu items (AppCommands), which call the same methods.
-            Button("Back", systemImage: "chevron.left") { browser.goBack() }
+            Button("Back", systemImage: "chevron.left") { history.goBack() }
                 .help("Back (⌘[)")
                 .accessibilityLabel("Back (⌘[)")
                 .accessibilityIdentifier("toolbar.back")
-                .disabled(!browser.canGoBack)
-            Button("Forward", systemImage: "chevron.right") { browser.goForward() }
+                .disabled(!history.canGoBack)
+            Button("Forward", systemImage: "chevron.right") { history.goForward() }
                 .help("Forward (⌘])")
                 .accessibilityLabel("Forward (⌘])")
                 .accessibilityIdentifier("toolbar.forward")
-                .disabled(!browser.canGoForward)
+                .disabled(!history.canGoForward)
             Button("Import", systemImage: "plus") {}
                 .help("Import")
                 .accessibilityIdentifier("toolbar.import")

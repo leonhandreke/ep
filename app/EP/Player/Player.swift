@@ -5,7 +5,7 @@ import Observation
 
 /// The app's one player, shared by every window: what plays, what comes next, and the
 /// transport. Library windows ask it to play through `LibraryBrowser.play(_:)`; the Radio
-/// view (stage 7) plays an episode with `playEpisode(_:from:)`.
+/// view plays an episode with `playEpisode(_:from:)`.
 ///
 /// Times are milliseconds in the file (`positionMS`), as the API gives ranges.
 @Observable
@@ -358,6 +358,17 @@ final class Player {
         if let entry = currentEntry { return entry.target }
         return current?.target
     }
+
+    /// Where "Show playing" goes for an episode played from the Radio view: the episode
+    /// at the entry playing now. Nil for anything played from the Library (a radio excerpt
+    /// of a track included): that is shown in the Library (`libraryTarget`).
+    var radioTarget: OpenTarget? {
+        guard let current, current.target == nil, case .episode(let episode) = current.kind else { return nil }
+        return OpenTarget(entity: EntityRef(type: .radioEpisode, id: episode.id), radioEntryID: currentEntry?.id)
+    }
+
+    /// Whether "Show playing" has somewhere to go.
+    var canShowPlaying: Bool { radioTarget != nil || libraryTarget != nil }
 
     /// Whether a tracks-column row is what plays (the now-playing bars).
     func isPlaying(_ row: TrackRow) -> Bool {

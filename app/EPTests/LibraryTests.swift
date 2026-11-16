@@ -252,7 +252,7 @@ struct LibraryBrowserTests {
     }
 
     @Test func quickChangesInOneColumnCoalesce() {
-        var history = NavigationHistory()
+        var history = NavigationHistory<LibraryLocation>()
         let start = ContinuousClock.now
         history.push(LibraryLocation(artistID: "a1"), column: .artist, at: start)
         history.push(LibraryLocation(artistID: "a2"), column: .artist, at: start + .milliseconds(100))

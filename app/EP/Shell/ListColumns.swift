@@ -2,7 +2,7 @@ import EPAPI
 import SwiftUI
 
 /// The three list columns (Library: artists, release groups, tracks — §3.2–3.4; Radio:
-/// shows, episodes, tracklist — §6, placeholders until stage 7).
+/// shows, episodes, tracklist — §6).
 struct ListColumns: View {
     let section: AppSection
 
@@ -11,11 +11,7 @@ struct ListColumns: View {
         case .library:
             LibraryColumns()
         case .radio:
-            ColumnGrid(spec: .radio) {
-                ListColumn(id: "shows", label: "Shows", background: Palette.side) {}
-                ListColumn(id: "episodes", label: "Episodes") { PlaceholderHeader() }
-                ListColumn(id: "tracklist", label: "Tracklist", trailingBorder: false) { PlaceholderHeader() }
-            }
+            RadioColumns()
         }
     }
 }
@@ -65,7 +61,7 @@ private struct LibraryColumns: View {
 }
 
 /// One list column: content and a 1 pt right border.
-private struct ListColumn<Content: View>: View {
+struct ListColumn<Content: View>: View {
     let id: String
     let label: LocalizedStringKey
     var background = Palette.bg
@@ -82,16 +78,6 @@ private struct ListColumn<Content: View>: View {
             .accessibilityElement(children: .contain)
             .accessibilityLabel(label)
             .accessibilityIdentifier("\(id).column")
-    }
-}
-
-/// An empty 32 pt column header (Radio, until stage 7).
-private struct PlaceholderHeader: View {
-    var body: some View {
-        Color.clear
-            .frame(height: Metrics.columnHeaderHeight)
-            .overlay(alignment: .bottom) { HairlineDivider() }
-        Spacer(minLength: 0)
     }
 }
 

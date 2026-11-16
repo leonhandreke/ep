@@ -62,21 +62,36 @@ struct DetailSection<Accessory: View, Content: View>: View {
     @ViewBuilder var accessory: Accessory
     @ViewBuilder var content: Content
 
+    /// In a tab, the tab names the section: its label is left out.
+    @Environment(\.detailSectionTitles) private var showsTitle
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(title).sectionLabelStyle().accessibilityAddTraits(.isHeader)
-                Spacer(minLength: 8)
-                accessory
+            if showsTitle {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(title).sectionLabelStyle().accessibilityAddTraits(.isHeader)
+                    Spacer(minLength: 8)
+                    accessory
+                }
+                .padding(.bottom, 6)
+                .overlay(alignment: .bottom) { HairlineDivider() }
+            } else {
+                HStack {
+                    Spacer(minLength: 0)
+                    accessory
+                }
             }
-            .padding(.bottom, 6)
-            .overlay(alignment: .bottom) { HairlineDivider() }
             content
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(id)
     }
+}
+
+extension EnvironmentValues {
+    /// Whether detail sections show their label (false inside the Radio view's tabs).
+    @Entry var detailSectionTitles = true
 }
 
 extension DetailSection where Accessory == EmptyView {

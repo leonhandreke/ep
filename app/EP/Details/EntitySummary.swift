@@ -1,8 +1,7 @@
 import EPAPI
 import Foundation
 
-/// An entity as a mixed-type row shows it (link suggestions, backlinks; the search palette
-/// later): name, second line, type pill, image. Mapped from `EntityRead` and
+/// An entity as a mixed-type row shows it (link suggestions, backlinks, the search palette): name, second line, type pill, image. Mapped from `EntityRead` and
 /// `SearchHitRead`, which carry the same facts.
 struct EntitySummary: Identifiable, Hashable {
     var ref: EntityRef
@@ -15,6 +14,8 @@ struct EntitySummary: Identifiable, Hashable {
     /// The note link to it, as the server writes it.
     var link: String
     var linkKey: LinkKey
+    /// For an episode found by what it played: the tracklist entry that played it.
+    var radioEntryID: String?
 
     var id: EntityRef { ref }
     /// Artist, show and episode images are circles; covers are rounded squares.
@@ -34,6 +35,15 @@ struct EntitySummary: Identifiable, Hashable {
             releaseGroupType: hit.releaseGroupType, date: hit.date, lengthMS: hit.lengthMs,
             releaseGroupTitle: hit.releaseGroupTitle, coverPath: hit.coverUrl, link: hit.link, linkRef: hit.linkRef,
             counts: (hit.releaseGroupCount, hit.looseRecordingCount))
+        // An episode found by what it played: "… · plays “Cocoon” at 41:10".
+        if let match = hit.radioMatch {
+            radioEntryID = match.trackId
+            let time = LibraryFormat.duration(ms: match.startMs).map { match.offsetIsEstimate ? "~" + $0 : $0 }
+            let plays =
+                time.map { String(localized: "plays “\(match.recording.title)” at \($0)") }
+                ?? String(localized: "plays “\(match.recording.title)”")
+            detail = [detail, plays].filter { !$0.isEmpty }.joined(separator: " · ")
+        }
     }
 
     private init(
