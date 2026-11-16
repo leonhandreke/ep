@@ -13,12 +13,13 @@ struct NoteEditor: View {
     @Environment(ServerConnection.self) private var connection
     @Environment(CoverImages.self) private var covers
     @Environment(\.openEntity) private var openEntity
+    @Environment(\.presentSheet) private var presentSheet
     @State private var height: CGFloat = 24
 
     var body: some View {
         NoteTextRepresentable(
             document: document, id: id, editable: connection.isConnected, connection: connection, covers: covers,
-            openEntity: openEntity, height: $height
+            openEntity: openEntity, presentSheet: presentSheet, height: $height
         )
         .frame(height: height)
         .frame(maxWidth: 720, alignment: .leading)
@@ -32,6 +33,7 @@ private struct NoteTextRepresentable: NSViewRepresentable {
     let connection: ServerConnection
     let covers: CoverImages
     let openEntity: OpenEntityAction?
+    let presentSheet: ((WindowSheet) -> Void)?
     @Binding var height: CGFloat
 
     func makeCoordinator() -> NoteEditorCoordinator {
@@ -59,6 +61,7 @@ private struct NoteTextRepresentable: NSViewRepresentable {
         let coordinator = context.coordinator
         coordinator.heightBinding = $height
         coordinator.openEntity = openEntity
+        coordinator.presentSheet = presentSheet
         coordinator.covers = covers
         view.isEditable = editable
         if !editable { coordinator.autocomplete.close() }
@@ -75,6 +78,7 @@ final class NoteEditorCoordinator: NSObject, NSTextViewDelegate {
     weak var textView: NoteTextView?
     var heightBinding: Binding<CGFloat>?
     var openEntity: OpenEntityAction?
+    var presentSheet: ((WindowSheet) -> Void)?
     var covers: CoverImages?
     let autocomplete: LinkAutocomplete
     let popup = FloatingPopup()
@@ -267,10 +271,10 @@ final class NoteEditorCoordinator: NSObject, NSTextViewDelegate {
                 replacing: query, trailingSpace: continueTyping)
         case .newArtist(let name):
             createArtist(name, replacing: query)
-        case .newOther, .searchMusicBrainz:
-            // Creating albums and recordings by hand and MusicBrainz search come with the
-            // edit sheets (stage 8); the rows are shown as designed.
-            NSSound.beep()
+        case .newOther(let name):
+            present(.create(kinds: [.album, .recording], name: name, credit: []), replacing: query)
+        case .searchMusicBrainz(let name):
+            present(.musicBrainz(query: name), replacing: query)
         }
         autocomplete.close()
         popup.hide()
@@ -289,6 +293,25 @@ final class NoteEditorCoordinator: NSObject, NSTextViewDelegate {
         textView.textStorage?.replaceCharacters(in: query.range, with: text)
         textView.didChangeText()
         textView.setSelectedRange(NSRange(location: query.range.location + (text as NSString).length, length: 0))
+    }
+
+    /// "New album or recording…" and "Search MusicBrainz": a sheet; what it adds to the
+    /// library is linked in place of the `[[` query.
+    private func present(_ kind: WindowSheet.Kind, replacing query: LinkQuery) {
+        guard let presentSheet else { return NSSound.beep() }
+        presentSheet(
+            WindowSheet(kind: kind) { [weak self] created in
+                self?.insertCreated(created, replacing: query)
+            })
+    }
+
+    private func insertCreated(_ created: CreatedEntity, replacing query: LinkQuery) {
+        guard let textView, (textView.string as NSString).length >= NSMaxRange(query.range),
+            (textView.string as NSString).substring(with: query.range).hasPrefix("[[")
+        else { return }
+        textView.window?.makeFirstResponder(textView)
+        insertLink(
+            created.link, target: created.linkTarget, key: created.linkKey, replacing: query, trailingSpace: false)
     }
 
     /// "+ New artist “…”": creates the artist and links to it.

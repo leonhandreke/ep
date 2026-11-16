@@ -13,6 +13,7 @@ struct TracksColumn: View {
     @Environment(Player.self) private var player
     /// The row whose sources popover is open (its state icon, or "Sources…").
     @State private var sourcesRowID: String?
+    @Environment(\.presentSheet) private var presentSheet
 
     var body: some View {
         VStack(spacing: 0) {
@@ -121,6 +122,7 @@ struct TracksColumn: View {
             }
             .contextMenu(forSelectionType: String.self) { ids in
                 if let row = ids.first.flatMap(row(id:)) {
+                    Button("Edit…") { presentSheet?(WindowSheet(kind: .edit(.recording(row.recordingID)))) }
                     Button("Sources…") { sourcesRowID = row.id }
                     Divider()
                     Button("Copy Link") { copyNoteLink(row.link) }
@@ -133,6 +135,9 @@ struct TracksColumn: View {
             .onChange(of: browser.location.trackID) { _, id in
                 if let id { proxy.scrollTo(id) }
             }
+            .focusedValue(\.editSelection, browser.selectedTrack.map { row in
+                { presentSheet?(WindowSheet(kind: .edit(.recording(row.recordingID)))) }
+            })
             .accessibilityIdentifier("tracks.list")
         }
     }

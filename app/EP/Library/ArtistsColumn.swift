@@ -13,6 +13,7 @@ struct ArtistsColumn: View {
     @Environment(ArtistList.self) private var list
     @Environment(LibraryBrowser.self) private var browser
     @Environment(ServerConnection.self) private var connection
+    @Environment(\.presentSheet) private var presentSheet
     @FocusState private var filterFocused: Bool
     @State private var typed = ""
     @State private var typedAt = ContinuousClock.Instant.now
@@ -150,9 +151,13 @@ struct ArtistsColumn: View {
             .onKeyPress(phases: .down) { press in typeSelect(press) }
             .contextMenu(forSelectionType: String.self) { ids in
                 if let id = ids.first, let artist = list.index(of: id).flatMap(list.artist(at:)) {
+                    Button("Edit…") { presentSheet?(WindowSheet(kind: .edit(.artist(artist.id)))) }
                     Button("Copy Link") { copyNoteLink(artist.link) }
                 }
             }
+            .focusedValue(\.editSelection, browser.location.artistID.map { id in
+                { presentSheet?(WindowSheet(kind: .edit(.artist(id)))) }
+            })
             .task(id: RevealKey(artistID: browser.location.artistID, list: list.listVersion)) {
                 guard let id = browser.location.artistID, let index = await list.reveal(id),
                     !Task.isCancelled

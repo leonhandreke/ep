@@ -23,6 +23,17 @@ public func withExplicitNulls<Key: CodingKey, Result>(
     isolation: isolated (any Actor)? = #isolation,
     operation: () async throws -> Result
 ) async throws -> Result {
+    try await withExplicitNulls(keys, operation: operation)
+}
+
+/// Sends JSON `null` for the given top-level body keys (a list worked out at run time,
+/// e.g. the fields an edit form cleared; empty sends none) in every request made in
+/// `operation`.
+public func withExplicitNulls<Key: CodingKey, Result>(
+    _ keys: [Key],
+    isolation: isolated (any Actor)? = #isolation,
+    operation: () async throws -> Result
+) async throws -> Result {
     try await ExplicitNullsMiddleware.$keys.withValue(ExplicitNullsMiddleware.keys.union(keys.map(\.stringValue))) {
         try await operation()
     }

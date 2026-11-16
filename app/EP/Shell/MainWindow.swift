@@ -49,6 +49,8 @@ struct MainWindow: View {
     /// The search palette (⌘K, ⌘F) while open; it keeps what was typed while closed.
     @State private var search: SearchStore
     @State private var searchOpen = false
+    /// The edit, create or MusicBrainz sheet over this window.
+    @State private var sheet: WindowSheet?
     /// What this window was opened to show (⌥⌘-click), shown once connected.
     @State private var pendingTarget: OpenTarget?
     @Environment(\.openWindow) private var openWindow
@@ -125,12 +127,17 @@ struct MainWindow: View {
         .environment(radio)
         .environment(\.openEntity, OpenEntityAction(handler: open))
         .environment(\.showTag) { tag in openSearch(tag: tag) }
+        .environment(\.presentSheet) { sheet = $0 }
+        .sheet(item: $sheet) { sheet in
+            sheetView(sheet)
+        }
         .toolbar { MainToolbar(section: $section, history: history) { openSearch(tag: nil) } }
         .toolbarBackground(Palette.bar, for: .windowToolbar)
         .focusedSceneValue(\.detailPanelsCollapsed, $detailPanelsCollapsed)
         .focusedSceneValue(\.history, history)
         .focusedSceneValue(\.showPlaying, showPlaying)
         .focusedSceneValue(\.openSearch) { openSearch(tag: nil) }
+        .focusedSceneValue(\.newEntity) { kind in newEntity(kind) }
         // The server is the only source of truth and does not push: load once connected
         // (again after being unreachable), and reload when the window becomes active.
         .onChange(of: connection.isConnected, initial: true) { _, connected in
@@ -162,6 +169,38 @@ struct MainWindow: View {
             if connection.isConnected { reloadLibrary() }
             Task { await connection.refresh() }
         }
+    }
+
+    @ViewBuilder private func sheetView(_ sheet: WindowSheet) -> some View {
+        let done = sheet.done ?? { created in show(created) }
+        switch sheet.kind {
+        case .edit(let target):
+            EditSheet(target: target) { reloadLibrary() }
+        case .create(let kinds, let name, let credit):
+            CreateSheet(kinds: kinds, name: name, credit: credit) { created in
+                reloadLibrary()
+                done(created)
+            }
+        case .musicBrainz(let query):
+            MusicBrainzSheet(query: query) { created in
+                reloadLibrary()
+                done(created)
+            }
+        }
+    }
+
+    /// Something just created: shown in the Library.
+    private func show(_ created: CreatedEntity) {
+        open(OpenTarget(entity: created.ref), newWindow: false)
+    }
+
+    /// File ▸ New Artist… / Album… / Recording…: an album or recording is credited to the
+    /// artist shown, to begin with.
+    private func newEntity(_ kind: Creator.Kind) {
+        let credit =
+            kind == .artist || section != .library
+            ? [] : browser.artist.map { [CreditPart(artistID: $0.id, name: $0.name, joinPhrase: "")] } ?? []
+        sheet = WindowSheet(kind: .create(kinds: [kind], name: "", credit: credit))
     }
 
     /// Opens the search palette; a tag click opens it filtered to the tag, with nothing

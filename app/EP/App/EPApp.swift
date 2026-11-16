@@ -80,6 +80,8 @@ struct AppCommands: Commands {
     @FocusedValue(\.history) private var history
     @FocusedValue(\.showPlaying) private var showPlaying
     @FocusedValue(\.openSearch) private var openSearch
+    @FocusedValue(\.editSelection) private var editSelection
+    @FocusedValue(\.newEntity) private var newEntity
 
     var body: some Commands {
         CommandMenu("Go") {
@@ -89,6 +91,22 @@ struct AppCommands: Commands {
             Button("Forward") { history?.goForward() }
                 .keyboardShortcut("]", modifiers: .command)
                 .disabled(history?.canGoForward != true)
+        }
+        CommandGroup(after: .newItem) {
+            Divider()
+            Button("New Artist…") { newEntity?(.artist) }
+                .disabled(newEntity == nil)
+            Button("New Album…") { newEntity?(.album) }
+                .disabled(newEntity == nil)
+            Button("New Recording…") { newEntity?(.recording) }
+                .disabled(newEntity == nil)
+        }
+        // Decision 6: ⌘E edits the selection of the focused list.
+        CommandGroup(after: .pasteboard) {
+            Divider()
+            Button("Edit…") { editSelection?() }
+                .keyboardShortcut("e", modifiers: .command)
+                .disabled(editSelection == nil)
         }
         // Decision 9: ⌘K and ⌘F both open the search palette (in place of the text
         // Find commands, which no view here uses).
@@ -134,4 +152,8 @@ extension FocusedValues {
     @Entry var showPlaying: (() -> Void)?
     /// Opens the focused main window's search palette (⌘K, ⌘F).
     @Entry var openSearch: (() -> Void)?
+    /// Edits what is selected in the focused list (⌘E); set by the list while it has focus.
+    @Entry var editSelection: (() -> Void)?
+    /// Creates an artist, album or recording by hand in the focused main window.
+    @Entry var newEntity: ((Creator.Kind) -> Void)?
 }
