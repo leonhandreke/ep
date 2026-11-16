@@ -58,11 +58,13 @@ final class LibraryBrowser {
 
     func select(artist id: String?) {
         guard id != location.artistID else { return }
+        navigateTask?.cancel()
         go(to: LibraryLocation(artistID: id), column: .artist)
     }
 
     func select(album: AlbumSelection?) {
         guard album != location.album else { return }
+        navigateTask?.cancel()
         go(to: LibraryLocation(artistID: location.artistID, album: album), column: .album)
     }
 
