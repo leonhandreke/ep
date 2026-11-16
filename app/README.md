@@ -18,7 +18,8 @@ EP/                   the app target
   Settings/           AppSettings (UserDefaults + launch overrides), Settings window
   Shell/              main window frame: toolbar, list columns, detail panels, player bar
   Library/            artists / albums / tracks columns: ArtistList and LibraryBrowser
-                      (per window: selection, history, navigate(to:)), CoverImages
+                      (per window: selection, history, navigate(to:)), CoverImages, the
+                      sources popover (SourcesStore)
   Details/            detail panels: EntityDetails (one entity's note, tags, backlinks, radio
                       appearances from GET /entity-details), the Note / Tags / Linked from
                       sections (the Radio view hosts them in tabs), tag suggestions,
@@ -26,6 +27,12 @@ EP/                   the app target
   NoteEditor/         the note editor: NoteLinks, NoteStyling, LinkQuery (pure, UTF-16
                       NSRange), NoteDocument (autosave, 409), LinkAutocomplete, NoteTextView
                       (TextKit 2) and its SwiftUI wrapper
+  Radio/              RadioBrowser (per window: shows, episodes, tracklist, history,
+                      navigate(to:), re-pointing entries), the three columns, the tabbed
+                      panel, the re-point sheet
+  Search/             SearchStore (debounced, grouped, tag filter) and the ⌘K palette
+  Editing/            edit forms (PATCH bodies) and their stores, the edit sheets, credits
+                      as tokens, create by hand (Creator), MusicBrainz search; WindowSheet
   Player/             Player (one for the app: item, queue, transport), PlayItem (spans,
                       long-file entries), player bar, Now Playing, Space key
     Audio/            engines: AVPlayer, and AVAudioEngine fed by decoders for Ogg
@@ -38,8 +45,7 @@ Packages/EPAPIGenerator/  tools that generate it (not part of the app build)
 scripts/              build, run, test, generate-api wrappers; ui-test/uitest (the harness)
 ```
 
-Later features go in `EP/<Feature>/` (`Library/`, `Player/`, `NoteEditor/`, `Radio/`,
-`Search/`, `Import/`, …), each with its `@Observable` store(s) and its views. No extra
+Later features go in `EP/<Feature>/` (`Import/`, …), each with its `@Observable` store(s) and its views. No extra
 layers: views read stores from the environment, stores call the generated client.
 
 ## Build, run, test (from the repo root)
@@ -128,27 +134,43 @@ names).
   `.collapse`, `.note`, `.note.editor`, `.note.status`, `.note.conflict` (`.keepMine`,
   `.useTheirs`), `.tags`, `.tag.<tag>` (`.remove`), `.addTag` (`.suggestions.row.<n>`),
   `.linkedFrom`, `.backlink.<entity>`, `.radio.<entry>` (`.play`)), `linkSuggestions`
-  (`.row.<n>`, `.newArtist`, `.newOther`, `.searchMusicBrainz`), and one per
+  (`.row.<n>`, `.newArtist`, `.newOther`, `.searchMusicBrainz`), one per
   list column (`artists`, `releaseGroups`, `tracks`, `shows`, `episodes`, `tracklist`;
-  the column itself is `<area>.column`). Containers a test needs to find (columns,
+  the column itself is `<area>.column`, its header `<area>.header`), the Radio panel
+  `detail.radio` (`.tab.<note|tags|linkedFrom>`, `.collapse`; its sections are
+  `detail.episode.*` or `detail.show.*`), `search` (`.palette`, `.field`, `.tag`,
+  `.group.<topHit|tracks|albums|artists|radio>`, `.row.<n>`), `sources` (`.popover`,
+  `.option.<source>`, `.locate.<source>`, `.add`, `.showInFinder`), the sheets
+  `edit.album` / `edit.artist` / `edit.track` (`.title`, `.name`, `.credit`, `.date`,
+  `.save`, `.cancel`, `.detach`), `create`, `musicBrainz` and `repoint`. Containers a test needs to find (columns,
   panels, banner, player bar) use `.accessibilityElement(children: .contain)` plus an
   identifier, so their controls stay reachable. Identifiers are API for the harness; do
   not rename them casually.
 - **State**: `@Observable` stores, injected with `.environment(...)`; per-window UI
   state in `@SceneStorage`; menu commands reach the focused window via `@FocusedValue`.
   Per-window stores (`ArtistList`, `LibraryBrowser`) are created by `MainWindow`.
-- **Opening things**: note links, backlinks and radio appearances call the window's
-  `OpenEntityAction` (environment `openEntity`): Library entities through
-  `LibraryBrowser.navigate(to:)`, radio shows and episodes to the Radio view (stage 7),
-  or a new main window (⌥⌘-click; `WindowGroup(for: WindowTarget.self)`). A tag click
-  calls the environment's `showTag` (nil until the search palette, decision 7).
+- **Opening things**: note links, backlinks, radio appearances, tracklist links and
+  search results call the window's `OpenEntityAction` (environment `openEntity`):
+  Library entities through `LibraryBrowser.navigate(to:)`, radio shows, episodes and
+  entries through `RadioBrowser.navigate(to:)`, or a new main window (⌥⌘-click;
+  `WindowGroup(for: WindowTarget.self)`). A tag click calls the environment's `showTag`:
+  the search palette filtered to the tag (decision 7). Sheets (edit, create by hand,
+  MusicBrainz) go through the environment's `presentSheet` (`WindowSheet`); ⌘E edits
+  the focused list's selection (`editSelection`), the track's state icon or
+  "Sources…" opens the sources popover (decision 6).
+- **Edits**: forms (`EditForms.swift`) compare with what was loaded and send only what
+  changed; a cleared nullable field is an explicit `null` (`withExplicitNulls` with the
+  form's list of keys). Audio files are never written; the window reloads after a save.
 - **Notes**: the body is edited as stored (`[[type:uuid|Display]]`), styled by attributes
   only; ranges are UTF-16 (`NSRange`), as the API counts. A track's note and tags are its
   recording's. `NoteDocument` saves 1 s after the last edit with `base_updated_at`; a 409
   keeps the edit and asks (Keep Mine / Use Theirs); notes are read-only while unreachable.
 - **Navigation**: anything that shows an entity in the Library (links, search results,
   "Show playing") calls `LibraryBrowser.navigate(to:)`, which resolves the artist →
-  album → track path and records it in the window's Back/Forward history. Playing goes
+  album → track path and records it in the window's Back/Forward history. The Radio
+  view has its own history (`NavigationHistory<RadioLocation>`); Back/Forward act on
+  the view shown. "Show playing" shows an episode played from the Radio view there, at
+  the entry playing, and anything else in the Library. Playing goes
   through `LibraryBrowser.play(_:)` (`onPlay`, set by the player).
 - **Playback**: `Player` (in the environment of every window) plays what
   `LibraryBrowser.play(_:)` asks for and, for the Radio view, `playEpisode(_:from:)`.

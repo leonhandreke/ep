@@ -44,14 +44,24 @@ enum Harness {
     /// the app's back, e.g. a note edited elsewhere).
     @discardableResult
     static func put(_ path: String, json: [String: Any]) async throws -> Any {
+        try await send("PUT", path, json: json)
+    }
+
+    /// `PATCH <path>` with a JSON body (e.g. to put back what a test changed).
+    @discardableResult
+    static func patch(_ path: String, json: [String: Any]) async throws -> Any {
+        try await send("PATCH", path, json: json)
+    }
+
+    private static func send(_ method: String, _ path: String, json: [String: Any]) async throws -> Any {
         var request = URLRequest(url: try requireAPI().appending(path: path))
-        request.httpMethod = "PUT"
+        request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: json)
         let (data, response) = try await URLSession.shared.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard status == 200 else {
-            throw HarnessError("PUT \(path): HTTP \(status): \(String(decoding: data, as: UTF8.self))")
+            throw HarnessError("\(method) \(path): HTTP \(status): \(String(decoding: data, as: UTF8.self))")
         }
         return try JSONSerialization.jsonObject(with: data)
     }
@@ -112,4 +122,13 @@ enum Seed {
     static let agaetisByrjun = "ffffebf0-10df-5bfd-88ee-bdbe79721add"
     static let svefnTrack = "127d6f5e-1eb8-59d3-9424-365b62a4b069"
     static let looseTone = "68639e66-9269-5435-92c9-fbf4fa9ab941"
+    /// The radio show "Late Night Tapes" and its Ogg Opus episode "Homage to the night
+    /// shift" (60 s): entries 1 Jóga 0:05–0:15, 2 Loose Tone 0:15–0:25, 3 Ever New
+    /// (radio only), 4 Hour Logic (radio only), 5 not matched.
+    static let lateNightTapes = "18535ba5-749e-518e-bcef-5a27754f28a5"
+    static let nightShift = "4e3839f0-c397-555a-abbb-202f0d909084"
+    static let nightShiftEntry1 = "0fecbb61-cf41-5537-852e-f8963eb84e43"
+    static let nightShiftEntry2 = "a4eb9251-3de0-5ef4-bfb0-ef05e1c85668"
+    /// The tag "strings" (Homogenic, Jóga, Vespertine).
+    static let stringsTag = "29734eee-8a42-579d-9c51-07f68f4f9b80"
 }

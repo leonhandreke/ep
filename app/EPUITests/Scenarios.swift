@@ -187,6 +187,76 @@ final class Scenarios: EPUITestCase {
         screenshot("radio")
     }
 
+    /// Radio: Late Night Tapes → "Homage to the night shift" with its tracklist (matched,
+    /// radio-only and unmatched entries), the second entry selected.
+    func testRadioEpisode() throws {
+        let app = try launchConnected()
+        openNightShift(in: app)
+        waitFor(app.row("tracklist", id: Seed.nightShiftEntry2)).click()
+        screenshot("radioEpisode")
+    }
+
+    /// Radio: the episode's panel on its "Linked from" tab (Mark Bell's note links here).
+    func testRadioPanel() throws {
+        let app = try launchConnected()
+        openNightShift(in: app)
+        waitFor(app.element("detail.radio.tab.linkedFrom")).click()
+        waitFor(app.element("detail.episode.linkedFrom"))
+        screenshot("radioPanel")
+    }
+
+    /// The search palette (⌘K) with grouped results for "bjork".
+    func testSearchResults() throws {
+        let app = try launchConnected()
+        app.typeKey("k", modifierFlags: .command)
+        let field = waitFor(app.element("search.field"))
+        field.typeText("bjork")
+        waitFor(app.element("search.group.topHit"))
+        waitFor(app.element("search.row.1"))
+        screenshot("searchResults")
+    }
+
+    /// A tag click (Homogenic's #strings): the palette filtered to the tag.
+    func testSearchTag() throws {
+        let app = try launchConnected()
+        app.row("artists", id: Seed.bjork).click()
+        waitFor(app.row("releaseGroups", id: Seed.homogenic)).click()
+        waitFor(app.element("detail.album.tag.\(Seed.stringsTag)")).click()
+        waitFor(app.element("search.tag"))
+        waitFor(app.element("search.row.0"))
+        screenshot("searchTag")
+    }
+
+    /// The sources popover of Unravel, whose file is missing (Locate…).
+    func testSourcesPopover() throws {
+        let app = try launchConnected()
+        app.row("artists", id: Seed.bjork).click()
+        waitFor(app.row("releaseGroups", id: Seed.homogenic)).click()
+        waitFor(app.row("tracks", id: Seed.unravelTrack)).rightClick()
+        app.menuItems["Sources…"].firstMatch.click()
+        waitFor(app.element("sources.popover"))
+        screenshot("sourcesPopover")
+    }
+
+    /// The album edit sheet (⌘E on Homogenic).
+    func testAlbumEditSheet() throws {
+        let app = try launchConnected()
+        app.row("artists", id: Seed.bjork).click()
+        waitFor(app.row("releaseGroups", id: Seed.homogenic)).click()
+        app.typeKey("e", modifierFlags: .command)
+        waitFor(app.element("edit.album.title"))
+        screenshot("albumEditSheet")
+    }
+
+    /// The artist edit sheet (⌘E on Björk).
+    func testArtistEditSheet() throws {
+        let app = try launchConnected()
+        app.row("artists", id: Seed.bjork).click()
+        app.typeKey("e", modifierFlags: .command)
+        waitFor(app.element("edit.artist.name"))
+        screenshot("artistEditSheet")
+    }
+
     /// The server cannot be reached: banner with Retry and Settings….
     func testUnreachable() throws {
         let app = try launch(server: .unreachable)
@@ -202,6 +272,14 @@ final class Scenarios: EPUITestCase {
         waitForText("Connected", in: settings.element("settings.connectionStatus"))
         waitFor(settings.element("settings.serverInfo"))
         screenshot("settings", of: settings)
+    }
+
+    /// Radio → Late Night Tapes → "Homage to the night shift".
+    private func openNightShift(in app: XCUIApplication) {
+        app.element("toolbar.section").radioButtons["Radio"].click()
+        waitFor(app.row("shows", id: Seed.lateNightTapes)).click()
+        waitFor(app.row("episodes", id: Seed.nightShift)).click()
+        waitFor(app.row("tracklist", id: Seed.nightShiftEntry1))
     }
 
     /// Björk → `album`, then double-clicks the track row.
