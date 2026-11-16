@@ -71,6 +71,15 @@ enum Seed {
     static let homogenic = "b05eeaa0-9ef9-5e93-9bd4-72e74a3f73f2"
     static let vespertine = "4097e792-0ffd-542d-a5d9-0149722906ca"
     static let agora = "98bbb7ab-bd36-5f60-9235-b15196648d4f"
-    /// Homogenic's track 2.
+    static let medulla = "b42535c7-89ba-515c-b549-2885847c1b2f"
+    /// Homogenic's tracks: 1 Hunter (own file), 2 Jóga (own file), 4 Bachelorette (only
+    /// a Bandcamp link).
+    static let hunterTrack = "21da786f-467c-521c-8860-b4d8ed89225a"
     static let jogaTrack = "074901fa-ee92-5673-84b9-824423f92176"
+    static let bacheloretteTrack = "329a58d2-9ccb-5552-98bb-f556699b1fa2"
+    /// Vespertine's Cocoon: plays only as an excerpt of the "Strings only" episode
+    /// (estimated times).
+    static let cocoonTrack = "3d5b5b0c-d1fa-5b06-8689-aa21bd66c13c"
+    /// Medúlla's track 2: a range of the album's one file.
+    static let medullaTrack2 = "cc168657-7f75-57d8-bf13-4b7e252f54a3"
 }

@@ -19,6 +19,10 @@ EP/                   the app target
   Shell/              main window frame: toolbar, list columns, detail panels, player bar
   Library/            artists / albums / tracks columns: ArtistList and LibraryBrowser
                       (per window: selection, history, navigate(to:)), CoverImages
+  Player/             Player (one for the app: item, queue, transport), PlayItem (spans,
+                      long-file entries), player bar, Now Playing, Space key
+    Audio/            engines: AVPlayer, and AVAudioEngine fed by decoders for Ogg
+                      (AudioToolbox) and WebM/Opus (own Matroska demuxer), over HTTP Range
   Info.plist          only what build settings cannot say (App Transport Security)
 EPTests/              unit tests (Swift Testing) against StubTransport
 EPUITests/            XCUITest: harness support (Support/), screenshot Scenarios, flow tests
@@ -112,7 +116,8 @@ names).
   Rows: `area.row.<id>` with the entity ID (`artists.row.<artist>`,
   `releaseGroups.row.<release group>` and `releaseGroups.row.looseTracks`,
   `tracks.row.<track>`, or `<recording>` among loose tracks). Areas so far: `toolbar`, `connection`,
-  `settings`, `player`, `detail` (`detail.<artist|album|track|episode>`), and one per
+  `settings`, `player` (`player.bar`, `.title`, `.playPause`, `.scrubber`, `.queue`,
+  `.notice`, …), `detail` (`detail.<artist|album|track|episode>`), and one per
   list column (`artists`, `releaseGroups`, `tracks`, `shows`, `episodes`, `tracklist`;
   the column itself is `<area>.column`). Containers a test needs to find (columns,
   panels, banner, player bar) use `.accessibilityElement(children: .contain)` plus an
@@ -125,5 +130,13 @@ names).
   "Show playing") calls `LibraryBrowser.navigate(to:)`, which resolves the artist →
   album → track path and records it in the window's Back/Forward history. Playing goes
   through `LibraryBrowser.play(_:)` (`onPlay`, set by the player).
+- **Playback**: `Player` (in the environment of every window) plays what
+  `LibraryBrowser.play(_:)` asks for and, for the Radio view, `playEpisode(_:from:)`.
+  An item is a span of one file streamed from `GET /sources/{id}/stream`; a
+  single-file album or an episode is one item whose entries (tracks, tracklist) give
+  the marks, the title and previous/next. `AudioOutput` picks the engine from the
+  file's first bytes: AVPlayer for what AVFoundation plays, `DecodingEngine` for Ogg
+  (Opus, Vorbis; AudioToolbox reads Ogg since macOS 15) and WebM/Opus. No third-party
+  audio code. Unit tests generate Ogg/WebM fixtures with `ffmpeg` (skipped without it).
 - **Tests**: Swift Testing; happy path and the most important failures only.
 - Formatting: `swift format` (toolchain) with `.swift-format` in this directory.

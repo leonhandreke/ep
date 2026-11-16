@@ -57,6 +57,60 @@ final class Scenarios: EPUITestCase {
         screenshot("libraryRadioOnly")
     }
 
+    /// Player: nothing played yet.
+    func testPlayerNothing() throws {
+        let app = try launchConnected()
+        waitFor(app.element("player.nothingPlaying"))
+        screenshot("playerNothing", of: app.element("player.bar"))
+    }
+
+    /// Player: Homogenic's Jóga from its own file, paused once it shows.
+    func testPlayerPlaying() throws {
+        let app = try launchConnected()
+        play(Seed.jogaTrack, on: Seed.homogenic, in: app)
+        waitForText("Jóga", in: app.element("player.title"))
+        app.element("player.playPause").click()
+        screenshot("playerPlaying")
+    }
+
+    /// Player: Cocoon, which plays only inside a radio episode: the bar grows, the
+    /// scrubber covers the episode with hollow (estimated) marks.
+    func testPlayerLongFile() throws {
+        let app = try launchConnected()
+        play(Seed.cocoonTrack, on: Seed.vespertine, in: app)
+        waitForText("of 2", in: app.element("player.context"))
+        app.element("player.playPause").click()
+        screenshot("playerLongFile")
+    }
+
+    /// Player: Medúlla's track 2, a range of the album's one file.
+    func testPlayerSingleFile() throws {
+        let app = try launchConnected()
+        play(Seed.medullaTrack2, on: Seed.medulla, in: app)
+        waitForText("Track 2 of 3", in: app.element("player.context"))
+        app.element("player.playPause").click()
+        screenshot("playerSingleFile")
+    }
+
+    /// Player: tried to play Bachelorette, which is only a Bandcamp link.
+    func testPlayerLinkOnly() throws {
+        let app = try launchConnected()
+        play(Seed.bacheloretteTrack, on: Seed.homogenic, in: app)
+        waitFor(app.element("player.notice"))
+        screenshot("playerLinkOnly")
+    }
+
+    /// Player: Hunter playing, the queue popover open (Jóga up next).
+    func testPlayerQueue() throws {
+        let app = try launchConnected()
+        play(Seed.hunterTrack, on: Seed.homogenic, in: app)
+        waitForText("Hunter", in: app.element("player.title"))
+        app.element("player.playPause").click()
+        app.element("player.queue").click()
+        waitFor(app.element("player.queue.row.0"))
+        screenshot("playerQueue")
+    }
+
     /// The main window switched to Radio.
     func testRadio() throws {
         let app = try launchConnected()
@@ -80,5 +134,12 @@ final class Scenarios: EPUITestCase {
         waitForText("Connected", in: settings.element("settings.connectionStatus"))
         waitFor(settings.element("settings.serverInfo"))
         screenshot("settings", of: settings)
+    }
+
+    /// Björk → `album`, then double-clicks the track row.
+    private func play(_ track: String, on album: String, in app: XCUIApplication) {
+        app.row("artists", id: Seed.bjork).click()
+        waitFor(app.row("releaseGroups", id: album)).click()
+        waitFor(app.row("tracks", id: track)).doubleClick()
     }
 }
