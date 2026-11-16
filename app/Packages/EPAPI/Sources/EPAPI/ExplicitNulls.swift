@@ -12,7 +12,10 @@ public import OpenAPIRuntime
 //     }
 //
 // sends `{"preferred_source_id": null}`. Keys are top-level keys of the JSON object
-// body; they apply to every request sent inside the closure.
+// body (the PATCH fields; nested objects in request bodies are always sent whole) and
+// apply to every JSON request sent inside the closure, including from child tasks. Nested
+// calls add their keys to the enclosing ones. A key set to null replaces any value the
+// body has for it.
 
 /// Sends JSON `null` for the given top-level body keys in every request made in `operation`.
 public func withExplicitNulls<Key: CodingKey, Result>(
@@ -20,7 +23,7 @@ public func withExplicitNulls<Key: CodingKey, Result>(
     isolation: isolated (any Actor)? = #isolation,
     operation: () async throws -> Result
 ) async throws -> Result {
-    try await ExplicitNullsMiddleware.$keys.withValue(Set(keys.map(\.stringValue))) {
+    try await ExplicitNullsMiddleware.$keys.withValue(ExplicitNullsMiddleware.keys.union(keys.map(\.stringValue))) {
         try await operation()
     }
 }

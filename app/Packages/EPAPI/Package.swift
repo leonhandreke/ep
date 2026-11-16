@@ -1,7 +1,7 @@
 // swift-tools-version: 6.2
-// The EP API client, generated at build time by swift-openapi-generator from
-// server/openapi.json (Sources/EPAPI/openapi.json is a symlink to it: the only copy),
-// through the EPAPIGenerator plugin (Plugins/EPAPIGenerator/plugin.swift).
+// The EP API client. Sources/EPAPI/Generated is swift-openapi-generator's output for
+// server/openapi.json, generated ahead of time and checked in (app/scripts/generate-api.sh,
+// tools in ../EPAPIGenerator): building the app never builds or runs the generator.
 import PackageDescription
 
 let package = Package(
@@ -11,8 +11,6 @@ let package = Package(
         .library(name: "EPAPI", targets: ["EPAPI"])
     ],
     dependencies: [
-        // Pinned: EPAPIGenerator lists the files this version generates.
-        .package(url: "https://github.com/apple/swift-openapi-generator", exact: "1.14.4"),
         .package(url: "https://github.com/apple/swift-openapi-runtime", from: "1.13.4"),
         .package(url: "https://github.com/apple/swift-openapi-urlsession", from: "1.4.0"),
     ],
@@ -22,18 +20,8 @@ let package = Package(
             dependencies: [
                 .product(name: "OpenAPIRuntime", package: "swift-openapi-runtime"),
                 .product(name: "OpenAPIURLSession", package: "swift-openapi-urlsession"),
-            ],
-            plugins: ["EPAPIGenerator"]
-        ),
-        .executableTarget(name: "EPOpenAPINormalize"),
-        .plugin(
-            name: "EPAPIGenerator",
-            capability: .buildTool(),
-            dependencies: [
-                "EPOpenAPINormalize",
-                .product(name: "swift-openapi-generator", package: "swift-openapi-generator"),
             ]
-        ),
+        )
     ],
     swiftLanguageModes: [.v6]
 )

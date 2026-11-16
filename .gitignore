@@ -26,5 +26,6 @@ DerivedData/
 xcuserdata/
 *.xcresult
 *.profraw
-# The Xcode project's Package.resolved pins the app; the local package has none.
-app/Packages/*/Package.resolved
+# The Xcode project's Package.resolved pins the app's packages; EPAPIGenerator's own
+# Package.resolved pins the generator.
+app/Packages/EPAPI/Package.resolved

@@ -10,7 +10,8 @@ hooks = [
     { id = "trailing-whitespace", args = ["--markdown-linebreak-ext=md"] },
     { id = "end-of-file-fixer" },
     { id = "mixed-line-ending", args = ["--fix=lf"] },
-    { id = "check-added-large-files" },
+    # The generated API client is large by nature (app/scripts/generate-api.sh).
+    { id = "check-added-large-files", exclude = "^app/Packages/EPAPI/Sources/EPAPI/Generated/" },
     { id = "check-merge-conflict" },
     { id = "check-case-conflict" },
     { id = "check-yaml" },

@@ -183,15 +183,17 @@ enum Metrics {
 nonisolated struct ColumnSpec: Equatable {
     var fractions: [CGFloat]
     var minimums: [CGFloat]
+    /// Space between columns (CSS `gap`).
+    var gap: CGFloat = 0
 
     /// Library lists and detail panels: 25/30/45, at least 300/340/460 (§3).
     static let library = ColumnSpec(fractions: [25, 30, 45], minimums: [300, 340, 460])
     /// Radio lists: 17/26/57, at least 200/280/380 (§6).
     static let radio = ColumnSpec(fractions: [17, 26, 57], minimums: [200, 280, 380])
-    /// Player bar: 1/2/1, at least 240/420/240 (§3.8).
-    static let playerBar = ColumnSpec(fractions: [1, 2, 1], minimums: [240, 420, 240])
+    /// Player bar: 1/2/1, at least 240/420/240, 16 apart (§3.8).
+    static let playerBar = ColumnSpec(fractions: [1, 2, 1], minimums: [240, 420, 240], gap: 16)
 
-    var minimumWidth: CGFloat { minimums.reduce(0, +) }
+    var minimumWidth: CGFloat { minimums.reduce(0, +) + gap * CGFloat(max(minimums.count - 1, 0)) }
 }
 
 enum WindowMetrics {

@@ -10,10 +10,12 @@ struct MainToolbar: ToolbarContent {
         ToolbarItemGroup(placement: .navigation) {
             Button("Back", systemImage: "chevron.left") {}
                 .help("Back (⌘[)")
+                .accessibilityLabel("Back (⌘[)")
                 .accessibilityIdentifier("toolbar.back")
                 .disabled(true)
             Button("Forward", systemImage: "chevron.right") {}
                 .help("Forward (⌘])")
+                .accessibilityLabel("Forward (⌘])")
                 .accessibilityIdentifier("toolbar.forward")
                 .disabled(true)
             Button("Import", systemImage: "plus") {}

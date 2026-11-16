@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Lays out its subviews side by side like the CSS grid
-/// `grid-template-columns: minmax(min₁, f₁fr) minmax(min₂, f₂fr) …` the design uses for
+/// `grid-template-columns: minmax(min₁, f₁fr) minmax(min₂, f₂fr) …; gap: g` the design uses for
 /// the lists, the detail panels and the player bar. Rows that use the same spec at the
 /// same width line up, so each detail panel sits under its column.
 nonisolated struct ColumnGrid: Layout {
@@ -23,14 +23,16 @@ nonisolated struct ColumnGrid: Layout {
                 at: CGPoint(x: x, y: bounds.minY),
                 proposal: ProposedViewSize(width: width, height: bounds.height)
             )
-            x += width
+            x += width + spec.gap
         }
     }
 
     /// Column widths for a total width: free space is shared by fraction; a column whose
     /// share is below its minimum gets the minimum and the rest is shared again (the CSS
-    /// "find the size of an fr" algorithm). Below the sum of the minimums, the minimums.
+    /// "find the size of an fr" algorithm), after the gaps. Below the sum of the minimums,
+    /// the minimums.
     static func widths(total: CGFloat, spec: ColumnSpec) -> [CGFloat] {
+        let total = total - spec.gap * CGFloat(max(spec.fractions.count - 1, 0))
         var fixed = Set<Int>()
         while true {
             let free = total - fixed.reduce(0) { $0 + spec.minimums[$1] }

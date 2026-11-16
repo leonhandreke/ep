@@ -10,8 +10,15 @@ struct EPApp: App {
         let connection = ServerConnection(serverURL: settings.serverURL)
         _settings = State(initialValue: settings)
         _connection = State(initialValue: connection)
-        Task { await connection.connect() }
+        // As the unit tests' host the app stays offline: tests use their own stubs.
+        if !Self.isUnitTestHost {
+            Task { await connection.connect() }
+        }
     }
+
+    /// True when the app was launched to host EPTests (not for UI tests, which launch it
+    /// as a separate process).
+    static let isUnitTestHost = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
 
     var body: some Scene {
         WindowGroup("EP", id: "main") {

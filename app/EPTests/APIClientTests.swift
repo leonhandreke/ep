@@ -1,3 +1,4 @@
+import CryptoKit
 import EPAPI
 import Foundation
 import HTTPTypes
@@ -52,5 +53,39 @@ struct APIClientTests {
         #expect(bodies[0] == ["title": "Jóga", "preferred_source_id": NSNull()])
         #expect(bodies[1] == ["title": "Jóga"])
         #expect(transport.requests[0].request.headerFields[.contentLength] == String(transport.requests[0].body!.count))
+    }
+
+    @Test func explicitNullsNestAndKeepNestedValues() async throws {
+        let transport = StubTransport { _ in throw CancellationError() }
+        let client = Client.ep(serverURL: URL(string: "http://ep.test")!, transport: transport)
+        typealias Keys = Components.Schemas.RecordingUpdate.CodingKeys
+        let credit = Components.Schemas.ArtistCreditNameIn(artistId: "a1", joinPhrase: " & ")
+
+        _ = try? await withExplicitNulls(Keys.mbid) {
+            try await withExplicitNulls(Keys.lengthMs) {
+                try await client.updateRecording(path: .init(id: "r1"), body: .json(.init(artistCredit: [credit])))
+            }
+        }
+
+        let body = try JSONSerialization.jsonObject(with: #require(transport.requests.first?.body)) as? NSDictionary
+        #expect(
+            body == [
+                "mbid": NSNull(), "length_ms": NSNull(),
+                "artist_credit": [["artist_id": "a1", "join_phrase": " & "]],
+            ]
+        )
+    }
+}
+
+/// The checked-in client (Packages/EPAPI/Sources/EPAPI/Generated) matches the server's
+/// document, like the server's own openapi.json staleness test.
+struct OpenAPIDocumentTests {
+    @Test func clientIsGeneratedFromTheCurrentDocument() throws {
+        let document = URL(filePath: #filePath)
+            .deletingLastPathComponent()
+            .appending(path: "../../server/openapi.json")
+        let digest = SHA256.hash(data: try Data(contentsOf: document))
+        let sha256 = digest.map { String(format: "%02x", $0) }.joined()
+        #expect(sha256 == OpenAPIDocument.sha256, "server/openapi.json changed: run app/scripts/generate-api.sh")
     }
 }
