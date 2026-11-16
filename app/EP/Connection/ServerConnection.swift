@@ -58,6 +58,43 @@ final class ServerConnection {
         state = result
     }
 
+    /// Asks the server again without passing through `.connecting` (window activation):
+    /// what is shown stays while the answer is on its way.
+    func refresh() async {
+        guard isConnected else { return await connect() }
+        attempt += 1
+        let current = attempt
+        let result: State
+        do {
+            result = .connected(try await client.getServer().ok.body.json)
+        } catch {
+            guard !Self.isCancellation(error) else { return }
+            result = .unreachable(message: Self.describe(error))
+        }
+        guard current == attempt else { return }
+        state = result
+    }
+
+    /// A store's request failed. A transport failure (no answer at all) means the server
+    /// is unreachable: the banner appears, and what is loaded stays visible. Errors the
+    /// server answered with (404, 422, …) are the store's business.
+    func reportFailure(_ error: any Error) {
+        guard isConnected, Self.isTransportFailure(error) else { return }
+        attempt += 1
+        state = .unreachable(message: Self.describe(error))
+    }
+
+    nonisolated static func isCancellation(_ error: any Error) -> Bool {
+        let underlying = (error as? ClientError)?.underlyingError ?? error
+        return underlying is CancellationError || (underlying as? URLError)?.code == .cancelled
+    }
+
+    nonisolated static func isTransportFailure(_ error: any Error) -> Bool {
+        let underlying = (error as? ClientError)?.underlyingError ?? error
+        guard let urlError = underlying as? URLError else { return false }
+        return urlError.code != .cancelled
+    }
+
     private static func describe(_ error: any Error) -> String {
         let underlying = (error as? ClientError)?.underlyingError ?? error
         if let urlError = underlying as? URLError {
