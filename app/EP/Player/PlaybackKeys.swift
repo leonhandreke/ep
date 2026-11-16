@@ -4,6 +4,16 @@ import AppKit
 /// key to text views (SwiftUI's text fields edit through one). A menu key equivalent
 /// would take Space from text fields too.
 enum PlaybackKeys {
+    /// When the artist list last took a type-to-select key. Space typed within
+    /// `Metrics.typeSelectTimeout` of it belongs to the typed text ("sigur r"), not to playback.
+    private static var lastTypeSelect: ContinuousClock.Instant?
+
+    static func noteTypeSelect() { lastTypeSelect = .now }
+
+    private static var isTypeSelecting: Bool {
+        lastTypeSelect.map { .now - $0 < Metrics.typeSelectTimeout } ?? false
+    }
+
     static func install(_ player: Player) {
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             handles(event, player: player) ? nil : event
@@ -15,6 +25,7 @@ enum PlaybackKeys {
         guard event.keyCode == space,
             event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty,
             !(event.window?.firstResponder is NSText),
+            !isTypeSelecting,
             player.current != nil
         else { return false }
         if !event.isARepeat { player.togglePlayPause() }

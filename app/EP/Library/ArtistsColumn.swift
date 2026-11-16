@@ -171,6 +171,9 @@ struct ArtistsColumn: View {
             CharacterSet.alphanumerics.contains(scalar) || press.characters == " "
         else { return .ignored }
         let now = ContinuousClock.Instant.now
+        // A space only continues what is being typed; on its own it is not a search.
+        if press.characters == " ", now - typedAt >= Metrics.typeSelectTimeout { return .ignored }
+        PlaybackKeys.noteTypeSelect()
         typed = now - typedAt < Metrics.typeSelectTimeout ? typed + press.characters : press.characters
         typedAt = now
         typeSelection?.cancel()

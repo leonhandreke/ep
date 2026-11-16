@@ -193,3 +193,58 @@ struct DecodingEngineTests {
         engine.stop()
     }
 }
+
+/// Malformed Matroska must fail cleanly: an error or the end, never a crash or a spin.
+struct WebMRobustnessTests {
+    @Test func lacedBlocksWithHugeSizesAreRefused() {
+        // Track 1, timecode 0, EBML lacing, 4 frames: sizes that would overflow a sum.
+        let huge: [UInt8] = [0x81, 0x00, 0x00, 0x06, 0x03, 0x01, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]
+        #expect(EBML.block(Data(huge)) == nil)
+        // Truncated everywhere: never a crash.
+        let good: [UInt8] = [0x81, 0x00, 0x00, 0x02, 0x01, 0x02, 0xAA, 0xBB, 0xCC]  // Xiph, 2 frames
+        for length in 0...good.count { _ = EBML.block(Data(good.prefix(length))) }
+        #expect(EBML.block(Data(good))?.frames.count == 2)
+    }
+
+    @Test func oneFrameEBMLLacingIsOneFrame() throws {
+        let block: [UInt8] = [0x81, 0x00, 0x00, 0x06, 0x00, 0xAA, 0xBB]
+        #expect(try #require(EBML.block(Data(block))).frames == [Data([0xAA, 0xBB])])
+    }
+
+    @Test func absurdNumbersAreClamped() {
+        #expect(EBML.int(Data(repeating: 0xFF, count: 8)) == Int64(EBML.limit))
+        let cues = Data([0xBB, 0x8C, 0xB3, 0x88] + [UInt8](repeating: 0xFF, count: 8))  // truncated point
+        _ = EBML.cuePoints(in: cues)
+    }
+
+    @Test(.enabled(if: AudioFixtures.ffmpeg != nil, "needs ffmpeg"))
+    func corruptedFilesFailCleanly() async throws {
+        let original = try AudioFixtures.make("fuzz.webm", ["-c:a", "libopus", "-b:a", "32k"])
+        var random = SystemRandomNumberGenerator()
+        for round in 0..<40 {
+            var data = original
+            switch round % 4 {
+            case 0: data = data.prefix(Int.random(in: 0..<data.count, using: &random))  // truncated
+            default:
+                for _ in 0..<(round % 4) * 6 {
+                    data[Int.random(in: 0..<min(data.count, round % 2 == 0 ? 400 : data.count), using: &random)] =
+                        UInt8.random(in: 0...255, using: &random)
+                }
+            }
+            let name = "fuzz\(round).webm"
+            RangeFileServer.serve(data, at: "/\(name)")
+            guard
+                let source = try? await HTTPRangeSource.open(
+                    URL(string: "http://files.test/\(name)")!, session: RangeFileServer.session),
+                let decoder = try? WebMOpusDecoder(source: source),
+                let buffer = AVAudioPCMBuffer(pcmFormat: decoder.format, frameCapacity: 4800)
+            else { continue }
+            for target in [0.0, 1.5, 2.9, 99, .infinity, .nan, -3] {
+                _ = try? decoder.seek(to: target)
+                for _ in 0..<2000 {  // bounded: a spin would fail here
+                    guard (try? decoder.read(into: buffer)) != nil, buffer.frameLength > 0 else { break }
+                }
+            }
+        }
+    }
+}

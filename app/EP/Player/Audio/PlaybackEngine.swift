@@ -59,6 +59,7 @@ final class AudioOutput: PlaybackEngine {
             try await avPlayer.load(url, mediaType: mediaType, at: seconds)
         } else {
             let source = try await HTTPRangeSource.open(url, session: session)
+            try Task.checkCancellation()
             try await decoding.load(source, container: container, at: seconds)
         }
     }
@@ -92,6 +93,8 @@ final class AVPlayerEngine: PlaybackEngine {
         stop()
         let asset = AVURLAsset(url: url)
         guard try await asset.load(.isPlayable) else { throw DecoderError("This file’s format cannot be played") }
+        // A newer load took over while this one waited: leave the player to it.
+        try Task.checkCancellation()
         let item = AVPlayerItem(asset: asset)
         player.replaceCurrentItem(with: item)
         endObserver = NotificationCenter.default.addObserver(

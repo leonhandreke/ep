@@ -79,7 +79,7 @@ nonisolated final class HTTPRangeSource: @unchecked Sendable {
 
     /// Up to `count` bytes at `offset` (fewer at the end of the file).
     func read(at offset: Int64, count: Int) throws -> Data {
-        guard offset < size, count > 0 else { return Data() }
+        guard offset >= 0, offset < size, count > 0 else { return Data() }
         let end = min(offset + Int64(count), size)
         var result = Data(capacity: Int(end - offset))
         var position = offset
@@ -133,10 +133,13 @@ nonisolated final class HTTPRangeSource: @unchecked Sendable {
             }
             semaphore.signal()
         }
-        lock.withLock {
+        // A cancel that came in before the request started must not let it run.
+        let alreadyCancelled = lock.withLock {
             requestCount += 1
             self.task = task
+            return cancelled
         }
+        if alreadyCancelled { throw Failure.cancelled }
         task.resume()
         semaphore.wait()
         if lock.withLock({ cancelled }) { throw Failure.cancelled }

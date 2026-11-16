@@ -54,7 +54,7 @@ nonisolated final class WebMOpusDecoder: PCMDecoder, @unchecked Sendable {
             switch element.id {
             case EBML.info:
                 let children = EBML.children(try reader.data(element))
-                scale = children[EBML.timecodeScale].map(EBML.uint) ?? scale
+                scale = children[EBML.timecodeScale].map(EBML.uint).flatMap { $0 > 0 ? $0 : nil } ?? scale
                 duration = children[EBML.duration].map(EBML.float)
             case EBML.tracks:
                 audio = EBML.audioTrack(in: try reader.data(element))
@@ -70,7 +70,8 @@ nonisolated final class WebMOpusDecoder: PCMDecoder, @unchecked Sendable {
         guard let audio else { throw DecoderError("WebM file without an audio track") }
         guard audio.codec == "A_OPUS" else { throw DecoderError("Unsupported codec \(audio.codec) in WebM") }
         guard audio.channels <= 2 else { throw DecoderError("Opus with more than two channels") }
-        if cues.isEmpty, let cuesPosition, let element = try reader.element(at: segment.dataStart + cuesPosition),
+        if cues.isEmpty, let cuesPosition, cuesPosition < source.size,
+            let element = try reader.element(at: segment.dataStart + cuesPosition),
             element.id == EBML.cues
         {
             cues = EBML.cuePoints(in: try reader.data(element))
@@ -101,7 +102,9 @@ nonisolated final class WebMOpusDecoder: PCMDecoder, @unchecked Sendable {
     // MARK: - Seeking
 
     func seek(to seconds: Double) throws -> Double {
-        let target = max(seconds, 0)
+        // Finite and within what a timecode can hold (a bogus time never reaches a conversion
+        // that traps).
+        let target = seconds.isFinite ? min(max(seconds, 0), 1e7) : 0
         cursor = try clusterPosition(before: target)
         pending = []
         ended = false
@@ -117,12 +120,17 @@ nonisolated final class WebMOpusDecoder: PCMDecoder, @unchecked Sendable {
         let ticks = Int64(seconds * 1e9 / timecodeScale)
         if !cues.isEmpty {
             let cue = cues.last { $0.time <= ticks } ?? cues[0]
-            return segmentStart + cue.position
+            let position = segmentStart + cue.position
+            // A cue that does not point at a cluster is not trusted.
+            if position < source.size, let element = try reader.element(at: position), element.id == EBML.cluster {
+                return position
+            }
+            return firstCluster
         }
         // No cues: guess from the duration, then step back until the cluster found
         // starts before the target.
         guard let duration, duration > 0, seconds > 0 else { return firstCluster }
-        var fraction = seconds / duration
+        var fraction = min(seconds / duration, 1)
         for _ in 0..<6 {
             let guess = firstCluster + Int64(Double(source.size - firstCluster) * max(fraction, 0))
             if let found = try reader.cluster(atOrAfter: guess), found.time <= ticks {
@@ -191,7 +199,7 @@ nonisolated final class WebMOpusDecoder: PCMDecoder, @unchecked Sendable {
             cursor = element.dataStart + size
             switch element.id {
             case EBML.timecode:
-                clusterTime = Int64(EBML.uint(try reader.data(element)))
+                clusterTime = EBML.int(try reader.data(element))
             case EBML.simpleBlock, EBML.block:
                 let block = try reader.data(element)
                 guard let parsed = EBML.block(block), parsed.track == track else { continue }
@@ -250,7 +258,7 @@ nonisolated struct EBMLReader {
                     if let cluster = try element(at: position), let first = try element(at: cluster.dataStart),
                         first.id == EBML.timecode
                     {
-                        return (position, Int64(EBML.uint(try data(first))))
+                        return (position, EBML.int(try data(first)))
                     }
                 }
                 index += 1
@@ -331,6 +339,11 @@ nonisolated enum EBML {
         return result
     }
 
+    /// Times and positions are clamped to this, so adding them never overflows.
+    static let limit: UInt64 = 1 << 53
+
+    static func int(_ data: Data) -> Int64 { Int64(min(uint(data), limit)) }
+
     static func uint(_ data: Data) -> UInt64 {
         data.prefix(8).reduce(0) { $0 << 8 | UInt64($1) }
     }
@@ -350,7 +363,7 @@ nonisolated enum EBML {
             let codec = fields[codecID].map { String(decoding: $0, as: UTF8.self) } ?? ""
             let channels = fields[audio].flatMap { children($0)[EBML.channels] }.map(uint) ?? 2
             return AudioTrack(
-                number: number, codec: codec.trimmingCharacters(in: .controlCharacters), channels: Int(channels))
+                number: number, codec: codec.trimmingCharacters(in: .controlCharacters), channels: Int(min(channels, 64)))
         }
         return nil
     }
@@ -359,7 +372,7 @@ nonisolated enum EBML {
         for (id, entry) in list(seekHead) where id == seek {
             let fields = children(entry)
             if fields[seekID].map(uint) == UInt64(target), let position = fields[seekPosition].map(uint) {
-                return Int64(position)
+                return Int64(min(position, EBML.limit))
             }
         }
         return nil
@@ -372,7 +385,7 @@ nonisolated enum EBML {
             guard let time = fields[cueTime].map(uint),
                 let position = fields[cueTrackPositions].flatMap({ children($0)[cueClusterPosition] }).map(uint)
             else { return nil }
-            return (Int64(time), Int64(position))
+            return (Int64(min(time, EBML.limit)), Int64(min(position, EBML.limit)))
         }
     }
 
@@ -403,14 +416,20 @@ nonisolated enum EBML {
                 sizes.append(size)
             }
         case 3:  // EBML
-            guard let (first, firstLength) = vint(bytes, at: index, keepMarker: false) else { return nil }
+            guard count > 1 else { break }
+            guard let (first, firstLength) = vint(bytes, at: index, keepMarker: false), first <= UInt64(bytes.count)
+            else { return nil }
             index += firstLength
             sizes.append(Int(first))
-            for _ in 0..<max(count - 2, 0) {
-                guard let (raw, rawLength) = vint(bytes, at: index, keepMarker: false) else { return nil }
+            for _ in 0..<(count - 2) {
+                guard let (raw, rawLength) = vint(bytes, at: index, keepMarker: false), raw < (1 << 56) else {
+                    return nil
+                }
                 index += rawLength
                 let bias = (1 << (7 * rawLength - 1)) - 1
-                sizes.append(sizes.last! + Int(raw) - bias)
+                let size = sizes.last! + Int(raw) - bias
+                guard (0...bytes.count).contains(size) else { return nil }
+                sizes.append(size)
             }
         default:  // fixed
             let each = (bytes.count - index) / count
