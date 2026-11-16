@@ -1,0 +1,10 @@
+# App hooks (prek workspace project; see ../prek.toml). Hooks run with app/ as the
+# working directory. swift-format ships with the Xcode toolchain; settings in
+# .swift-format.
+#:schema https://www.schemastore.org/prek.json
+
+[[repos]]
+repo = "local"
+hooks = [
+    { id = "swift-format", name = "swift format lint", entry = "xcrun swift-format lint --strict", language = "system", types = ["swift"] },
+]

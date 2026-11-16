@@ -1,0 +1,527 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		EE0000000000000000000301 /* EPAPI in Frameworks */ = {isa = PBXBuildFile; productRef = EE0000000000000000000601 /* EPAPI */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		EE0000000000000000000701 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = EE0000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = EE0000000000000000000101;
+			remoteInfo = EP;
+		};
+		EE0000000000000000000702 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = EE0000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = EE0000000000000000000101;
+			remoteInfo = EP;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		EE0000000000000000000201 /* EP.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = EP.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		EE0000000000000000000202 /* EPTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = EPTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		EE0000000000000000000203 /* EPUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = EPUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		EE0000000000000000000501 /* Exceptions for "EP" folder in "EP" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = EE0000000000000000000101 /* EP */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		EE0000000000000000000401 /* EP */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				EE0000000000000000000501 /* Exceptions for "EP" folder in "EP" target */,
+			);
+			path = EP;
+			sourceTree = "<group>";
+		};
+		EE0000000000000000000402 /* EPTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = EPTests;
+			sourceTree = "<group>";
+		};
+		EE0000000000000000000403 /* EPUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = EPUITests;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		EE0000000000000000000801 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				EE0000000000000000000301 /* EPAPI in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		EE0000000000000000000802 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		EE0000000000000000000803 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		EE0000000000000000000011 = {
+			isa = PBXGroup;
+			children = (
+				EE0000000000000000000401 /* EP */,
+				EE0000000000000000000402 /* EPTests */,
+				EE0000000000000000000403 /* EPUITests */,
+				EE0000000000000000000012 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		EE0000000000000000000012 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				EE0000000000000000000201 /* EP.app */,
+				EE0000000000000000000202 /* EPTests.xctest */,
+				EE0000000000000000000203 /* EPUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		EE0000000000000000000101 /* EP */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = EE0000000000000000000921 /* Build configuration list for PBXNativeTarget "EP" */;
+			buildPhases = (
+				EE0000000000000000000811 /* Sources */,
+				EE0000000000000000000801 /* Frameworks */,
+				EE0000000000000000000821 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				EE0000000000000000000401 /* EP */,
+			);
+			name = EP;
+			packageProductDependencies = (
+				EE0000000000000000000601 /* EPAPI */,
+			);
+			productName = EP;
+			productReference = EE0000000000000000000201 /* EP.app */;
+			productType = "com.apple.product-type.application";
+		};
+		EE0000000000000000000102 /* EPTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = EE0000000000000000000922 /* Build configuration list for PBXNativeTarget "EPTests" */;
+			buildPhases = (
+				EE0000000000000000000812 /* Sources */,
+				EE0000000000000000000802 /* Frameworks */,
+				EE0000000000000000000822 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				EE0000000000000000000711 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				EE0000000000000000000402 /* EPTests */,
+			);
+			name = EPTests;
+			productName = EPTests;
+			productReference = EE0000000000000000000202 /* EPTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		EE0000000000000000000103 /* EPUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = EE0000000000000000000923 /* Build configuration list for PBXNativeTarget "EPUITests" */;
+			buildPhases = (
+				EE0000000000000000000813 /* Sources */,
+				EE0000000000000000000803 /* Frameworks */,
+				EE0000000000000000000823 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				EE0000000000000000000712 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				EE0000000000000000000403 /* EPUITests */,
+			);
+			name = EPUITests;
+			productName = EPUITests;
+			productReference = EE0000000000000000000203 /* EPUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		EE0000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2630;
+				LastUpgradeCheck = 2630;
+				TargetAttributes = {
+					EE0000000000000000000101 = {
+						CreatedOnToolsVersion = 26.3;
+					};
+					EE0000000000000000000102 = {
+						CreatedOnToolsVersion = 26.3;
+						TestTargetID = EE0000000000000000000101;
+					};
+					EE0000000000000000000103 = {
+						CreatedOnToolsVersion = 26.3;
+						TestTargetID = EE0000000000000000000101;
+					};
+				};
+			};
+			buildConfigurationList = EE0000000000000000000901 /* Build configuration list for PBXProject "EP" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = EE0000000000000000000011;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				EE0000000000000000000611 /* XCLocalSwiftPackageReference "Packages/EPAPI" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = EE0000000000000000000012 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				EE0000000000000000000101 /* EP */,
+				EE0000000000000000000102 /* EPTests */,
+				EE0000000000000000000103 /* EPUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		EE0000000000000000000821 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		EE0000000000000000000822 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		EE0000000000000000000823 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		EE0000000000000000000811 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		EE0000000000000000000812 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		EE0000000000000000000813 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		EE0000000000000000000711 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = EE0000000000000000000101 /* EP */;
+			targetProxy = EE0000000000000000000701 /* PBXContainerItemProxy */;
+		};
+		EE0000000000000000000712 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = EE0000000000000000000101 /* EP */;
+			targetProxy = EE0000000000000000000702 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		EE0000000000000000000911 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_TREAT_WARNINGS_AS_ERRORS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		EE0000000000000000000912 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = "";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		EE0000000000000000000931 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = NO;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = EP/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = EP;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "EP connects to your EP server on the local network.";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = de.ndreke.ep;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+			};
+			name = Debug;
+		};
+		EE0000000000000000000932 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = NO;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = EP/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = EP;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "EP connects to your EP server on the local network.";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = de.ndreke.ep;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+			};
+			name = Release;
+		};
+		EE0000000000000000000941 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = de.ndreke.ep.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/EP.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/EP";
+			};
+			name = Debug;
+		};
+		EE0000000000000000000942 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = de.ndreke.ep.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/EP.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/EP";
+			};
+			name = Release;
+		};
+		EE0000000000000000000951 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = de.ndreke.ep.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				TEST_TARGET_NAME = EP;
+			};
+			name = Debug;
+		};
+		EE0000000000000000000952 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = de.ndreke.ep.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				TEST_TARGET_NAME = EP;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		EE0000000000000000000901 /* Build configuration list for PBXProject "EP" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				EE0000000000000000000911 /* Debug */,
+				EE0000000000000000000912 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		EE0000000000000000000921 /* Build configuration list for PBXNativeTarget "EP" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				EE0000000000000000000931 /* Debug */,
+				EE0000000000000000000932 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		EE0000000000000000000922 /* Build configuration list for PBXNativeTarget "EPTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				EE0000000000000000000941 /* Debug */,
+				EE0000000000000000000942 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		EE0000000000000000000923 /* Build configuration list for PBXNativeTarget "EPUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				EE0000000000000000000951 /* Debug */,
+				EE0000000000000000000952 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		EE0000000000000000000611 /* XCLocalSwiftPackageReference "Packages/EPAPI" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/EPAPI;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		EE0000000000000000000601 /* EPAPI */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = EPAPI;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = EE0000000000000000000001 /* Project object */;
+}
