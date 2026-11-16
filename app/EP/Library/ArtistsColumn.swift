@@ -2,8 +2,10 @@ import EPAPI
 import SwiftUI
 
 /// The artists column (§3.2): filter field with the live count, the radio-only toggle,
-/// and the artists by sort name, 22 pt rows. Type-to-select jumps to the first loaded
-/// artist whose sort name or name starts with what was typed.
+/// and the artists by sort name, 22 pt rows: one row per artist in the list, loaded a
+/// page at a time as rows appear. Type-to-select selects the first artist that sorts at
+/// or after what was typed; the selected artist (also one shown by navigation) is
+/// scrolled to, its page loaded first.
 struct ArtistsColumn: View {
     var focus: FocusState<LibraryColumn?>.Binding
     let moveRight: () -> Void
@@ -14,6 +16,7 @@ struct ArtistsColumn: View {
     @FocusState private var filterFocused: Bool
     @State private var typed = ""
     @State private var typedAt = ContinuousClock.Instant.now
+    @State private var typeSelection: Task<Void, Never>?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -53,7 +56,7 @@ struct ArtistsColumn: View {
                 .onExitCommand { list.setFilter("") }
                 .onKeyPress(.downArrow) {
                     focus.wrappedValue = .artists
-                    if browser.location.artistID == nil, let first = list.artists.first {
+                    if browser.location.artistID == nil, let first = list.artist(at: 0) {
                         browser.select(artist: first.id)
                     }
                     return .handled
@@ -100,7 +103,7 @@ struct ArtistsColumn: View {
     // MARK: - List
 
     @ViewBuilder private var content: some View {
-        if list.artists.isEmpty {
+        if list.total == 0 {
             switch list.phase {
             case .loading: DelayedSkeleton(rowHeight: RowHeight.artist)
             case .failed(let message): ColumnMessage(id: "artists", text: message) { list.reload() }
@@ -119,14 +122,21 @@ struct ArtistsColumn: View {
     private var artistList: some View {
         ScrollViewReader { proxy in
             List(selection: Binding(get: { browser.location.artistID }, set: { browser.select(artist: $0) })) {
-                ForEach(list.artists, id: \.id) { artist in
-                    ArtistRow(
-                        artist: artist,
-                        emphasized: focus.wrappedValue == .artists && artist.id == browser.location.artistID
-                    )
+                ForEach(0..<list.total, id: \.self) { index in
+                    Group {
+                        if let artist = list.artist(at: index) {
+                            ArtistRow(
+                                artist: artist,
+                                emphasized: focus.wrappedValue == .artists && artist.id == browser.location.artistID
+                            )
+                            .tag(artist.id)
+                        } else {
+                            PlaceholderRow(index: index)
+                                .onAppear { list.loadPage(containing: index) }
+                        }
+                    }
                     .listRowInsets(EdgeInsets(top: 0, leading: Metrics.rowPadding, bottom: 0, trailing: 0))
                     .listRowSeparator(.hidden)
-                    .onAppear { list.loadMoreIfNeeded(after: artist.id) }
                 }
             }
             .listStyle(.inset)
@@ -139,12 +149,15 @@ struct ArtistsColumn: View {
             }
             .onKeyPress(phases: .down) { press in typeSelect(press) }
             .contextMenu(forSelectionType: String.self) { ids in
-                if let id = ids.first, let artist = list.artists.first(where: { $0.id == id }) {
+                if let id = ids.first, let artist = list.index(of: id).flatMap(list.artist(at:)) {
                     Button("Copy Link") { copyNoteLink(artist.link) }
                 }
             }
-            .onChange(of: browser.location.artistID) { _, id in
-                if let id { proxy.scrollTo(id) }
+            .task(id: RevealKey(artistID: browser.location.artistID, list: list.listVersion)) {
+                guard let id = browser.location.artistID, let index = await list.reveal(id),
+                    !Task.isCancelled
+                else { return }
+                proxy.scrollTo(index)
             }
             .accessibilityIdentifier("artists.list")
         }
@@ -160,10 +173,31 @@ struct ArtistsColumn: View {
         let now = ContinuousClock.Instant.now
         typed = now - typedAt < Metrics.typeSelectTimeout ? typed + press.characters : press.characters
         typedAt = now
-        if let artist = list.firstArtist(matching: typed) {
-            browser.select(artist: artist.id)
+        typeSelection?.cancel()
+        typeSelection = Task { [typed] in
+            guard let id = await list.artistID(atOrAfter: typed), !Task.isCancelled else { return }
+            browser.select(artist: id)
         }
         return .handled
+    }
+}
+
+/// Scroll to the selection when it changes, and when a new list (filter) arrives.
+private struct RevealKey: Equatable {
+    let artistID: String?
+    let list: Int
+}
+
+/// A row whose page is not loaded yet: a skeleton bar of the row's height.
+private struct PlaceholderRow: View {
+    let index: Int
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 3)
+            .fill(Palette.skel)
+            .frame(width: [90, 120, 70, 105][index % 4], height: 8)
+            .frame(maxWidth: .infinity, minHeight: RowHeight.artist, maxHeight: RowHeight.artist, alignment: .leading)
+            .accessibilityHidden(true)
     }
 }
 

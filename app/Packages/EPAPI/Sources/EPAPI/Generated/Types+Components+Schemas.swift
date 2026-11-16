@@ -279,6 +279,29 @@ extension Components {
                 case updatedAt = "updated_at"
             }
         }
+        /// - Remark: Generated from `#/components/schemas/ArtistPositionRead`.
+        public struct ArtistPositionRead: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ArtistPositionRead/id`.
+            public var id: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ArtistPositionRead/offset`.
+            public var offset: Swift.Int
+            /// Creates a new `ArtistPositionRead`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - offset:
+            public init(
+                id: Swift.String? = nil,
+                offset: Swift.Int
+            ) {
+                self.id = id
+                self.offset = offset
+            }
+            public enum CodingKeys: String, CodingKey {
+                case id
+                case offset
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/ArtistRead`.
         public struct ArtistRead: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/ArtistRead/created_at`.
@@ -3191,7 +3214,8 @@ extension Components {
             public var durationMs: Swift.Int?
             /// - Remark: Generated from `#/components/schemas/RadioEpisodeDetail/id`.
             public var id: Swift.String
-            /// Path of the episode's image (``GET /covers/radio-episode/{id}``), if any.
+            /// Path of the episode's image (``GET /covers/radio-episode/{id}``, versioned), if
+            /// any.
             ///
             /// - Remark: Generated from `#/components/schemas/RadioEpisodeDetail/image_url`.
             public var imageUrl: Swift.String?
@@ -3227,7 +3251,7 @@ extension Components {
             ///   - description:
             ///   - durationMs:
             ///   - id:
-            ///   - imageUrl: Path of the episode's image (``GET /covers/radio-episode/{id}``), if any.
+            ///   - imageUrl: Path of the episode's image (``GET /covers/radio-episode/{id}``, versioned), if
             ///   - link: The note link to this episode, with its name as display text.
             ///   - location:
             ///   - name:
@@ -3306,7 +3330,8 @@ extension Components {
             public var description: Swift.String
             /// - Remark: Generated from `#/components/schemas/RadioEpisodeRead/id`.
             public var id: Swift.String
-            /// Path of the episode's image (``GET /covers/radio-episode/{id}``), if any.
+            /// Path of the episode's image (``GET /covers/radio-episode/{id}``, versioned), if
+            /// any.
             ///
             /// - Remark: Generated from `#/components/schemas/RadioEpisodeRead/image_url`.
             public var imageUrl: Swift.String?
@@ -3335,7 +3360,7 @@ extension Components {
             ///   - createdAt:
             ///   - description:
             ///   - id:
-            ///   - imageUrl: Path of the episode's image (``GET /covers/radio-episode/{id}``), if any.
+            ///   - imageUrl: Path of the episode's image (``GET /covers/radio-episode/{id}``, versioned), if
             ///   - link: The note link to this episode, with its name as display text.
             ///   - location:
             ///   - name:
@@ -3620,7 +3645,7 @@ extension Components {
             public var episodeCount: Swift.Int
             /// - Remark: Generated from `#/components/schemas/RadioShowDetail/id`.
             public var id: Swift.String
-            /// Path of the show's image (``GET /covers/radio-show/{id}``), if there is one.
+            /// Path of the show's image (``GET /covers/radio-show/{id}``, versioned), if any.
             ///
             /// - Remark: Generated from `#/components/schemas/RadioShowDetail/image_url`.
             public var imageUrl: Swift.String?
@@ -3643,7 +3668,7 @@ extension Components {
             ///   - description:
             ///   - episodeCount:
             ///   - id:
-            ///   - imageUrl: Path of the show's image (``GET /covers/radio-show/{id}``), if there is one.
+            ///   - imageUrl: Path of the show's image (``GET /covers/radio-show/{id}``, versioned), if any.
             ///   - link: The note link to this show, with its name as display text.
             ///   - name:
             ///   - slug:
@@ -3693,7 +3718,7 @@ extension Components {
             public var description: Swift.String
             /// - Remark: Generated from `#/components/schemas/RadioShowRead/id`.
             public var id: Swift.String
-            /// Path of the show's image (``GET /covers/radio-show/{id}``), if there is one.
+            /// Path of the show's image (``GET /covers/radio-show/{id}``, versioned), if any.
             ///
             /// - Remark: Generated from `#/components/schemas/RadioShowRead/image_url`.
             public var imageUrl: Swift.String?
@@ -3715,7 +3740,7 @@ extension Components {
             ///   - createdAt:
             ///   - description:
             ///   - id:
-            ///   - imageUrl: Path of the show's image (``GET /covers/radio-show/{id}``), if there is one.
+            ///   - imageUrl: Path of the show's image (``GET /covers/radio-show/{id}``, versioned), if any.
             ///   - link: The note link to this show, with its name as display text.
             ///   - name:
             ///   - slug:
@@ -4213,7 +4238,8 @@ extension Components {
             public var artistCredit: Components.Schemas.ArtistCreditRead
             /// - Remark: Generated from `#/components/schemas/ReleaseGroupDetail/barcode`.
             public var barcode: Swift.String?
-            /// Path of the cover image (``GET /covers/release-group/{id}``), if there is one.
+            /// Path of the cover image (``GET /covers/release-group/{id}``, with a version
+            /// that changes with the image), if there is one.
             ///
             /// - Remark: Generated from `#/components/schemas/ReleaseGroupDetail/cover_url`.
             public var coverUrl: Swift.String?
@@ -4252,7 +4278,7 @@ extension Components {
             /// - Parameters:
             ///   - artistCredit:
             ///   - barcode:
-            ///   - coverUrl: Path of the cover image (``GET /covers/release-group/{id}``), if there is one.
+            ///   - coverUrl: Path of the cover image (``GET /covers/release-group/{id}``, with a version
             ///   - createdAt:
             ///   - date:
             ///   - discCount:
@@ -4330,7 +4356,8 @@ extension Components {
             public var artistCredit: Components.Schemas.ArtistCreditRead
             /// - Remark: Generated from `#/components/schemas/ReleaseGroupRead/barcode`.
             public var barcode: Swift.String?
-            /// Path of the cover image (``GET /covers/release-group/{id}``), if there is one.
+            /// Path of the cover image (``GET /covers/release-group/{id}``, with a version
+            /// that changes with the image), if there is one.
             ///
             /// - Remark: Generated from `#/components/schemas/ReleaseGroupRead/cover_url`.
             public var coverUrl: Swift.String?
@@ -4359,7 +4386,7 @@ extension Components {
             /// - Parameters:
             ///   - artistCredit:
             ///   - barcode:
-            ///   - coverUrl: Path of the cover image (``GET /covers/release-group/{id}``), if there is one.
+            ///   - coverUrl: Path of the cover image (``GET /covers/release-group/{id}``, with a version
             ///   - createdAt:
             ///   - date:
             ///   - id:

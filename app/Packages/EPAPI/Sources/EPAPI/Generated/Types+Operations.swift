@@ -16,7 +16,8 @@ public enum Operations {
     /// only radio-only recordings, see ``ep.radio``) are left out unless
     /// ``include_radio_only``. ``q`` filters (still by sort name): artists whose name or
     /// sort name contains it, ignoring case, accents and punctuation (index-backed; for
-    /// ranked fuzzy matching use ``/search``). Totals: ``GET /server``.
+    /// ranked fuzzy matching use ``/search``). Where an artist or a typed name is in this
+    /// list: ``GET /artists/position``.
     ///
     /// - Remark: HTTP `GET /artists`.
     /// - Remark: Generated from `#/paths//artists/get(list_artists)`.
@@ -25,31 +26,31 @@ public enum Operations {
         public struct Input: Sendable, Hashable {
             /// - Remark: Generated from `#/paths/artists/GET/query`.
             public struct Query: Sendable, Hashable {
-                /// - Remark: Generated from `#/paths/artists/GET/query/limit`.
-                public var limit: Swift.Int?
-                /// - Remark: Generated from `#/paths/artists/GET/query/offset`.
-                public var offset: Swift.Int?
                 /// - Remark: Generated from `#/paths/artists/GET/query/include_radio_only`.
                 public var includeRadioOnly: Swift.Bool?
                 /// - Remark: Generated from `#/paths/artists/GET/query/q`.
                 public var q: Swift.String?
+                /// - Remark: Generated from `#/paths/artists/GET/query/limit`.
+                public var limit: Swift.Int?
+                /// - Remark: Generated from `#/paths/artists/GET/query/offset`.
+                public var offset: Swift.Int?
                 /// Creates a new `Query`.
                 ///
                 /// - Parameters:
-                ///   - limit:
-                ///   - offset:
                 ///   - includeRadioOnly:
                 ///   - q:
+                ///   - limit:
+                ///   - offset:
                 public init(
-                    limit: Swift.Int? = nil,
-                    offset: Swift.Int? = nil,
                     includeRadioOnly: Swift.Bool? = nil,
-                    q: Swift.String? = nil
+                    q: Swift.String? = nil,
+                    limit: Swift.Int? = nil,
+                    offset: Swift.Int? = nil
                 ) {
-                    self.limit = limit
-                    self.offset = offset
                     self.includeRadioOnly = includeRadioOnly
                     self.q = q
+                    self.limit = limit
+                    self.offset = offset
                 }
             }
             public var query: Operations.ListArtists.Input.Query
@@ -80,6 +81,22 @@ public enum Operations {
         }
         @frozen public enum Output: Sendable, Hashable {
             public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/artists/GET/responses/200/headers`.
+                public struct Headers: Sendable, Hashable {
+                    /// Number of items in the whole list (all pages).
+                    ///
+                    /// - Remark: Generated from `#/paths/artists/GET/responses/200/headers/X-Total-Count`.
+                    public var xTotalCount: Swift.Int
+                    /// Creates a new `Headers`.
+                    ///
+                    /// - Parameters:
+                    ///   - xTotalCount: Number of items in the whole list (all pages).
+                    public init(xTotalCount: Swift.Int) {
+                        self.xTotalCount = xTotalCount
+                    }
+                }
+                /// Received HTTP response headers
+                public var headers: Operations.ListArtists.Output.Ok.Headers
                 /// - Remark: Generated from `#/paths/artists/GET/responses/200/content`.
                 @frozen public enum Body: Sendable, Hashable {
                     /// - Remark: Generated from `#/paths/artists/GET/responses/200/content/application\/json`.
@@ -102,8 +119,13 @@ public enum Operations {
                 /// Creates a new `Ok`.
                 ///
                 /// - Parameters:
+                ///   - headers: Received HTTP response headers
                 ///   - body: Received HTTP response body
-                public init(body: Operations.ListArtists.Output.Ok.Body) {
+                public init(
+                    headers: Operations.ListArtists.Output.Ok.Headers,
+                    body: Operations.ListArtists.Output.Ok.Body
+                ) {
+                    self.headers = headers
                     self.body = body
                 }
             }
@@ -2227,31 +2249,31 @@ public enum Operations {
             public var path: Operations.ListArtistRecordings.Input.Path
             /// - Remark: Generated from `#/paths/artists/{id}/recordings/GET/query`.
             public struct Query: Sendable, Hashable {
-                /// - Remark: Generated from `#/paths/artists/{id}/recordings/GET/query/limit`.
-                public var limit: Swift.Int?
-                /// - Remark: Generated from `#/paths/artists/{id}/recordings/GET/query/offset`.
-                public var offset: Swift.Int?
                 /// - Remark: Generated from `#/paths/artists/{id}/recordings/GET/query/standalone`.
                 public var standalone: Swift.Bool?
                 /// - Remark: Generated from `#/paths/artists/{id}/recordings/GET/query/include_radio_only`.
                 public var includeRadioOnly: Swift.Bool?
+                /// - Remark: Generated from `#/paths/artists/{id}/recordings/GET/query/limit`.
+                public var limit: Swift.Int?
+                /// - Remark: Generated from `#/paths/artists/{id}/recordings/GET/query/offset`.
+                public var offset: Swift.Int?
                 /// Creates a new `Query`.
                 ///
                 /// - Parameters:
-                ///   - limit:
-                ///   - offset:
                 ///   - standalone:
                 ///   - includeRadioOnly:
+                ///   - limit:
+                ///   - offset:
                 public init(
-                    limit: Swift.Int? = nil,
-                    offset: Swift.Int? = nil,
                     standalone: Swift.Bool? = nil,
-                    includeRadioOnly: Swift.Bool? = nil
+                    includeRadioOnly: Swift.Bool? = nil,
+                    limit: Swift.Int? = nil,
+                    offset: Swift.Int? = nil
                 ) {
-                    self.limit = limit
-                    self.offset = offset
                     self.standalone = standalone
                     self.includeRadioOnly = includeRadioOnly
+                    self.limit = limit
+                    self.offset = offset
                 }
             }
             public var query: Operations.ListArtistRecordings.Input.Query
@@ -2285,6 +2307,22 @@ public enum Operations {
         }
         @frozen public enum Output: Sendable, Hashable {
             public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/artists/{id}/recordings/GET/responses/200/headers`.
+                public struct Headers: Sendable, Hashable {
+                    /// Number of items in the whole list (all pages).
+                    ///
+                    /// - Remark: Generated from `#/paths/artists/{id}/recordings/GET/responses/200/headers/X-Total-Count`.
+                    public var xTotalCount: Swift.Int
+                    /// Creates a new `Headers`.
+                    ///
+                    /// - Parameters:
+                    ///   - xTotalCount: Number of items in the whole list (all pages).
+                    public init(xTotalCount: Swift.Int) {
+                        self.xTotalCount = xTotalCount
+                    }
+                }
+                /// Received HTTP response headers
+                public var headers: Operations.ListArtistRecordings.Output.Ok.Headers
                 /// - Remark: Generated from `#/paths/artists/{id}/recordings/GET/responses/200/content`.
                 @frozen public enum Body: Sendable, Hashable {
                     /// - Remark: Generated from `#/paths/artists/{id}/recordings/GET/responses/200/content/application\/json`.
@@ -2307,8 +2345,13 @@ public enum Operations {
                 /// Creates a new `Ok`.
                 ///
                 /// - Parameters:
+                ///   - headers: Received HTTP response headers
                 ///   - body: Received HTTP response body
-                public init(body: Operations.ListArtistRecordings.Output.Ok.Body) {
+                public init(
+                    headers: Operations.ListArtistRecordings.Output.Ok.Headers,
+                    body: Operations.ListArtistRecordings.Output.Ok.Body
+                ) {
+                    self.headers = headers
                     self.body = body
                 }
             }
@@ -2540,6 +2583,22 @@ public enum Operations {
         }
         @frozen public enum Output: Sendable, Hashable {
             public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/artists/{id}/release-groups/GET/responses/200/headers`.
+                public struct Headers: Sendable, Hashable {
+                    /// Number of items in the whole list (all pages).
+                    ///
+                    /// - Remark: Generated from `#/paths/artists/{id}/release-groups/GET/responses/200/headers/X-Total-Count`.
+                    public var xTotalCount: Swift.Int
+                    /// Creates a new `Headers`.
+                    ///
+                    /// - Parameters:
+                    ///   - xTotalCount: Number of items in the whole list (all pages).
+                    public init(xTotalCount: Swift.Int) {
+                        self.xTotalCount = xTotalCount
+                    }
+                }
+                /// Received HTTP response headers
+                public var headers: Operations.ListArtistReleaseGroups.Output.Ok.Headers
                 /// - Remark: Generated from `#/paths/artists/{id}/release-groups/GET/responses/200/content`.
                 @frozen public enum Body: Sendable, Hashable {
                     /// - Remark: Generated from `#/paths/artists/{id}/release-groups/GET/responses/200/content/application\/json`.
@@ -2562,8 +2621,13 @@ public enum Operations {
                 /// Creates a new `Ok`.
                 ///
                 /// - Parameters:
+                ///   - headers: Received HTTP response headers
                 ///   - body: Received HTTP response body
-                public init(body: Operations.ListArtistReleaseGroups.Output.Ok.Body) {
+                public init(
+                    headers: Operations.ListArtistReleaseGroups.Output.Ok.Headers,
+                    body: Operations.ListArtistReleaseGroups.Output.Ok.Body
+                ) {
+                    self.headers = headers
                     self.body = body
                 }
             }
@@ -2680,6 +2744,259 @@ public enum Operations {
             /// - Throws: An error if `self` is not `.unprocessableContent`.
             /// - SeeAlso: `.unprocessableContent`.
             public var unprocessableContent: Operations.ListArtistReleaseGroups.Output.UnprocessableContent {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Get Artist Position
+    ///
+    /// Where an artist is in ``GET /artists`` with the same ``include_radio_only`` and
+    /// ``q``, as the ``offset`` of its row (to load the page that has it). Give exactly one
+    /// of ``id`` (that artist; 404 if the list leaves it out) or ``sort_name`` (the first
+    /// artist that sorts at or after it, as type-to-select does: "bjo" finds "Björk";
+    /// past the end of the list: ``offset`` is the number of artists and ``id`` null).
+    ///
+    /// - Remark: HTTP `GET /artists/position`.
+    /// - Remark: Generated from `#/paths//artists/position/get(get_artist_position)`.
+    public enum GetArtistPosition {
+        public static let id: Swift.String = "get_artist_position"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/artists/position/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/artists/position/GET/query/include_radio_only`.
+                public var includeRadioOnly: Swift.Bool?
+                /// - Remark: Generated from `#/paths/artists/position/GET/query/q`.
+                public var q: Swift.String?
+                /// - Remark: Generated from `#/paths/artists/position/GET/query/id`.
+                public var id: Swift.String?
+                /// - Remark: Generated from `#/paths/artists/position/GET/query/sort_name`.
+                public var sortName: Swift.String?
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - includeRadioOnly:
+                ///   - q:
+                ///   - id:
+                ///   - sortName:
+                public init(
+                    includeRadioOnly: Swift.Bool? = nil,
+                    q: Swift.String? = nil,
+                    id: Swift.String? = nil,
+                    sortName: Swift.String? = nil
+                ) {
+                    self.includeRadioOnly = includeRadioOnly
+                    self.q = q
+                    self.id = id
+                    self.sortName = sortName
+                }
+            }
+            public var query: Operations.GetArtistPosition.Input.Query
+            /// - Remark: Generated from `#/paths/artists/position/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetArtistPosition.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetArtistPosition.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.GetArtistPosition.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - query:
+            ///   - headers:
+            public init(
+                query: Operations.GetArtistPosition.Input.Query = .init(),
+                headers: Operations.GetArtistPosition.Input.Headers = .init()
+            ) {
+                self.query = query
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/artists/position/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/artists/position/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.ArtistPositionRead)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ArtistPositionRead {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.GetArtistPosition.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.GetArtistPosition.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Successful Response
+            ///
+            /// - Remark: Generated from `#/paths//artists/position/get(get_artist_position)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.GetArtistPosition.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.GetArtistPosition.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct NotFound: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/artists/position/GET/responses/404/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/artists/position/GET/responses/404/content/application\/json`.
+                    case json(Components.Schemas.ErrorRead)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorRead {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.GetArtistPosition.Output.NotFound.Body
+                /// Creates a new `NotFound`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.GetArtistPosition.Output.NotFound.Body) {
+                    self.body = body
+                }
+            }
+            /// Not found
+            ///
+            /// - Remark: Generated from `#/paths//artists/position/get(get_artist_position)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Operations.GetArtistPosition.Output.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Operations.GetArtistPosition.Output.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct UnprocessableContent: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/artists/position/GET/responses/422/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/artists/position/GET/responses/422/content/application\/json`.
+                    case json(Components.Schemas.HTTPValidationError)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.HTTPValidationError {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.GetArtistPosition.Output.UnprocessableContent.Body
+                /// Creates a new `UnprocessableContent`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.GetArtistPosition.Output.UnprocessableContent.Body) {
+                    self.body = body
+                }
+            }
+            /// Validation Error
+            ///
+            /// - Remark: Generated from `#/paths//artists/position/get(get_artist_position)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Operations.GetArtistPosition.Output.UnprocessableContent)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Operations.GetArtistPosition.Output.UnprocessableContent {
                 get throws {
                     switch self {
                     case let .unprocessableContent(response):
@@ -2966,7 +3283,7 @@ public enum Operations {
     }
     /// Get Radio Episode Image
     ///
-    /// A radio episode's image (from the station).
+    /// A radio episode's image (from the station); cached as covers are.
     ///
     /// - Remark: HTTP `GET /covers/radio-episode/{id}`.
     /// - Remark: Generated from `#/paths//covers/radio-episode/{id}/get(get_radio_episode_image)`.
@@ -2986,6 +3303,21 @@ public enum Operations {
                 }
             }
             public var path: Operations.GetRadioEpisodeImage.Input.Path
+            /// - Remark: Generated from `#/paths/covers/radio-episode/{id}/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// The image's version, as in the URL the API gives (``cover_url``).
+                ///
+                /// - Remark: Generated from `#/paths/covers/radio-episode/{id}/GET/query/v`.
+                public var v: Swift.String?
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - v: The image's version, as in the URL the API gives (``cover_url``).
+                public init(v: Swift.String? = nil) {
+                    self.v = v
+                }
+            }
+            public var query: Operations.GetRadioEpisodeImage.Input.Query
             /// - Remark: Generated from `#/paths/covers/radio-episode/{id}/GET/header`.
             public struct Headers: Sendable, Hashable {
                 public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetRadioEpisodeImage.AcceptableContentType>]
@@ -3002,12 +3334,15 @@ public enum Operations {
             ///
             /// - Parameters:
             ///   - path:
+            ///   - query:
             ///   - headers:
             public init(
                 path: Operations.GetRadioEpisodeImage.Input.Path,
+                query: Operations.GetRadioEpisodeImage.Input.Query = .init(),
                 headers: Operations.GetRadioEpisodeImage.Input.Headers = .init()
             ) {
                 self.path = path
+                self.query = query
                 self.headers = headers
             }
         }
@@ -3058,6 +3393,41 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct NotModified: Sendable, Hashable {
+                /// Creates a new `NotModified`.
+                public init() {}
+            }
+            /// Not modified (``If-None-Match``)
+            ///
+            /// - Remark: Generated from `#/paths//covers/radio-episode/{id}/get(get_radio_episode_image)/responses/304`.
+            ///
+            /// HTTP response code: `304 notModified`.
+            case notModified(Operations.GetRadioEpisodeImage.Output.NotModified)
+            /// Not modified (``If-None-Match``)
+            ///
+            /// - Remark: Generated from `#/paths//covers/radio-episode/{id}/get(get_radio_episode_image)/responses/304`.
+            ///
+            /// HTTP response code: `304 notModified`.
+            public static var notModified: Self {
+                .notModified(.init())
+            }
+            /// The associated value of the enum case if `self` is `.notModified`.
+            ///
+            /// - Throws: An error if `self` is not `.notModified`.
+            /// - SeeAlso: `.notModified`.
+            public var notModified: Operations.GetRadioEpisodeImage.Output.NotModified {
+                get throws {
+                    switch self {
+                    case let .notModified(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notModified",
                             response: self
                         )
                     }
@@ -3204,7 +3574,7 @@ public enum Operations {
     }
     /// Get Radio Show Image
     ///
-    /// A radio show's image (from the station).
+    /// A radio show's image (from the station); cached as covers are.
     ///
     /// - Remark: HTTP `GET /covers/radio-show/{id}`.
     /// - Remark: Generated from `#/paths//covers/radio-show/{id}/get(get_radio_show_image)`.
@@ -3224,6 +3594,21 @@ public enum Operations {
                 }
             }
             public var path: Operations.GetRadioShowImage.Input.Path
+            /// - Remark: Generated from `#/paths/covers/radio-show/{id}/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// The image's version, as in the URL the API gives (``cover_url``).
+                ///
+                /// - Remark: Generated from `#/paths/covers/radio-show/{id}/GET/query/v`.
+                public var v: Swift.String?
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - v: The image's version, as in the URL the API gives (``cover_url``).
+                public init(v: Swift.String? = nil) {
+                    self.v = v
+                }
+            }
+            public var query: Operations.GetRadioShowImage.Input.Query
             /// - Remark: Generated from `#/paths/covers/radio-show/{id}/GET/header`.
             public struct Headers: Sendable, Hashable {
                 public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetRadioShowImage.AcceptableContentType>]
@@ -3240,12 +3625,15 @@ public enum Operations {
             ///
             /// - Parameters:
             ///   - path:
+            ///   - query:
             ///   - headers:
             public init(
                 path: Operations.GetRadioShowImage.Input.Path,
+                query: Operations.GetRadioShowImage.Input.Query = .init(),
                 headers: Operations.GetRadioShowImage.Input.Headers = .init()
             ) {
                 self.path = path
+                self.query = query
                 self.headers = headers
             }
         }
@@ -3296,6 +3684,41 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct NotModified: Sendable, Hashable {
+                /// Creates a new `NotModified`.
+                public init() {}
+            }
+            /// Not modified (``If-None-Match``)
+            ///
+            /// - Remark: Generated from `#/paths//covers/radio-show/{id}/get(get_radio_show_image)/responses/304`.
+            ///
+            /// HTTP response code: `304 notModified`.
+            case notModified(Operations.GetRadioShowImage.Output.NotModified)
+            /// Not modified (``If-None-Match``)
+            ///
+            /// - Remark: Generated from `#/paths//covers/radio-show/{id}/get(get_radio_show_image)/responses/304`.
+            ///
+            /// HTTP response code: `304 notModified`.
+            public static var notModified: Self {
+                .notModified(.init())
+            }
+            /// The associated value of the enum case if `self` is `.notModified`.
+            ///
+            /// - Throws: An error if `self` is not `.notModified`.
+            /// - SeeAlso: `.notModified`.
+            public var notModified: Operations.GetRadioShowImage.Output.NotModified {
+                get throws {
+                    switch self {
+                    case let .notModified(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notModified",
                             response: self
                         )
                     }
@@ -3442,6 +3865,9 @@ public enum Operations {
     }
     /// Get Release Group Cover
     ///
+    /// A release group's cover. Cached for good when ``v`` is the current version
+    /// (the URL in ``cover_url``), otherwise revalidated by ETag.
+    ///
     /// - Remark: HTTP `GET /covers/release-group/{id}`.
     /// - Remark: Generated from `#/paths//covers/release-group/{id}/get(get_release_group_cover)`.
     public enum GetReleaseGroupCover {
@@ -3460,6 +3886,21 @@ public enum Operations {
                 }
             }
             public var path: Operations.GetReleaseGroupCover.Input.Path
+            /// - Remark: Generated from `#/paths/covers/release-group/{id}/GET/query`.
+            public struct Query: Sendable, Hashable {
+                /// The image's version, as in the URL the API gives (``cover_url``).
+                ///
+                /// - Remark: Generated from `#/paths/covers/release-group/{id}/GET/query/v`.
+                public var v: Swift.String?
+                /// Creates a new `Query`.
+                ///
+                /// - Parameters:
+                ///   - v: The image's version, as in the URL the API gives (``cover_url``).
+                public init(v: Swift.String? = nil) {
+                    self.v = v
+                }
+            }
+            public var query: Operations.GetReleaseGroupCover.Input.Query
             /// - Remark: Generated from `#/paths/covers/release-group/{id}/GET/header`.
             public struct Headers: Sendable, Hashable {
                 public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.GetReleaseGroupCover.AcceptableContentType>]
@@ -3476,12 +3917,15 @@ public enum Operations {
             ///
             /// - Parameters:
             ///   - path:
+            ///   - query:
             ///   - headers:
             public init(
                 path: Operations.GetReleaseGroupCover.Input.Path,
+                query: Operations.GetReleaseGroupCover.Input.Query = .init(),
                 headers: Operations.GetReleaseGroupCover.Input.Headers = .init()
             ) {
                 self.path = path
+                self.query = query
                 self.headers = headers
             }
         }
@@ -3532,6 +3976,41 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct NotModified: Sendable, Hashable {
+                /// Creates a new `NotModified`.
+                public init() {}
+            }
+            /// Not modified (``If-None-Match``)
+            ///
+            /// - Remark: Generated from `#/paths//covers/release-group/{id}/get(get_release_group_cover)/responses/304`.
+            ///
+            /// HTTP response code: `304 notModified`.
+            case notModified(Operations.GetReleaseGroupCover.Output.NotModified)
+            /// Not modified (``If-None-Match``)
+            ///
+            /// - Remark: Generated from `#/paths//covers/release-group/{id}/get(get_release_group_cover)/responses/304`.
+            ///
+            /// HTTP response code: `304 notModified`.
+            public static var notModified: Self {
+                .notModified(.init())
+            }
+            /// The associated value of the enum case if `self` is `.notModified`.
+            ///
+            /// - Throws: An error if `self` is not `.notModified`.
+            /// - SeeAlso: `.notModified`.
+            public var notModified: Operations.GetReleaseGroupCover.Output.NotModified {
+                get throws {
+                    switch self {
+                    case let .notModified(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notModified",
                             response: self
                         )
                     }
@@ -5271,31 +5750,31 @@ public enum Operations {
         public struct Input: Sendable, Hashable {
             /// - Remark: Generated from `#/paths/imports/GET/query`.
             public struct Query: Sendable, Hashable {
-                /// - Remark: Generated from `#/paths/imports/GET/query/limit`.
-                public var limit: Swift.Int?
-                /// - Remark: Generated from `#/paths/imports/GET/query/offset`.
-                public var offset: Swift.Int?
                 /// - Remark: Generated from `#/paths/imports/GET/query/state`.
                 public var state: [Components.Schemas.JobState]?
                 /// - Remark: Generated from `#/paths/imports/GET/query/kind`.
                 public var kind: Components.Schemas.ImportKind?
+                /// - Remark: Generated from `#/paths/imports/GET/query/limit`.
+                public var limit: Swift.Int?
+                /// - Remark: Generated from `#/paths/imports/GET/query/offset`.
+                public var offset: Swift.Int?
                 /// Creates a new `Query`.
                 ///
                 /// - Parameters:
-                ///   - limit:
-                ///   - offset:
                 ///   - state:
                 ///   - kind:
+                ///   - limit:
+                ///   - offset:
                 public init(
-                    limit: Swift.Int? = nil,
-                    offset: Swift.Int? = nil,
                     state: [Components.Schemas.JobState]? = nil,
-                    kind: Components.Schemas.ImportKind? = nil
+                    kind: Components.Schemas.ImportKind? = nil,
+                    limit: Swift.Int? = nil,
+                    offset: Swift.Int? = nil
                 ) {
-                    self.limit = limit
-                    self.offset = offset
                     self.state = state
                     self.kind = kind
+                    self.limit = limit
+                    self.offset = offset
                 }
             }
             public var query: Operations.ListImportJobs.Input.Query
@@ -5326,6 +5805,22 @@ public enum Operations {
         }
         @frozen public enum Output: Sendable, Hashable {
             public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/imports/GET/responses/200/headers`.
+                public struct Headers: Sendable, Hashable {
+                    /// Number of items in the whole list (all pages).
+                    ///
+                    /// - Remark: Generated from `#/paths/imports/GET/responses/200/headers/X-Total-Count`.
+                    public var xTotalCount: Swift.Int
+                    /// Creates a new `Headers`.
+                    ///
+                    /// - Parameters:
+                    ///   - xTotalCount: Number of items in the whole list (all pages).
+                    public init(xTotalCount: Swift.Int) {
+                        self.xTotalCount = xTotalCount
+                    }
+                }
+                /// Received HTTP response headers
+                public var headers: Operations.ListImportJobs.Output.Ok.Headers
                 /// - Remark: Generated from `#/paths/imports/GET/responses/200/content`.
                 @frozen public enum Body: Sendable, Hashable {
                     /// - Remark: Generated from `#/paths/imports/GET/responses/200/content/application\/json`.
@@ -5348,8 +5843,13 @@ public enum Operations {
                 /// Creates a new `Ok`.
                 ///
                 /// - Parameters:
+                ///   - headers: Received HTTP response headers
                 ///   - body: Received HTTP response body
-                public init(body: Operations.ListImportJobs.Output.Ok.Body) {
+                public init(
+                    headers: Operations.ListImportJobs.Output.Ok.Headers,
+                    body: Operations.ListImportJobs.Output.Ok.Body
+                ) {
+                    self.headers = headers
                     self.body = body
                 }
             }
@@ -8813,31 +9313,31 @@ public enum Operations {
         public struct Input: Sendable, Hashable {
             /// - Remark: Generated from `#/paths/notes/search/GET/query`.
             public struct Query: Sendable, Hashable {
-                /// - Remark: Generated from `#/paths/notes/search/GET/query/limit`.
-                public var limit: Swift.Int?
-                /// - Remark: Generated from `#/paths/notes/search/GET/query/offset`.
-                public var offset: Swift.Int?
                 /// - Remark: Generated from `#/paths/notes/search/GET/query/q`.
                 public var q: Swift.String
                 /// - Remark: Generated from `#/paths/notes/search/GET/query/types`.
                 public var types: [Components.Schemas.EntityType]?
+                /// - Remark: Generated from `#/paths/notes/search/GET/query/limit`.
+                public var limit: Swift.Int?
+                /// - Remark: Generated from `#/paths/notes/search/GET/query/offset`.
+                public var offset: Swift.Int?
                 /// Creates a new `Query`.
                 ///
                 /// - Parameters:
-                ///   - limit:
-                ///   - offset:
                 ///   - q:
                 ///   - types:
+                ///   - limit:
+                ///   - offset:
                 public init(
-                    limit: Swift.Int? = nil,
-                    offset: Swift.Int? = nil,
                     q: Swift.String,
-                    types: [Components.Schemas.EntityType]? = nil
+                    types: [Components.Schemas.EntityType]? = nil,
+                    limit: Swift.Int? = nil,
+                    offset: Swift.Int? = nil
                 ) {
-                    self.limit = limit
-                    self.offset = offset
                     self.q = q
                     self.types = types
+                    self.limit = limit
+                    self.offset = offset
                 }
             }
             public var query: Operations.SearchNotes.Input.Query
@@ -8868,6 +9368,22 @@ public enum Operations {
         }
         @frozen public enum Output: Sendable, Hashable {
             public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/notes/search/GET/responses/200/headers`.
+                public struct Headers: Sendable, Hashable {
+                    /// Number of items in the whole list (all pages).
+                    ///
+                    /// - Remark: Generated from `#/paths/notes/search/GET/responses/200/headers/X-Total-Count`.
+                    public var xTotalCount: Swift.Int
+                    /// Creates a new `Headers`.
+                    ///
+                    /// - Parameters:
+                    ///   - xTotalCount: Number of items in the whole list (all pages).
+                    public init(xTotalCount: Swift.Int) {
+                        self.xTotalCount = xTotalCount
+                    }
+                }
+                /// Received HTTP response headers
+                public var headers: Operations.SearchNotes.Output.Ok.Headers
                 /// - Remark: Generated from `#/paths/notes/search/GET/responses/200/content`.
                 @frozen public enum Body: Sendable, Hashable {
                     /// - Remark: Generated from `#/paths/notes/search/GET/responses/200/content/application\/json`.
@@ -8890,8 +9406,13 @@ public enum Operations {
                 /// Creates a new `Ok`.
                 ///
                 /// - Parameters:
+                ///   - headers: Received HTTP response headers
                 ///   - body: Received HTTP response body
-                public init(body: Operations.SearchNotes.Output.Ok.Body) {
+                public init(
+                    headers: Operations.SearchNotes.Output.Ok.Headers,
+                    body: Operations.SearchNotes.Output.Ok.Body
+                ) {
+                    self.headers = headers
                     self.body = body
                 }
             }
@@ -10058,6 +10579,22 @@ public enum Operations {
         }
         @frozen public enum Output: Sendable, Hashable {
             public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/radio/shows/GET/responses/200/headers`.
+                public struct Headers: Sendable, Hashable {
+                    /// Number of items in the whole list (all pages).
+                    ///
+                    /// - Remark: Generated from `#/paths/radio/shows/GET/responses/200/headers/X-Total-Count`.
+                    public var xTotalCount: Swift.Int
+                    /// Creates a new `Headers`.
+                    ///
+                    /// - Parameters:
+                    ///   - xTotalCount: Number of items in the whole list (all pages).
+                    public init(xTotalCount: Swift.Int) {
+                        self.xTotalCount = xTotalCount
+                    }
+                }
+                /// Received HTTP response headers
+                public var headers: Operations.ListRadioShows.Output.Ok.Headers
                 /// - Remark: Generated from `#/paths/radio/shows/GET/responses/200/content`.
                 @frozen public enum Body: Sendable, Hashable {
                     /// - Remark: Generated from `#/paths/radio/shows/GET/responses/200/content/application\/json`.
@@ -10080,8 +10617,13 @@ public enum Operations {
                 /// Creates a new `Ok`.
                 ///
                 /// - Parameters:
+                ///   - headers: Received HTTP response headers
                 ///   - body: Received HTTP response body
-                public init(body: Operations.ListRadioShows.Output.Ok.Body) {
+                public init(
+                    headers: Operations.ListRadioShows.Output.Ok.Headers,
+                    body: Operations.ListRadioShows.Output.Ok.Body
+                ) {
+                    self.headers = headers
                     self.body = body
                 }
             }
@@ -11016,6 +11558,22 @@ public enum Operations {
         }
         @frozen public enum Output: Sendable, Hashable {
             public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/radio/shows/{id}/episodes/GET/responses/200/headers`.
+                public struct Headers: Sendable, Hashable {
+                    /// Number of items in the whole list (all pages).
+                    ///
+                    /// - Remark: Generated from `#/paths/radio/shows/{id}/episodes/GET/responses/200/headers/X-Total-Count`.
+                    public var xTotalCount: Swift.Int
+                    /// Creates a new `Headers`.
+                    ///
+                    /// - Parameters:
+                    ///   - xTotalCount: Number of items in the whole list (all pages).
+                    public init(xTotalCount: Swift.Int) {
+                        self.xTotalCount = xTotalCount
+                    }
+                }
+                /// Received HTTP response headers
+                public var headers: Operations.ListRadioShowEpisodes.Output.Ok.Headers
                 /// - Remark: Generated from `#/paths/radio/shows/{id}/episodes/GET/responses/200/content`.
                 @frozen public enum Body: Sendable, Hashable {
                     /// - Remark: Generated from `#/paths/radio/shows/{id}/episodes/GET/responses/200/content/application\/json`.
@@ -11038,8 +11596,13 @@ public enum Operations {
                 /// Creates a new `Ok`.
                 ///
                 /// - Parameters:
+                ///   - headers: Received HTTP response headers
                 ///   - body: Received HTTP response body
-                public init(body: Operations.ListRadioShowEpisodes.Output.Ok.Body) {
+                public init(
+                    headers: Operations.ListRadioShowEpisodes.Output.Ok.Headers,
+                    body: Operations.ListRadioShowEpisodes.Output.Ok.Body
+                ) {
+                    self.headers = headers
                     self.body = body
                 }
             }
@@ -15545,6 +16108,22 @@ public enum Operations {
         }
         @frozen public enum Output: Sendable, Hashable {
             public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/release-groups/{id}/tracks/GET/responses/200/headers`.
+                public struct Headers: Sendable, Hashable {
+                    /// Number of items in the whole list (all pages).
+                    ///
+                    /// - Remark: Generated from `#/paths/release-groups/{id}/tracks/GET/responses/200/headers/X-Total-Count`.
+                    public var xTotalCount: Swift.Int
+                    /// Creates a new `Headers`.
+                    ///
+                    /// - Parameters:
+                    ///   - xTotalCount: Number of items in the whole list (all pages).
+                    public init(xTotalCount: Swift.Int) {
+                        self.xTotalCount = xTotalCount
+                    }
+                }
+                /// Received HTTP response headers
+                public var headers: Operations.ListReleaseGroupTracks.Output.Ok.Headers
                 /// - Remark: Generated from `#/paths/release-groups/{id}/tracks/GET/responses/200/content`.
                 @frozen public enum Body: Sendable, Hashable {
                     /// - Remark: Generated from `#/paths/release-groups/{id}/tracks/GET/responses/200/content/application\/json`.
@@ -15567,8 +16146,13 @@ public enum Operations {
                 /// Creates a new `Ok`.
                 ///
                 /// - Parameters:
+                ///   - headers: Received HTTP response headers
                 ///   - body: Received HTTP response body
-                public init(body: Operations.ListReleaseGroupTracks.Output.Ok.Body) {
+                public init(
+                    headers: Operations.ListReleaseGroupTracks.Output.Ok.Headers,
+                    body: Operations.ListReleaseGroupTracks.Output.Ok.Body
+                ) {
+                    self.headers = headers
                     self.body = body
                 }
             }
@@ -17734,26 +18318,26 @@ public enum Operations {
         public struct Input: Sendable, Hashable {
             /// - Remark: Generated from `#/paths/tags/GET/query`.
             public struct Query: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/tags/GET/query/prefix`.
+                public var prefix: Swift.String?
                 /// - Remark: Generated from `#/paths/tags/GET/query/limit`.
                 public var limit: Swift.Int?
                 /// - Remark: Generated from `#/paths/tags/GET/query/offset`.
                 public var offset: Swift.Int?
-                /// - Remark: Generated from `#/paths/tags/GET/query/prefix`.
-                public var prefix: Swift.String?
                 /// Creates a new `Query`.
                 ///
                 /// - Parameters:
+                ///   - prefix:
                 ///   - limit:
                 ///   - offset:
-                ///   - prefix:
                 public init(
+                    prefix: Swift.String? = nil,
                     limit: Swift.Int? = nil,
-                    offset: Swift.Int? = nil,
-                    prefix: Swift.String? = nil
+                    offset: Swift.Int? = nil
                 ) {
+                    self.prefix = prefix
                     self.limit = limit
                     self.offset = offset
-                    self.prefix = prefix
                 }
             }
             public var query: Operations.ListTags.Input.Query
@@ -17784,6 +18368,22 @@ public enum Operations {
         }
         @frozen public enum Output: Sendable, Hashable {
             public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/tags/GET/responses/200/headers`.
+                public struct Headers: Sendable, Hashable {
+                    /// Number of items in the whole list (all pages).
+                    ///
+                    /// - Remark: Generated from `#/paths/tags/GET/responses/200/headers/X-Total-Count`.
+                    public var xTotalCount: Swift.Int
+                    /// Creates a new `Headers`.
+                    ///
+                    /// - Parameters:
+                    ///   - xTotalCount: Number of items in the whole list (all pages).
+                    public init(xTotalCount: Swift.Int) {
+                        self.xTotalCount = xTotalCount
+                    }
+                }
+                /// Received HTTP response headers
+                public var headers: Operations.ListTags.Output.Ok.Headers
                 /// - Remark: Generated from `#/paths/tags/GET/responses/200/content`.
                 @frozen public enum Body: Sendable, Hashable {
                     /// - Remark: Generated from `#/paths/tags/GET/responses/200/content/application\/json`.
@@ -17806,8 +18406,13 @@ public enum Operations {
                 /// Creates a new `Ok`.
                 ///
                 /// - Parameters:
+                ///   - headers: Received HTTP response headers
                 ///   - body: Received HTTP response body
-                public init(body: Operations.ListTags.Output.Ok.Body) {
+                public init(
+                    headers: Operations.ListTags.Output.Ok.Headers,
+                    body: Operations.ListTags.Output.Ok.Body
+                ) {
+                    self.headers = headers
                     self.body = body
                 }
             }
@@ -18682,26 +19287,26 @@ public enum Operations {
             public var path: Operations.ListTagEntities.Input.Path
             /// - Remark: Generated from `#/paths/tags/{id}/entities/GET/query`.
             public struct Query: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/tags/{id}/entities/GET/query/types`.
+                public var types: [Components.Schemas.EntityType]?
                 /// - Remark: Generated from `#/paths/tags/{id}/entities/GET/query/limit`.
                 public var limit: Swift.Int?
                 /// - Remark: Generated from `#/paths/tags/{id}/entities/GET/query/offset`.
                 public var offset: Swift.Int?
-                /// - Remark: Generated from `#/paths/tags/{id}/entities/GET/query/types`.
-                public var types: [Components.Schemas.EntityType]?
                 /// Creates a new `Query`.
                 ///
                 /// - Parameters:
+                ///   - types:
                 ///   - limit:
                 ///   - offset:
-                ///   - types:
                 public init(
+                    types: [Components.Schemas.EntityType]? = nil,
                     limit: Swift.Int? = nil,
-                    offset: Swift.Int? = nil,
-                    types: [Components.Schemas.EntityType]? = nil
+                    offset: Swift.Int? = nil
                 ) {
+                    self.types = types
                     self.limit = limit
                     self.offset = offset
-                    self.types = types
                 }
             }
             public var query: Operations.ListTagEntities.Input.Query
@@ -18735,6 +19340,22 @@ public enum Operations {
         }
         @frozen public enum Output: Sendable, Hashable {
             public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/tags/{id}/entities/GET/responses/200/headers`.
+                public struct Headers: Sendable, Hashable {
+                    /// Number of items in the whole list (all pages).
+                    ///
+                    /// - Remark: Generated from `#/paths/tags/{id}/entities/GET/responses/200/headers/X-Total-Count`.
+                    public var xTotalCount: Swift.Int
+                    /// Creates a new `Headers`.
+                    ///
+                    /// - Parameters:
+                    ///   - xTotalCount: Number of items in the whole list (all pages).
+                    public init(xTotalCount: Swift.Int) {
+                        self.xTotalCount = xTotalCount
+                    }
+                }
+                /// Received HTTP response headers
+                public var headers: Operations.ListTagEntities.Output.Ok.Headers
                 /// - Remark: Generated from `#/paths/tags/{id}/entities/GET/responses/200/content`.
                 @frozen public enum Body: Sendable, Hashable {
                     /// - Remark: Generated from `#/paths/tags/{id}/entities/GET/responses/200/content/application\/json`.
@@ -18757,8 +19378,13 @@ public enum Operations {
                 /// Creates a new `Ok`.
                 ///
                 /// - Parameters:
+                ///   - headers: Received HTTP response headers
                 ///   - body: Received HTTP response body
-                public init(body: Operations.ListTagEntities.Output.Ok.Body) {
+                public init(
+                    headers: Operations.ListTagEntities.Output.Ok.Headers,
+                    body: Operations.ListTagEntities.Output.Ok.Body
+                ) {
+                    self.headers = headers
                     self.body = body
                 }
             }

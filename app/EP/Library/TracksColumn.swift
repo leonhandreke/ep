@@ -31,7 +31,7 @@ struct TracksColumn: View {
             let group = browser.releaseGroup.flatMap { $0.id == id ? $0 : nil }
             ColumnHeader(
                 id: "tracks", title: group?.title, meta: group.map(Self.meta), horizontalPadding: 14,
-                metaTrailing: false
+                metaPlacement: .afterTitle
             ) {
                 Button("Play album") { browser.play(.album(id)) }
                     .buttonStyle(SmallBorderedButtonStyle())
@@ -48,7 +48,7 @@ struct TracksColumn: View {
                         ? String(localized: "1 recording on no release")
                         : String(localized: "\(LibraryFormat.count($0)) recordings on no release")
                 },
-                horizontalPadding: 14, metaTrailing: false
+                horizontalPadding: 14, metaPlacement: .afterTitle
             ) { EmptyView() }
         case nil:
             ColumnHeader(id: "tracks", title: nil, meta: nil)

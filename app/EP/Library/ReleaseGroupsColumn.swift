@@ -1,9 +1,10 @@
 import EPAPI
 import SwiftUI
 
-/// The release-groups column (§3.3): "Artist · N releases · by date", the artist's albums
-/// oldest first with cover, title, year and type, then the "Loose tracks" entry. An
-/// artist with neither gets the "no releases" state (§11.4).
+/// The release-groups column (§3.3): "Artist · N releases · by date" (a radio-only artist:
+/// "Artist · known from radio only", §11.4), the artist's albums oldest first with cover,
+/// title and "1997 · Album", then the "Loose tracks" entry. An artist with neither gets
+/// the "no releases" state (§11.4).
 struct ReleaseGroupsColumn: View {
     var focus: FocusState<LibraryColumn?>.Binding
     let moveLeft: () -> Void
@@ -13,7 +14,10 @@ struct ReleaseGroupsColumn: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ColumnHeader(id: "releaseGroups", title: browser.artist?.name, meta: meta)
+            ColumnHeader(
+                id: "releaseGroups", title: browser.artist?.name, meta: meta,
+                metaPlacement: browser.artist?.radioOnly == true ? .joined : .trailing
+            ) { EmptyView() }
             content
         }
     }
@@ -106,15 +110,14 @@ private struct ReleaseGroupRow: View {
                     .font(Typography.rowTitle)
                     .foregroundStyle(colors.primary)
                     .lineLimit(1)
-                HStack(spacing: 6) {
-                    if let year = LibraryFormat.year(group.date) {
-                        Text(year)
-                            .font(Typography.meta)
-                            .monospacedDigit()
-                            .foregroundStyle(colors.tertiary)
-                    }
-                    TypePill(text: group._type.displayName, emphasized: emphasized)
-                }
+                Text(
+                    [LibraryFormat.year(group.date), group._type.displayName].compactMap(\.self)
+                        .joined(separator: " · ")
+                )
+                .font(Typography.meta)
+                .monospacedDigit()
+                .foregroundStyle(colors.tertiary)
+                .lineLimit(1)
             }
             Spacer(minLength: 0)
         }
@@ -122,23 +125,6 @@ private struct ReleaseGroupRow: View {
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("releaseGroups.row.\(group.id)")
-    }
-}
-
-/// Album / EP / Single …: 11 pt on `--chip`, fully round.
-private struct TypePill: View {
-    let text: String
-    let emphasized: Bool
-
-    var body: some View {
-        Text(text)
-            .font(Typography.meta)
-            .foregroundStyle(emphasized ? Palette.selText : Palette.text2)
-            .padding(.horizontal, 6)
-            .frame(height: 15)
-            .background(
-                emphasized ? Palette.selText.opacity(0.2) : Palette.chip,
-                in: RoundedRectangle(cornerRadius: Radius.pill))
     }
 }
 

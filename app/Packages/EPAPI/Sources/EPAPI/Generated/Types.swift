@@ -16,7 +16,8 @@ public protocol APIProtocol: Sendable {
     /// only radio-only recordings, see ``ep.radio``) are left out unless
     /// ``include_radio_only``. ``q`` filters (still by sort name): artists whose name or
     /// sort name contains it, ignoring case, accents and punctuation (index-backed; for
-    /// ranked fuzzy matching use ``/search``). Totals: ``GET /server``.
+    /// ranked fuzzy matching use ``/search``). Where an artist or a typed name is in this
+    /// list: ``GET /artists/position``.
     ///
     /// - Remark: HTTP `GET /artists`.
     /// - Remark: Generated from `#/paths//artists/get(list_artists)`.
@@ -87,6 +88,17 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /artists/{id}/release-groups`.
     /// - Remark: Generated from `#/paths//artists/{id}/release-groups/get(list_artist_release_groups)`.
     func listArtistReleaseGroups(_ input: Operations.ListArtistReleaseGroups.Input) async throws -> Operations.ListArtistReleaseGroups.Output
+    /// Get Artist Position
+    ///
+    /// Where an artist is in ``GET /artists`` with the same ``include_radio_only`` and
+    /// ``q``, as the ``offset`` of its row (to load the page that has it). Give exactly one
+    /// of ``id`` (that artist; 404 if the list leaves it out) or ``sort_name`` (the first
+    /// artist that sorts at or after it, as type-to-select does: "bjo" finds "Björk";
+    /// past the end of the list: ``offset`` is the number of artists and ``id`` null).
+    ///
+    /// - Remark: HTTP `GET /artists/position`.
+    /// - Remark: Generated from `#/paths//artists/position/get(get_artist_position)`.
+    func getArtistPosition(_ input: Operations.GetArtistPosition.Input) async throws -> Operations.GetArtistPosition.Output
     /// List Backlinks
     ///
     /// Notes that link to this entity (exactly this entity: a link to a recording is
@@ -98,19 +110,22 @@ public protocol APIProtocol: Sendable {
     func listBacklinks(_ input: Operations.ListBacklinks.Input) async throws -> Operations.ListBacklinks.Output
     /// Get Radio Episode Image
     ///
-    /// A radio episode's image (from the station).
+    /// A radio episode's image (from the station); cached as covers are.
     ///
     /// - Remark: HTTP `GET /covers/radio-episode/{id}`.
     /// - Remark: Generated from `#/paths//covers/radio-episode/{id}/get(get_radio_episode_image)`.
     func getRadioEpisodeImage(_ input: Operations.GetRadioEpisodeImage.Input) async throws -> Operations.GetRadioEpisodeImage.Output
     /// Get Radio Show Image
     ///
-    /// A radio show's image (from the station).
+    /// A radio show's image (from the station); cached as covers are.
     ///
     /// - Remark: HTTP `GET /covers/radio-show/{id}`.
     /// - Remark: Generated from `#/paths//covers/radio-show/{id}/get(get_radio_show_image)`.
     func getRadioShowImage(_ input: Operations.GetRadioShowImage.Input) async throws -> Operations.GetRadioShowImage.Output
     /// Get Release Group Cover
+    ///
+    /// A release group's cover. Cached for good when ``v`` is the current version
+    /// (the URL in ``cover_url``), otherwise revalidated by ETag.
     ///
     /// - Remark: HTTP `GET /covers/release-group/{id}`.
     /// - Remark: Generated from `#/paths//covers/release-group/{id}/get(get_release_group_cover)`.
@@ -700,7 +715,8 @@ extension APIProtocol {
     /// only radio-only recordings, see ``ep.radio``) are left out unless
     /// ``include_radio_only``. ``q`` filters (still by sort name): artists whose name or
     /// sort name contains it, ignoring case, accents and punctuation (index-backed; for
-    /// ranked fuzzy matching use ``/search``). Totals: ``GET /server``.
+    /// ranked fuzzy matching use ``/search``). Where an artist or a typed name is in this
+    /// list: ``GET /artists/position``.
     ///
     /// - Remark: HTTP `GET /artists`.
     /// - Remark: Generated from `#/paths//artists/get(list_artists)`.
@@ -867,6 +883,25 @@ extension APIProtocol {
             headers: headers
         ))
     }
+    /// Get Artist Position
+    ///
+    /// Where an artist is in ``GET /artists`` with the same ``include_radio_only`` and
+    /// ``q``, as the ``offset`` of its row (to load the page that has it). Give exactly one
+    /// of ``id`` (that artist; 404 if the list leaves it out) or ``sort_name`` (the first
+    /// artist that sorts at or after it, as type-to-select does: "bjo" finds "Björk";
+    /// past the end of the list: ``offset`` is the number of artists and ``id`` null).
+    ///
+    /// - Remark: HTTP `GET /artists/position`.
+    /// - Remark: Generated from `#/paths//artists/position/get(get_artist_position)`.
+    public func getArtistPosition(
+        query: Operations.GetArtistPosition.Input.Query = .init(),
+        headers: Operations.GetArtistPosition.Input.Headers = .init()
+    ) async throws -> Operations.GetArtistPosition.Output {
+        try await getArtistPosition(Operations.GetArtistPosition.Input(
+            query: query,
+            headers: headers
+        ))
+    }
     /// List Backlinks
     ///
     /// Notes that link to this entity (exactly this entity: a link to a recording is
@@ -886,44 +921,53 @@ extension APIProtocol {
     }
     /// Get Radio Episode Image
     ///
-    /// A radio episode's image (from the station).
+    /// A radio episode's image (from the station); cached as covers are.
     ///
     /// - Remark: HTTP `GET /covers/radio-episode/{id}`.
     /// - Remark: Generated from `#/paths//covers/radio-episode/{id}/get(get_radio_episode_image)`.
     public func getRadioEpisodeImage(
         path: Operations.GetRadioEpisodeImage.Input.Path,
+        query: Operations.GetRadioEpisodeImage.Input.Query = .init(),
         headers: Operations.GetRadioEpisodeImage.Input.Headers = .init()
     ) async throws -> Operations.GetRadioEpisodeImage.Output {
         try await getRadioEpisodeImage(Operations.GetRadioEpisodeImage.Input(
             path: path,
+            query: query,
             headers: headers
         ))
     }
     /// Get Radio Show Image
     ///
-    /// A radio show's image (from the station).
+    /// A radio show's image (from the station); cached as covers are.
     ///
     /// - Remark: HTTP `GET /covers/radio-show/{id}`.
     /// - Remark: Generated from `#/paths//covers/radio-show/{id}/get(get_radio_show_image)`.
     public func getRadioShowImage(
         path: Operations.GetRadioShowImage.Input.Path,
+        query: Operations.GetRadioShowImage.Input.Query = .init(),
         headers: Operations.GetRadioShowImage.Input.Headers = .init()
     ) async throws -> Operations.GetRadioShowImage.Output {
         try await getRadioShowImage(Operations.GetRadioShowImage.Input(
             path: path,
+            query: query,
             headers: headers
         ))
     }
     /// Get Release Group Cover
     ///
+    /// A release group's cover. Cached for good when ``v`` is the current version
+    /// (the URL in ``cover_url``), otherwise revalidated by ETag.
+    ///
     /// - Remark: HTTP `GET /covers/release-group/{id}`.
     /// - Remark: Generated from `#/paths//covers/release-group/{id}/get(get_release_group_cover)`.
     public func getReleaseGroupCover(
         path: Operations.GetReleaseGroupCover.Input.Path,
+        query: Operations.GetReleaseGroupCover.Input.Query = .init(),
         headers: Operations.GetReleaseGroupCover.Input.Headers = .init()
     ) async throws -> Operations.GetReleaseGroupCover.Output {
         try await getReleaseGroupCover(Operations.GetReleaseGroupCover.Input(
             path: path,
+            query: query,
             headers: headers
         ))
     }

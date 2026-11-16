@@ -202,11 +202,14 @@ final class LibraryBrowser {
         let client = connection.client
         artistTask = Task {
             do {
-                // An artist's release groups fit one request (the API's page limit, 1000).
                 async let detail = client.getArtist(path: .init(id: id)).ok.body.json
-                async let groups = client.listArtistReleaseGroups(path: .init(id: id), query: .init(limit: 1000))
-                    .ok.body.json
-                let (artist, releaseGroups) = try await (detail, groups)
+                let releaseGroups = try await allPages { limit, offset in
+                    let ok = try await client.listArtistReleaseGroups(
+                        path: .init(id: id), query: .init(limit: limit, offset: offset)
+                    ).ok
+                    return (try ok.body.json, ok.headers.xTotalCount)
+                }
+                let artist = try await detail
                 guard !Task.isCancelled, id == location.artistID else { return }
                 self.artist = artist
                 self.releaseGroups = releaseGroups
@@ -232,16 +235,23 @@ final class LibraryBrowser {
                 switch album {
                 case .releaseGroup(let id):
                     async let detail = client.getReleaseGroup(path: .init(id: id)).ok.body.json
-                    async let tracks = client.listReleaseGroupTracks(path: .init(id: id), query: .init(limit: 1000))
-                        .ok.body.json
-                    let (group, list) = try await (detail, tracks)
+                    let list = try await allPages { limit, offset in
+                        let ok = try await client.listReleaseGroupTracks(
+                            path: .init(id: id), query: .init(limit: limit, offset: offset)
+                        ).ok
+                        return (try ok.body.json, ok.headers.xTotalCount)
+                    }
+                    let group = try await detail
                     guard !Task.isCancelled, album == location.album else { return }
                     releaseGroup = group
                     self.tracks = list.map { TrackRow(track: $0, albumCreditID: group.artistCredit.id) }
                 case .looseTracks:
-                    let list = try await client.listArtistRecordings(
-                        path: .init(id: artistID), query: .init(limit: 1000, standalone: true)
-                    ).ok.body.json
+                    let list = try await allPages { limit, offset in
+                        let ok = try await client.listArtistRecordings(
+                            path: .init(id: artistID), query: .init(standalone: true, limit: limit, offset: offset)
+                        ).ok
+                        return (try ok.body.json, ok.headers.xTotalCount)
+                    }
                     guard !Task.isCancelled, album == location.album, artistID == location.artistID else { return }
                     releaseGroup = nil
                     tracks = list.map { TrackRow(looseRecording: $0, artistID: artistID) }

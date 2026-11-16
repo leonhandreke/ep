@@ -3,12 +3,14 @@ import Foundation
 import Observation
 
 /// The artists column (§3.2): artists by sort name, filtered on the server as you type,
-/// with or without the radio-only ones, loaded a page at a time as the list scrolls.
+/// with or without the radio-only ones, loaded a page at a time.
 ///
-/// `GET /artists` pages by offset and gives no total, so the list holds the pages loaded
-/// so far and asks for the next one when its last row appears; a short page is the end.
-/// A new filter or toggle starts again from the first page. Every load carries a
-/// generation, so an answer to a stale query never lands.
+/// `GET /artists` pages by offset and reports the whole list's length (`X-Total-Count`),
+/// so the list has `total` rows from the first answer on and loads the page of a row
+/// when the row appears. Type-to-select and `reveal(_:)` (navigate-to) ask the server
+/// where a row is (`GET /artists/position`, same filter) and load just that page. A new
+/// filter or toggle starts again from the first page. Every load carries a generation,
+/// so an answer to a stale query never lands.
 @Observable
 final class ArtistList {
     enum Phase: Equatable {
@@ -16,9 +18,14 @@ final class ArtistList {
         case failed(String)
     }
 
-    private(set) var artists: [Components.Schemas.ArtistRead] = []
+    /// Rows in the list with the current filter, loaded or not.
+    private(set) var total = 0
+    /// Loaded pages by number: page `n` holds rows `n * pageSize ..< (n + 1) * pageSize`.
+    private(set) var pages: [Int: [Components.Schemas.ArtistRead]] = [:]
     private(set) var phase = Phase.idle
-    private(set) var canLoadMore = false
+    /// Changes when a new list (filter, toggle) has arrived: the view scrolls to the
+    /// selection again.
+    private(set) var listVersion = 0
     /// The filter as typed (the field's text); the query uses it after `debounce`.
     private(set) var filter = ""
     private(set) var includeRadioOnly = false
@@ -27,7 +34,8 @@ final class ArtistList {
     @ObservationIgnored let pageSize: Int
     @ObservationIgnored let debounce: Duration
     @ObservationIgnored private var generation = 0
-    /// The running load (tests await it).
+    @ObservationIgnored private var pageLoads: [Int: Task<Void, Never>] = [:]
+    /// The latest load started (tests await it).
     @ObservationIgnored private(set) var pendingLoad: Task<Void, Never>?
 
     init(connection: ServerConnection, pageSize: Int = 200, debounce: Duration = .milliseconds(250)) {
@@ -41,6 +49,23 @@ final class ArtistList {
         let trimmed = filter.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
+
+    /// The artist in row `index`, if its page is loaded.
+    func artist(at index: Int) -> Components.Schemas.ArtistRead? {
+        guard index >= 0, let page = pages[index / pageSize] else { return nil }
+        let offset = index % pageSize
+        return offset < page.count ? page[offset] : nil
+    }
+
+    /// The row of a loaded artist.
+    func index(of id: String) -> Int? {
+        for (number, page) in pages {
+            if let offset = page.firstIndex(where: { $0.id == id }) { return number * pageSize + offset }
+        }
+        return nil
+    }
+
+    // MARK: - Filter, toggle, reload
 
     /// Typing in the filter field: the query runs once typing pauses; an earlier one
     /// still waiting or running is cancelled.
@@ -58,72 +83,117 @@ final class ArtistList {
         start(debounced: false)
     }
 
-    /// Loads the first page again (window activation, reconnect). Rows stay visible
+    /// Loads the loaded pages again (window activation, reconnect). Rows stay visible
     /// until the answer replaces them.
     func reload() {
-        start(debounced: false, keepingCount: true)
+        start(debounced: false, keepingPages: true)
     }
 
-    /// Called when the last loaded row appears.
-    func loadMoreIfNeeded(after id: String) {
-        guard canLoadMore, phase != .loading, artists.last?.id == id else { return }
-        let current = generation
-        let offset = artists.count
-        let (query, radio) = (query, includeRadioOnly)
-        phase = .loading
-        pendingLoad = Task {
-            await fetch(offset: offset, limit: pageSize, query: query, radio: radio, generation: current, append: true)
-        }
-    }
-
-    private func start(debounced: Bool, keepingCount: Bool = false) {
+    private func start(debounced: Bool, keepingPages: Bool = false) {
         pendingLoad?.cancel()
+        pageLoads.values.forEach { $0.cancel() }
+        pageLoads = [:]
         generation += 1
         let current = generation
+        let numbers = keepingPages ? Set(pages.keys).union([0]).sorted() : [0]
         let (query, radio) = (query, includeRadioOnly)
-        // A reload asks for as many rows as are loaded (up to the API's page limit), so the
-        // list does not shrink under the user.
-        let limit = keepingCount ? min(max(artists.count, pageSize), 1000) : pageSize
         phase = .loading
         pendingLoad = Task { [debounce] in
             if debounced {
                 do { try await Task.sleep(for: debounce) } catch { return }
             }
-            await fetch(offset: 0, limit: limit, query: query, radio: radio, generation: current, append: false)
+            do {
+                var loaded: [Int: [Components.Schemas.ArtistRead]] = [:]
+                var total = 0
+                for number in numbers where number == 0 || number * pageSize < total {
+                    let (page, count) = try await fetch(page: number, query: query, radio: radio)
+                    loaded[number] = page
+                    total = count
+                }
+                guard current == generation, !Task.isCancelled else { return }
+                pages = loaded
+                self.total = total
+                phase = .loaded
+                if !keepingPages { listVersion += 1 }
+            } catch {
+                guard current == generation, !ServerConnection.isCancellation(error) else { return }
+                phase = .failed(String(localized: "Couldn’t load artists."))
+                connection.reportFailure(error)
+            }
         }
     }
 
-    private func fetch(offset: Int, limit: Int, query: String?, radio: Bool, generation current: Int, append: Bool)
-        async
-    {
+    // MARK: - Pages
+
+    /// A row whose artist is not loaded appeared: load its page.
+    func loadPage(containing index: Int) {
+        guard index >= 0, index < total else { return }
+        pendingLoad = Task { await load(page: index / pageSize) }
+    }
+
+    /// Loads page `number` unless it is loaded or loading (then waits for that load).
+    private func load(page number: Int) async {
+        if pages[number] != nil { return }
+        if let running = pageLoads[number] { return await running.value }
+        let current = generation
+        let (query, radio) = (query, includeRadioOnly)
+        let task = Task {
+            do {
+                let (page, total) = try await fetch(page: number, query: query, radio: radio)
+                guard current == generation, !Task.isCancelled else { return }
+                pages[number] = page
+                self.total = total
+            } catch {
+                guard current == generation, !ServerConnection.isCancellation(error) else { return }
+                connection.reportFailure(error)
+            }
+            if current == generation { pageLoads[number] = nil }
+        }
+        pageLoads[number] = task
+        await task.value
+    }
+
+    private func fetch(page number: Int, query: String?, radio: Bool) async throws -> (
+        [Components.Schemas.ArtistRead], Int
+    ) {
+        let ok = try await connection.client.listArtists(
+            query: .init(includeRadioOnly: radio, q: query, limit: pageSize, offset: number * pageSize)
+        ).ok
+        return (try ok.body.json, ok.headers.xTotalCount)
+    }
+
+    // MARK: - Type-to-select and navigate-to
+
+    /// Type-to-select: the first artist that sorts at or after `text` (as the server
+    /// orders the list: "bjo" → Björk), with its page loaded; nil past the end.
+    func artistID(atOrAfter text: String) async -> String? {
+        guard !text.isEmpty else { return nil }
+        guard let position = await position(id: nil, sortName: text), let id = position.id else { return nil }
+        await load(page: position.offset / pageSize)
+        return id
+    }
+
+    /// Navigate-to: the row of artist `id`, loading its page if needed; nil if the list
+    /// (with its filter) leaves the artist out.
+    func reveal(_ id: String) async -> Int? {
+        if let index = index(of: id) { return index }
+        guard let position = await position(id: id, sortName: nil) else { return nil }
+        await load(page: position.offset / pageSize)
+        return index(of: id)
+    }
+
+    private func position(id: String?, sortName: String?) async -> Components.Schemas.ArtistPositionRead? {
+        let current = generation
         do {
-            let page = try await connection.client.listArtists(
-                query: .init(limit: limit, offset: offset, includeRadioOnly: radio, q: query)
-            ).ok.body.json
-            guard current == generation, !Task.isCancelled else { return }
-            artists = append ? artists + page : page
-            canLoadMore = page.count == limit
-            phase = .loaded
+            let output = try await connection.client.getArtistPosition(
+                query: .init(includeRadioOnly: includeRadioOnly, q: query, id: id, sortName: sortName)
+            )
+            // Not found: the filter leaves the artist out.
+            guard case .ok(let ok) = output, current == generation else { return nil }
+            return try ok.body.json
         } catch {
-            guard current == generation, !ServerConnection.isCancellation(error) else { return }
-            phase = .failed(String(localized: "Couldn’t load artists."))
-            connection.reportFailure(error)
+            if !ServerConnection.isCancellation(error) { connection.reportFailure(error) }
+            return nil
         }
-    }
-
-    // MARK: - Type-to-select
-
-    /// The first loaded artist whose sort name or name starts with `prefix`, ignoring
-    /// case, accents and punctuation ("bjo" → Björk, "glenn" → "Glenn-Copeland, Beverly").
-    func firstArtist(matching prefix: String) -> Components.Schemas.ArtistRead? {
-        let needle = Self.fold(prefix)
-        guard !needle.isEmpty else { return nil }
-        return artists.first { Self.fold($0.sortName).hasPrefix(needle) || Self.fold($0.name).hasPrefix(needle) }
-    }
-
-    nonisolated static func fold(_ text: String) -> String {
-        text.folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: nil)
-            .unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) }
-            .map(String.init).joined()
     }
 }

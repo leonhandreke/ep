@@ -5,14 +5,42 @@ import Testing
 
 @testable import EP
 
-/// Answers by path (without the query) from a table of JSON bodies; 404 otherwise.
+/// Answers by path (without the query) from a table of JSON bodies; 404 otherwise. A
+/// JSON array is a whole list: its length is the `X-Total-Count`.
 nonisolated func routed(_ routes: [String: String]) -> StubTransport {
     StubTransport { request in
         let path = request.path?.split(separator: "?").first.map(String.init) ?? ""
         guard let json = routes[path] else {
             return (HTTPResponse(status: .notFound, headerFields: [.contentType: "application/json"]), nil)
         }
-        return (HTTPResponse(status: .ok, headerFields: [.contentType: "application/json"]), Data(json.utf8))
+        let list = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [Any]
+        return (jsonResponse(total: list?.count), Data(json.utf8))
+    }
+}
+
+/// A 200 JSON response, with `X-Total-Count` for a page of a list.
+nonisolated func jsonResponse(total: Int? = nil) -> HTTPResponse {
+    var fields: HTTPFields = [.contentType: "application/json"]
+    if let total { fields[HTTPField.Name("X-Total-Count")!] = String(total) }
+    return HTTPResponse(status: .ok, headerFields: fields)
+}
+
+/// A paged list of artists: `names` in order, answered a page (`limit`/`offset` of the
+/// request) at a time; `/artists/position` from `position` (path query → JSON).
+nonisolated func pagedArtists(_ names: [String], position: [String: String] = [:]) -> StubTransport {
+    StubTransport { request in
+        let url = URLComponents(string: request.path ?? "")!
+        let query = Dictionary(uniqueKeysWithValues: (url.queryItems ?? []).map { ($0.name, $0.value ?? "") })
+        if url.path == "/artists/position" {
+            let key = url.query ?? ""
+            guard let json = position.first(where: { key.contains($0.key) })?.value else {
+                return (HTTPResponse(status: .notFound, headerFields: [.contentType: "application/json"]), nil)
+            }
+            return (jsonResponse(), Data(json.utf8))
+        }
+        let offset = Int(query["offset"] ?? "0")!, limit = Int(query["limit"] ?? "100")!
+        let page = names.enumerated().dropFirst(offset).prefix(limit).map { LibraryFixtures.artist("a\($0)", $1) }
+        return (jsonResponse(total: names.count), Data("[\(page.joined(separator: ","))]".utf8))
     }
 }
 
@@ -84,25 +112,25 @@ struct ArtistListTests {
         let sent = queries(transport, path: "/artists")
         #expect(sent.count == 1)
         #expect(sent.first?.contains("q=bjo") == true)
-        #expect(list.artists.map(\.name) == ["Björk"])
+        #expect(list.artist(at: 0)?.name == "Björk")
+        #expect(list.total == 1)
         #expect(list.phase == .loaded)
     }
 
-    @Test func aFullPageMeansMoreAndTheNextPageAppends() async throws {
-        let transport = StubTransport { request in
-            let offset = request.path?.contains("offset=2") == true
-            let body = offset ? "[\(F.artist("a3", "C"))]" : "[\(F.artist("a1", "A")), \(F.artist("a2", "B"))]"
-            return (HTTPResponse(status: .ok, headerFields: [.contentType: "application/json"]), Data(body.utf8))
-        }
+    @Test func theTotalGivesEveryRowAndARowLoadsItsPage() async throws {
+        let transport = pagedArtists(["A", "B", "C", "D", "E"])
         let list = ArtistList(connection: connection(transport), pageSize: 2)
         list.reload()
         await list.pendingLoad?.value
-        #expect(list.canLoadMore)
+        #expect(list.total == 5)
+        #expect(list.artist(at: 1)?.name == "B")
+        #expect(list.artist(at: 4) == nil)
 
-        list.loadMoreIfNeeded(after: "a2")
+        list.loadPage(containing: 4)
         await list.pendingLoad?.value
-        #expect(list.artists.map(\.id) == ["a1", "a2", "a3"])
-        #expect(!list.canLoadMore)
+        #expect(list.artist(at: 4)?.name == "E")
+        #expect(list.artist(at: 2) == nil)  // only the page that was needed
+        #expect(queries(transport, path: "/artists").count == 2)
     }
 
     @Test func aFailedReloadKeepsWhatIsShown() async throws {
@@ -114,21 +142,51 @@ struct ArtistListTests {
         let failing = ArtistList(connection: connection(StubTransport { _ in throw URLError(.cannotConnectToHost) }))
         failing.reload()
         await failing.pendingLoad?.value
-        #expect(failing.artists.isEmpty)
+        #expect(failing.total == 0)
         if case .failed = failing.phase {} else { Issue.record("expected failed, got \(failing.phase)") }
-        #expect(list.artists.count == 1)
+        #expect(list.total == 1)
     }
 
-    @Test func typeToSelectIgnoresCaseAccentsAndPunctuation() async throws {
-        let transport = routed([
-            "/artists": "[\(F.artist("a1", "Arca")), \(F.artist("a2", "Björk")), \(F.artist("a3", "Glenn-Copeland"))]"
-        ])
-        let list = ArtistList(connection: connection(transport))
+    @Test func typeToSelectAsksTheServerAndLoadsThatPage() async throws {
+        let names = ["Arca", "Autechre", "Beatles, The", "Björk", "Can"]
+        let transport = pagedArtists(names, position: ["sort_name=bjo": #"{"offset": 3, "id": "a3"}"#])
+        let list = ArtistList(connection: connection(transport), pageSize: 2)
         list.reload()
         await list.pendingLoad?.value
-        #expect(list.firstArtist(matching: "BJO")?.id == "a2")
-        #expect(list.firstArtist(matching: "glennc")?.id == "a3")
-        #expect(list.firstArtist(matching: "z") == nil)
+
+        #expect(await list.artistID(atOrAfter: "bjo") == "a3")
+        #expect(list.artist(at: 3)?.name == "Björk")
+        #expect(await list.artistID(atOrAfter: "zz") == nil)  // past the end: not found here
+    }
+
+    @Test func revealLoadsThePageOfAnArtistBeyondTheLoadedOnes() async throws {
+        let names = ["A", "B", "C", "D", "E"]
+        let transport = pagedArtists(names, position: ["id=a4": #"{"offset": 4, "id": "a4"}"#])
+        let list = ArtistList(connection: connection(transport), pageSize: 2)
+        list.setFilter("x")
+        list.setIncludeRadioOnly(true)
+        await list.pendingLoad?.value
+
+        #expect(await list.reveal("a1") == 1)  // loaded: no request
+        #expect(await list.reveal("a4") == 4)
+        #expect(list.artist(at: 4)?.id == "a4")
+        let lookups = queries(transport, path: "/artists/position")
+        #expect(lookups.count == 1)
+        // The same list as shown: filter and radio-only toggle.
+        #expect(lookups.first?.contains("q=x") == true && lookups.first?.contains("include_radio_only=true") == true)
+        #expect(await list.reveal("hidden") == nil)  // 404: the filter leaves it out
+    }
+}
+
+struct PagingTests {
+    @Test func allPagesLoadsUntilTheTotal() async throws {
+        var offsets: [Int] = []
+        let items = try await allPages(pageSize: 2) { limit, offset in
+            offsets.append(offset)
+            return (Array(offset..<min(offset + limit, 5)), 5)
+        }
+        #expect(items == [0, 1, 2, 3, 4])
+        #expect(offsets == [0, 2, 4])
     }
 }
 

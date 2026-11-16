@@ -42,7 +42,8 @@ public struct Client: APIProtocol {
     /// only radio-only recordings, see ``ep.radio``) are left out unless
     /// ``include_radio_only``. ``q`` filters (still by sort name): artists whose name or
     /// sort name contains it, ignoring case, accents and punctuation (index-backed; for
-    /// ranked fuzzy matching use ``/search``). Totals: ``GET /server``.
+    /// ranked fuzzy matching use ``/search``). Where an artist or a typed name is in this
+    /// list: ``GET /artists/position``.
     ///
     /// - Remark: HTTP `GET /artists`.
     /// - Remark: Generated from `#/paths//artists/get(list_artists)`.
@@ -64,20 +65,6 @@ public struct Client: APIProtocol {
                     in: &request,
                     style: .form,
                     explode: true,
-                    name: "limit",
-                    value: input.query.limit
-                )
-                try converter.setQueryItemAsURI(
-                    in: &request,
-                    style: .form,
-                    explode: true,
-                    name: "offset",
-                    value: input.query.offset
-                )
-                try converter.setQueryItemAsURI(
-                    in: &request,
-                    style: .form,
-                    explode: true,
                     name: "include_radio_only",
                     value: input.query.includeRadioOnly
                 )
@@ -88,6 +75,20 @@ public struct Client: APIProtocol {
                     name: "q",
                     value: input.query.q
                 )
+                try converter.setQueryItemAsURI(
+                    in: &request,
+                    style: .form,
+                    explode: true,
+                    name: "limit",
+                    value: input.query.limit
+                )
+                try converter.setQueryItemAsURI(
+                    in: &request,
+                    style: .form,
+                    explode: true,
+                    name: "offset",
+                    value: input.query.offset
+                )
                 converter.setAcceptHeader(
                     in: &request.headerFields,
                     contentTypes: input.headers.accept
@@ -97,6 +98,11 @@ public struct Client: APIProtocol {
             deserializer: { response, responseBody in
                 switch response.status.code {
                 case 200:
+                    let headers: Operations.ListArtists.Output.Ok.Headers = .init(xTotalCount: try converter.getRequiredHeaderFieldAsURI(
+                        in: response.headerFields,
+                        name: "X-Total-Count",
+                        as: Swift.Int.self
+                    ))
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
                     let body: Operations.ListArtists.Output.Ok.Body
                     let chosenContentType = try converter.bestContentType(
@@ -117,7 +123,10 @@ public struct Client: APIProtocol {
                     default:
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
-                    return .ok(.init(body: body))
+                    return .ok(.init(
+                        headers: headers,
+                        body: body
+                    ))
                 case 422:
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
                     let body: Operations.ListArtists.Output.UnprocessableContent.Body
@@ -1090,20 +1099,6 @@ public struct Client: APIProtocol {
                     in: &request,
                     style: .form,
                     explode: true,
-                    name: "limit",
-                    value: input.query.limit
-                )
-                try converter.setQueryItemAsURI(
-                    in: &request,
-                    style: .form,
-                    explode: true,
-                    name: "offset",
-                    value: input.query.offset
-                )
-                try converter.setQueryItemAsURI(
-                    in: &request,
-                    style: .form,
-                    explode: true,
                     name: "standalone",
                     value: input.query.standalone
                 )
@@ -1114,6 +1109,20 @@ public struct Client: APIProtocol {
                     name: "include_radio_only",
                     value: input.query.includeRadioOnly
                 )
+                try converter.setQueryItemAsURI(
+                    in: &request,
+                    style: .form,
+                    explode: true,
+                    name: "limit",
+                    value: input.query.limit
+                )
+                try converter.setQueryItemAsURI(
+                    in: &request,
+                    style: .form,
+                    explode: true,
+                    name: "offset",
+                    value: input.query.offset
+                )
                 converter.setAcceptHeader(
                     in: &request.headerFields,
                     contentTypes: input.headers.accept
@@ -1123,6 +1132,11 @@ public struct Client: APIProtocol {
             deserializer: { response, responseBody in
                 switch response.status.code {
                 case 200:
+                    let headers: Operations.ListArtistRecordings.Output.Ok.Headers = .init(xTotalCount: try converter.getRequiredHeaderFieldAsURI(
+                        in: response.headerFields,
+                        name: "X-Total-Count",
+                        as: Swift.Int.self
+                    ))
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
                     let body: Operations.ListArtistRecordings.Output.Ok.Body
                     let chosenContentType = try converter.bestContentType(
@@ -1143,7 +1157,10 @@ public struct Client: APIProtocol {
                     default:
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
-                    return .ok(.init(body: body))
+                    return .ok(.init(
+                        headers: headers,
+                        body: body
+                    ))
                 case 404:
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
                     let body: Operations.ListArtistRecordings.Output.NotFound.Body
@@ -1245,6 +1262,11 @@ public struct Client: APIProtocol {
             deserializer: { response, responseBody in
                 switch response.status.code {
                 case 200:
+                    let headers: Operations.ListArtistReleaseGroups.Output.Ok.Headers = .init(xTotalCount: try converter.getRequiredHeaderFieldAsURI(
+                        in: response.headerFields,
+                        name: "X-Total-Count",
+                        as: Swift.Int.self
+                    ))
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
                     let body: Operations.ListArtistReleaseGroups.Output.Ok.Body
                     let chosenContentType = try converter.bestContentType(
@@ -1265,7 +1287,10 @@ public struct Client: APIProtocol {
                     default:
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
-                    return .ok(.init(body: body))
+                    return .ok(.init(
+                        headers: headers,
+                        body: body
+                    ))
                 case 404:
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
                     let body: Operations.ListArtistReleaseGroups.Output.NotFound.Body
@@ -1291,6 +1316,144 @@ public struct Client: APIProtocol {
                 case 422:
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
                     let body: Operations.ListArtistReleaseGroups.Output.UnprocessableContent.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.HTTPValidationError.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .unprocessableContent(.init(body: body))
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
+    /// Get Artist Position
+    ///
+    /// Where an artist is in ``GET /artists`` with the same ``include_radio_only`` and
+    /// ``q``, as the ``offset`` of its row (to load the page that has it). Give exactly one
+    /// of ``id`` (that artist; 404 if the list leaves it out) or ``sort_name`` (the first
+    /// artist that sorts at or after it, as type-to-select does: "bjo" finds "Björk";
+    /// past the end of the list: ``offset`` is the number of artists and ``id`` null).
+    ///
+    /// - Remark: HTTP `GET /artists/position`.
+    /// - Remark: Generated from `#/paths//artists/position/get(get_artist_position)`.
+    public func getArtistPosition(_ input: Operations.GetArtistPosition.Input) async throws -> Operations.GetArtistPosition.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.GetArtistPosition.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/artists/position",
+                    parameters: []
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .get
+                )
+                suppressMutabilityWarning(&request)
+                try converter.setQueryItemAsURI(
+                    in: &request,
+                    style: .form,
+                    explode: true,
+                    name: "include_radio_only",
+                    value: input.query.includeRadioOnly
+                )
+                try converter.setQueryItemAsURI(
+                    in: &request,
+                    style: .form,
+                    explode: true,
+                    name: "q",
+                    value: input.query.q
+                )
+                try converter.setQueryItemAsURI(
+                    in: &request,
+                    style: .form,
+                    explode: true,
+                    name: "id",
+                    value: input.query.id
+                )
+                try converter.setQueryItemAsURI(
+                    in: &request,
+                    style: .form,
+                    explode: true,
+                    name: "sort_name",
+                    value: input.query.sortName
+                )
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                return (request, nil)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 200:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.GetArtistPosition.Output.Ok.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ArtistPositionRead.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .ok(.init(body: body))
+                case 404:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.GetArtistPosition.Output.NotFound.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ErrorRead.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .notFound(.init(body: body))
+                case 422:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.GetArtistPosition.Output.UnprocessableContent.Body
                     let chosenContentType = try converter.bestContentType(
                         received: contentType,
                         options: [
@@ -1435,7 +1598,7 @@ public struct Client: APIProtocol {
     }
     /// Get Radio Episode Image
     ///
-    /// A radio episode's image (from the station).
+    /// A radio episode's image (from the station); cached as covers are.
     ///
     /// - Remark: HTTP `GET /covers/radio-episode/{id}`.
     /// - Remark: Generated from `#/paths//covers/radio-episode/{id}/get(get_radio_episode_image)`.
@@ -1455,6 +1618,13 @@ public struct Client: APIProtocol {
                     method: .get
                 )
                 suppressMutabilityWarning(&request)
+                try converter.setQueryItemAsURI(
+                    in: &request,
+                    style: .form,
+                    explode: true,
+                    name: "v",
+                    value: input.query.v
+                )
                 converter.setAcceptHeader(
                     in: &request.headerFields,
                     contentTypes: input.headers.accept
@@ -1485,6 +1655,8 @@ public struct Client: APIProtocol {
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
                     return .ok(.init(body: body))
+                case 304:
+                    return .notModified(.init())
                 case 404:
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
                     let body: Operations.GetRadioEpisodeImage.Output.NotFound.Body
@@ -1543,7 +1715,7 @@ public struct Client: APIProtocol {
     }
     /// Get Radio Show Image
     ///
-    /// A radio show's image (from the station).
+    /// A radio show's image (from the station); cached as covers are.
     ///
     /// - Remark: HTTP `GET /covers/radio-show/{id}`.
     /// - Remark: Generated from `#/paths//covers/radio-show/{id}/get(get_radio_show_image)`.
@@ -1563,6 +1735,13 @@ public struct Client: APIProtocol {
                     method: .get
                 )
                 suppressMutabilityWarning(&request)
+                try converter.setQueryItemAsURI(
+                    in: &request,
+                    style: .form,
+                    explode: true,
+                    name: "v",
+                    value: input.query.v
+                )
                 converter.setAcceptHeader(
                     in: &request.headerFields,
                     contentTypes: input.headers.accept
@@ -1593,6 +1772,8 @@ public struct Client: APIProtocol {
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
                     return .ok(.init(body: body))
+                case 304:
+                    return .notModified(.init())
                 case 404:
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
                     let body: Operations.GetRadioShowImage.Output.NotFound.Body
@@ -1651,6 +1832,9 @@ public struct Client: APIProtocol {
     }
     /// Get Release Group Cover
     ///
+    /// A release group's cover. Cached for good when ``v`` is the current version
+    /// (the URL in ``cover_url``), otherwise revalidated by ETag.
+    ///
     /// - Remark: HTTP `GET /covers/release-group/{id}`.
     /// - Remark: Generated from `#/paths//covers/release-group/{id}/get(get_release_group_cover)`.
     public func getReleaseGroupCover(_ input: Operations.GetReleaseGroupCover.Input) async throws -> Operations.GetReleaseGroupCover.Output {
@@ -1669,6 +1853,13 @@ public struct Client: APIProtocol {
                     method: .get
                 )
                 suppressMutabilityWarning(&request)
+                try converter.setQueryItemAsURI(
+                    in: &request,
+                    style: .form,
+                    explode: true,
+                    name: "v",
+                    value: input.query.v
+                )
                 converter.setAcceptHeader(
                     in: &request.headerFields,
                     contentTypes: input.headers.accept
@@ -1699,6 +1890,8 @@ public struct Client: APIProtocol {
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
                     return .ok(.init(body: body))
+                case 304:
+                    return .notModified(.init())
                 case 404:
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
                     let body: Operations.GetReleaseGroupCover.Output.NotFound.Body
@@ -2512,20 +2705,6 @@ public struct Client: APIProtocol {
                     in: &request,
                     style: .form,
                     explode: true,
-                    name: "limit",
-                    value: input.query.limit
-                )
-                try converter.setQueryItemAsURI(
-                    in: &request,
-                    style: .form,
-                    explode: true,
-                    name: "offset",
-                    value: input.query.offset
-                )
-                try converter.setQueryItemAsURI(
-                    in: &request,
-                    style: .form,
-                    explode: true,
                     name: "state",
                     value: input.query.state
                 )
@@ -2536,6 +2715,20 @@ public struct Client: APIProtocol {
                     name: "kind",
                     value: input.query.kind
                 )
+                try converter.setQueryItemAsURI(
+                    in: &request,
+                    style: .form,
+                    explode: true,
+                    name: "limit",
+                    value: input.query.limit
+                )
+                try converter.setQueryItemAsURI(
+                    in: &request,
+                    style: .form,
+                    explode: true,
+                    name: "offset",
+                    value: input.query.offset
+                )
                 converter.setAcceptHeader(
                     in: &request.headerFields,
                     contentTypes: input.headers.accept
@@ -2545,6 +2738,11 @@ public struct Client: APIProtocol {
             deserializer: { response, responseBody in
                 switch response.status.code {
                 case 200:
+                    let headers: Operations.ListImportJobs.Output.Ok.Headers = .init(xTotalCount: try converter.getRequiredHeaderFieldAsURI(
+                        in: response.headerFields,
+                        name: "X-Total-Count",
+                        as: Swift.Int.self
+                    ))
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
                     let body: Operations.ListImportJobs.Output.Ok.Body
                     let chosenContentType = try converter.bestContentType(
@@ -2565,7 +2763,10 @@ public struct Client: APIProtocol {
                     default:
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
-                    return .ok(.init(body: body))
+                    return .ok(.init(
+                        headers: headers,
+                        body: body
+                    ))
                 case 422:
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
                     let body: Operations.ListImportJobs.Output.UnprocessableContent.Body
@@ -4240,20 +4441,6 @@ public struct Client: APIProtocol {
                     in: &request,
                     style: .form,
                     explode: true,
-                    name: "limit",
-                    value: input.query.limit
-                )
-                try converter.setQueryItemAsURI(
-                    in: &request,
-                    style: .form,
-                    explode: true,
-                    name: "offset",
-                    value: input.query.offset
-                )
-                try converter.setQueryItemAsURI(
-                    in: &request,
-                    style: .form,
-                    explode: true,
                     name: "q",
                     value: input.query.q
                 )
@@ -4264,6 +4451,20 @@ public struct Client: APIProtocol {
                     name: "types",
                     value: input.query.types
                 )
+                try converter.setQueryItemAsURI(
+                    in: &request,
+                    style: .form,
+                    explode: true,
+                    name: "limit",
+                    value: input.query.limit
+                )
+                try converter.setQueryItemAsURI(
+                    in: &request,
+                    style: .form,
+                    explode: true,
+                    name: "offset",
+                    value: input.query.offset
+                )
                 converter.setAcceptHeader(
                     in: &request.headerFields,
                     contentTypes: input.headers.accept
@@ -4273,6 +4474,11 @@ public struct Client: APIProtocol {
             deserializer: { response, responseBody in
                 switch response.status.code {
                 case 200:
+                    let headers: Operations.SearchNotes.Output.Ok.Headers = .init(xTotalCount: try converter.getRequiredHeaderFieldAsURI(
+                        in: response.headerFields,
+                        name: "X-Total-Count",
+                        as: Swift.Int.self
+                    ))
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
                     let body: Operations.SearchNotes.Output.Ok.Body
                     let chosenContentType = try converter.bestContentType(
@@ -4293,7 +4499,10 @@ public struct Client: APIProtocol {
                     default:
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
-                    return .ok(.init(body: body))
+                    return .ok(.init(
+                        headers: headers,
+                        body: body
+                    ))
                 case 422:
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
                     let body: Operations.SearchNotes.Output.UnprocessableContent.Body
@@ -4835,6 +5044,11 @@ public struct Client: APIProtocol {
             deserializer: { response, responseBody in
                 switch response.status.code {
                 case 200:
+                    let headers: Operations.ListRadioShows.Output.Ok.Headers = .init(xTotalCount: try converter.getRequiredHeaderFieldAsURI(
+                        in: response.headerFields,
+                        name: "X-Total-Count",
+                        as: Swift.Int.self
+                    ))
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
                     let body: Operations.ListRadioShows.Output.Ok.Body
                     let chosenContentType = try converter.bestContentType(
@@ -4855,7 +5069,10 @@ public struct Client: APIProtocol {
                     default:
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
-                    return .ok(.init(body: body))
+                    return .ok(.init(
+                        headers: headers,
+                        body: body
+                    ))
                 case 422:
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
                     let body: Operations.ListRadioShows.Output.UnprocessableContent.Body
@@ -5275,6 +5492,11 @@ public struct Client: APIProtocol {
             deserializer: { response, responseBody in
                 switch response.status.code {
                 case 200:
+                    let headers: Operations.ListRadioShowEpisodes.Output.Ok.Headers = .init(xTotalCount: try converter.getRequiredHeaderFieldAsURI(
+                        in: response.headerFields,
+                        name: "X-Total-Count",
+                        as: Swift.Int.self
+                    ))
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
                     let body: Operations.ListRadioShowEpisodes.Output.Ok.Body
                     let chosenContentType = try converter.bestContentType(
@@ -5295,7 +5517,10 @@ public struct Client: APIProtocol {
                     default:
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
-                    return .ok(.init(body: body))
+                    return .ok(.init(
+                        headers: headers,
+                        body: body
+                    ))
                 case 404:
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
                     let body: Operations.ListRadioShowEpisodes.Output.NotFound.Body
@@ -7360,6 +7585,11 @@ public struct Client: APIProtocol {
             deserializer: { response, responseBody in
                 switch response.status.code {
                 case 200:
+                    let headers: Operations.ListReleaseGroupTracks.Output.Ok.Headers = .init(xTotalCount: try converter.getRequiredHeaderFieldAsURI(
+                        in: response.headerFields,
+                        name: "X-Total-Count",
+                        as: Swift.Int.self
+                    ))
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
                     let body: Operations.ListReleaseGroupTracks.Output.Ok.Body
                     let chosenContentType = try converter.bestContentType(
@@ -7380,7 +7610,10 @@ public struct Client: APIProtocol {
                     default:
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
-                    return .ok(.init(body: body))
+                    return .ok(.init(
+                        headers: headers,
+                        body: body
+                    ))
                 case 404:
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
                     let body: Operations.ListReleaseGroupTracks.Output.NotFound.Body
@@ -8433,6 +8666,13 @@ public struct Client: APIProtocol {
                     in: &request,
                     style: .form,
                     explode: true,
+                    name: "prefix",
+                    value: input.query.prefix
+                )
+                try converter.setQueryItemAsURI(
+                    in: &request,
+                    style: .form,
+                    explode: true,
                     name: "limit",
                     value: input.query.limit
                 )
@@ -8443,13 +8683,6 @@ public struct Client: APIProtocol {
                     name: "offset",
                     value: input.query.offset
                 )
-                try converter.setQueryItemAsURI(
-                    in: &request,
-                    style: .form,
-                    explode: true,
-                    name: "prefix",
-                    value: input.query.prefix
-                )
                 converter.setAcceptHeader(
                     in: &request.headerFields,
                     contentTypes: input.headers.accept
@@ -8459,6 +8692,11 @@ public struct Client: APIProtocol {
             deserializer: { response, responseBody in
                 switch response.status.code {
                 case 200:
+                    let headers: Operations.ListTags.Output.Ok.Headers = .init(xTotalCount: try converter.getRequiredHeaderFieldAsURI(
+                        in: response.headerFields,
+                        name: "X-Total-Count",
+                        as: Swift.Int.self
+                    ))
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
                     let body: Operations.ListTags.Output.Ok.Body
                     let chosenContentType = try converter.bestContentType(
@@ -8479,7 +8717,10 @@ public struct Client: APIProtocol {
                     default:
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
-                    return .ok(.init(body: body))
+                    return .ok(.init(
+                        headers: headers,
+                        body: body
+                    ))
                 case 422:
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
                     let body: Operations.ListTags.Output.UnprocessableContent.Body
@@ -8877,6 +9118,13 @@ public struct Client: APIProtocol {
                     in: &request,
                     style: .form,
                     explode: true,
+                    name: "types",
+                    value: input.query.types
+                )
+                try converter.setQueryItemAsURI(
+                    in: &request,
+                    style: .form,
+                    explode: true,
                     name: "limit",
                     value: input.query.limit
                 )
@@ -8887,13 +9135,6 @@ public struct Client: APIProtocol {
                     name: "offset",
                     value: input.query.offset
                 )
-                try converter.setQueryItemAsURI(
-                    in: &request,
-                    style: .form,
-                    explode: true,
-                    name: "types",
-                    value: input.query.types
-                )
                 converter.setAcceptHeader(
                     in: &request.headerFields,
                     contentTypes: input.headers.accept
@@ -8903,6 +9144,11 @@ public struct Client: APIProtocol {
             deserializer: { response, responseBody in
                 switch response.status.code {
                 case 200:
+                    let headers: Operations.ListTagEntities.Output.Ok.Headers = .init(xTotalCount: try converter.getRequiredHeaderFieldAsURI(
+                        in: response.headerFields,
+                        name: "X-Total-Count",
+                        as: Swift.Int.self
+                    ))
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
                     let body: Operations.ListTagEntities.Output.Ok.Body
                     let chosenContentType = try converter.bestContentType(
@@ -8923,7 +9169,10 @@ public struct Client: APIProtocol {
                     default:
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
-                    return .ok(.init(body: body))
+                    return .ok(.init(
+                        headers: headers,
+                        body: body
+                    ))
                 case 404:
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
                     let body: Operations.ListTagEntities.Output.NotFound.Body

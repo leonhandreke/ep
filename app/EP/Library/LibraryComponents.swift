@@ -61,11 +61,18 @@ struct ColumnHeader<Trailing: View>: View {
     let title: String?
     let meta: String?
     var horizontalPadding: CGFloat = 12
-    var metaTrailing = true
+    var metaPlacement = MetaPlacement.trailing
     @ViewBuilder var trailing: Trailing
 
+    /// Where the meta text goes: at the trailing edge ("11 releases · by date"), after
+    /// the title ("1997 · Album · …"), or joined to it with a dot ("Name · known from
+    /// radio only").
+    enum MetaPlacement {
+        case trailing, afterTitle, joined
+    }
+
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: metaPlacement == .joined ? 0 : 8) {
             if let title {
                 Text(title)
                     .font(Typography.name)
@@ -73,9 +80,14 @@ struct ColumnHeader<Trailing: View>: View {
                     .lineLimit(1)
                     .layoutPriority(1)
             }
-            if !metaTrailing { metaText }
+            if metaPlacement == .joined, title != nil, meta != nil {
+                Text(verbatim: " · ")
+                    .font(Typography.secondary)
+                    .foregroundStyle(Palette.text3)
+            }
+            if metaPlacement != .trailing { metaText }
             Spacer(minLength: 0)
-            if metaTrailing { metaText }
+            if metaPlacement == .trailing { metaText }
             trailing
         }
         .padding(.horizontal, horizontalPadding)
