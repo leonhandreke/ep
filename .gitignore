@@ -17,3 +17,14 @@ dist/
 .idea/
 .vscode/
 *.swp
+
+# Xcode / SwiftPM (app/)
+app/build/
+DerivedData/
+.build/
+.swiftpm/
+xcuserdata/
+*.xcresult
+*.profraw
+# The Xcode project's Package.resolved pins the app; the local package has none.
+app/Packages/*/Package.resolved
