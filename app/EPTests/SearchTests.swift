@@ -1,0 +1,140 @@
+import EPAPI
+import Foundation
+import HTTPTypes
+import Testing
+
+@testable import EP
+
+nonisolated enum SearchFixtures {
+    static func hit(_ type: String, _ id: String, _ title: String, radioMatch: String = "null") -> String {
+        #"{"type": "\#(type)", "id": "\#(id)", "mbid": null, "title": "\#(title)", "subtitle": "Björk", "cover_url": null, "release_group_type": null, "date": "2024-11-24", "length_ms": null, "release_group_title": null, "link_ref": "\#(id)", "link": "[[\#(type):\#(id)|\#(title)]]", "score": 1.0, "track_count": null, "release_group_count": null, "loose_recording_count": null, "radio_match": \#(radioMatch)}"#
+    }
+
+    static let radioMatch =
+        #"{"track_id": "t7", "recording": \#(DetailFixtures.entity("recording", "r3", "Cocoon")), "start_ms": 2470000, "offset_is_estimate": false}"#
+
+    /// "bjork vesp": Vespertine first, then tracks, the artist and an episode that played Cocoon.
+    static let results = "[" + [
+        hit("release_group", "g1", "Vespertine"),
+        hit("recording", "r1", "Hidden Place"),
+        hit("artist", "a1", "Björk"),
+        hit("recording", "r2", "Pagan Poetry"),
+        hit("radio_episode", "e1", "Strings only", radioMatch: radioMatch),
+    ].joined(separator: ",") + "]"
+}
+
+private typealias S = SearchFixtures
+
+/// A transport for `/search` answering per query text, `/tags/{id}/entities` from `tagged`.
+nonisolated func searchTransport(
+    delay: [String: Double] = [:], tagged: String = "[]", results: @escaping @Sendable (String) -> String
+) -> StubTransport {
+    StubTransport { request in
+        let url = URLComponents(string: request.path ?? "")!
+        if url.path == "/server" {
+            return (jsonResponse(), Data(Fixtures.server.utf8))
+        }
+        if url.path.hasPrefix("/tags/") {
+            let count = (try? JSONSerialization.jsonObject(with: Data(tagged.utf8)) as? [Any])?.count
+            return (jsonResponse(total: count), Data(tagged.utf8))
+        }
+        let q = url.queryItems?.first { $0.name == "q" }?.value ?? ""
+        if let seconds = delay[q] { Thread.sleep(forTimeInterval: seconds) }
+        return (jsonResponse(), Data(results(q).utf8))
+    }
+}
+
+struct SearchStoreTests {
+    @Test func groupsTheHitsUnderATopHit() async throws {
+        let transport = searchTransport { _ in S.results }
+        let store = SearchStore(connection: await stubConnection(transport), debounce: .zero)
+        store.update("bjork vesp")
+        await store.settle()
+
+        #expect(store.groups.map(\.kind) == [.topHit, .tracks, .artists, .radio])
+        #expect(store.groups[1].hits.map(\.title) == ["Hidden Place", "Pagan Poetry"])
+        #expect(store.hits.map(\.title) == ["Vespertine", "Hidden Place", "Pagan Poetry", "Björk", "Strings only"])
+        let episode = try #require(store.hits.last)
+        #expect(episode.radioEntryID == "t7")
+        #expect(episode.detail.hasSuffix("plays “Cocoon” at 41:10"))
+
+        store.move(10)
+        #expect(store.selected?.title == "Strings only")
+        let query = try #require(transport.requests.last?.request.path)
+        #expect(query.contains("per_type=6") && query.contains("include_radio_only=true"))
+    }
+
+    @Test func typingQuicklySearchesOnceForTheLastText() async throws {
+        let transport = searchTransport { _ in S.results }
+        let store = SearchStore(connection: await stubConnection(transport), debounce: .milliseconds(50))
+        store.update("b")
+        store.update("bj")
+        store.update("bjo")
+        await store.settle()
+        let searches = transport.requests.filter { $0.request.path?.hasPrefix("/search") == true }
+        #expect(searches.count == 1)
+        #expect(searches.first?.request.path?.contains("q=bjo") == true)
+    }
+
+    @Test func aSlowAnswerToAnOlderQueryIsDropped() async throws {
+        let transport = searchTransport(delay: ["old": 0.3]) { q in
+            q == "old" ? "[\(S.hit("artist", "a9", "Old"))]" : "[\(S.hit("artist", "a1", "New"))]"
+        }
+        let store = SearchStore(connection: await stubConnection(transport), debounce: .zero)
+        store.update("old")
+        try await Task.sleep(for: .milliseconds(50))
+        store.update("new")
+        await store.settle()
+        try await Task.sleep(for: .milliseconds(400))
+        #expect(store.hits.map(\.title) == ["New"])
+    }
+
+    @Test func aTagFilterListsEverythingTaggedThenSearchesWithin() async throws {
+        let tagged = "[\(DetailFixtures.entity("release_group", "g1", "Homogenic")), \(DetailFixtures.entity("artist", "a1", "Björk"))]"
+        let transport = searchTransport(tagged: tagged) { _ in "[\(S.hit("release_group", "g1", "Homogenic"))]" }
+        let store = SearchStore(connection: await stubConnection(transport), debounce: .zero)
+        let tag = try JSONDecoder().decode(
+            Components.Schemas.TagRead.self, from: Data(DetailFixtures.tag("t1", "strings", count: 2).utf8))
+
+        store.filter(by: tag)
+        await store.settle()
+        // Nothing typed: everything with the tag, grouped, no top hit.
+        #expect(store.groups.map(\.kind) == [.albums, .artists])
+        #expect(transport.requests.last?.request.path?.hasPrefix("/tags/t1/entities") == true)
+
+        store.update("homo")
+        await store.settle()
+        #expect(transport.requests.last?.request.path?.contains("tag_id=t1") == true)
+        #expect(store.hits.map(\.title) == ["Homogenic"])
+
+        store.update("")
+        store.filter(by: nil)
+        #expect(store.isEmpty && store.hits.isEmpty)
+    }
+}
+
+@MainActor
+struct SearchPlayTests {
+    /// ⌥↩ in the palette: with nothing playing the album plays; then it goes in front of
+    /// the queue, the current item going on.
+    @Test func playNextPlaysWhenIdleAndOtherwiseQueuesInFront() async throws {
+        let routes = [
+            "/release-groups/g1": LibraryFixtures.releaseGroupDetail("g1", "Homogenic", artist: "a1"),
+            "/release-groups/g1/tracks": "[\(PlayerFixtures.album.joined(separator: ","))]",
+        ]
+        let connection = ServerConnection(serverURL: URL(string: "http://ep.test")!, transport: routed(routes))
+        let player = Player(connection: connection, engine: StubEngine(), tickInterval: .seconds(3600))
+        let album = EntityRef(type: .releaseGroup, id: "g1")
+
+        player.play(album, next: true)
+        await player.settle()
+        #expect(player.current?.title == "Hunter")
+        #expect(player.queue.map(\.title) == ["Jóga", "Cocoon"])
+
+        player.play(album, next: true)
+        await player.settle()
+        #expect(player.current?.title == "Hunter")
+        #expect(player.queue.map(\.title) == ["Hunter", "Jóga", "Cocoon", "Jóga", "Cocoon"])
+        #expect(!Player.plays(.artist) && Player.plays(.radioEpisode))
+    }
+}

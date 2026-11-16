@@ -79,6 +79,7 @@ struct AppCommands: Commands {
     @FocusedValue(\.detailPanelsCollapsed) private var detailPanelsCollapsed
     @FocusedValue(\.history) private var history
     @FocusedValue(\.showPlaying) private var showPlaying
+    @FocusedValue(\.openSearch) private var openSearch
 
     var body: some Commands {
         CommandMenu("Go") {
@@ -88,6 +89,16 @@ struct AppCommands: Commands {
             Button("Forward") { history?.goForward() }
                 .keyboardShortcut("]", modifiers: .command)
                 .disabled(history?.canGoForward != true)
+        }
+        // Decision 9: ⌘K and ⌘F both open the search palette (in place of the text
+        // Find commands, which no view here uses).
+        CommandGroup(replacing: .textEditing) {
+            Button("Search…") { openSearch?() }
+                .keyboardShortcut("k", modifiers: .command)
+                .disabled(openSearch == nil)
+            Button("Find…") { openSearch?() }
+                .keyboardShortcut("f", modifiers: .command)
+                .disabled(openSearch == nil)
         }
         CommandGroup(after: .toolbar) {
             Button(detailPanelsCollapsed?.wrappedValue == true ? "Show Detail Panels" : "Hide Detail Panels") {
@@ -121,4 +132,6 @@ extension FocusedValues {
     @Entry var history: (any HistoryNavigating)?
     /// Shows what plays in the focused main window (⌘L).
     @Entry var showPlaying: (() -> Void)?
+    /// Opens the focused main window's search palette (⌘K, ⌘F).
+    @Entry var openSearch: (() -> Void)?
 }

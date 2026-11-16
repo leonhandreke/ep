@@ -64,6 +64,21 @@ struct TrackRow: Identifiable, Hashable {
         note = Self.note(for: recording.playability, credit: differs ? recording.artistCredit.name : nil)
     }
 
+    /// A recording on its own (played from search): shown and played like a loose track.
+    init(recording: Components.Schemas.RecordingDetail) {
+        id = recording.id
+        recordingID = recording.id
+        disc = 1
+        number = nil
+        title = recording.title
+        lengthMS = recording.lengthMs
+        playState = recording.playability.state
+        playability = recording.playability
+        artistName = recording.artistCredit.name
+        link = recording.link
+        note = Self.note(for: recording.playability, credit: nil)
+    }
+
     /// State text first ("only in a radio episode", "Bandcamp link", "no source", "file
     /// missing"); for rows that play from a file, the differing credit.
     private static func note(for playability: Components.Schemas.PlayabilityRead, credit: String?) -> Note? {

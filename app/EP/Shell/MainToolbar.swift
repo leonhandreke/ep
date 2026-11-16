@@ -7,6 +7,8 @@ struct MainToolbar: ToolbarContent {
     @Binding var section: AppSection
     /// The shown view's history (Library or Radio).
     let history: any HistoryNavigating
+    /// Opens the search palette.
+    let search: () -> Void
 
     var body: some ToolbarContent {
         ToolbarItemGroup(placement: .navigation) {
@@ -41,16 +43,18 @@ struct MainToolbar: ToolbarContent {
         }
 
         ToolbarItem(placement: .automatic) {
-            SearchFieldButton()
+            SearchFieldButton(action: search)
                 .fixedSize()
         }
     }
 }
 
-/// Looks like a search field; opens the search palette (stage 8; ⌘K and ⌘F, decision 9).
-/// A plain view, not a `Button`: a custom-label button collapses to nothing in a macOS
-/// toolbar item. Inert until stage 8 adds the tap and shortcuts.
+/// Looks like a search field; opens the search palette (⌘K and ⌘F, decision 9). A plain
+/// view with a tap, not a `Button`: a custom-label button collapses to nothing in a macOS
+/// toolbar item.
 private struct SearchFieldButton: View {
+    let action: () -> Void
+
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: "magnifyingglass")
@@ -77,9 +81,11 @@ private struct SearchFieldButton: View {
                 .strokeBorder(Palette.line, lineWidth: Metrics.hairline)
         )
         .contentShape(Rectangle())
+        .onTapGesture(perform: action)
         .help("Search (⌘K)")
         .accessibilityElement(children: .ignore)
         .accessibilityAddTraits(.isButton)
+        .accessibilityAction { action() }
         .accessibilityLabel("Search library")
         .accessibilityIdentifier("toolbar.search")
     }

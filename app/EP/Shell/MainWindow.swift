@@ -46,6 +46,9 @@ struct MainWindow: View {
     /// This window's Radio view: shows, episodes, tracklist, history; its tabbed panel.
     @State private var radio: RadioBrowser
     @State private var radioDetails: EntityDetails
+    /// The search palette (⌘K, ⌘F) while open; it keeps what was typed while closed.
+    @State private var search: SearchStore
+    @State private var searchOpen = false
     /// What this window was opened to show (⌥⌘-click), shown once connected.
     @State private var pendingTarget: OpenTarget?
     @Environment(\.openWindow) private var openWindow
@@ -73,6 +76,7 @@ struct MainWindow: View {
         radio.onPlay = { [weak player] episode, entry in player?.playEpisode(episode, from: entry) }
         _radio = State(initialValue: radio)
         _radioDetails = State(initialValue: EntityDetails(connection: connection))
+        _search = State(initialValue: SearchStore(connection: connection))
         _pendingTarget = State(initialValue: initialTarget)
     }
 
@@ -108,6 +112,11 @@ struct MainWindow: View {
             }
             PlayerBar(showPlaying: showPlaying)
         }
+        .overlay {
+            if searchOpen {
+                SearchPalette(store: search) { searchOpen = false }
+            }
+        }
         .background(Palette.bg)
         .frame(minWidth: WindowMetrics.minimumWidth, minHeight: WindowMetrics.minimumHeight)
         .navigationTitle("EP")
@@ -115,11 +124,13 @@ struct MainWindow: View {
         .environment(browser)
         .environment(radio)
         .environment(\.openEntity, OpenEntityAction(handler: open))
-        .toolbar { MainToolbar(section: $section, history: history) }
+        .environment(\.showTag) { tag in openSearch(tag: tag) }
+        .toolbar { MainToolbar(section: $section, history: history) { openSearch(tag: nil) } }
         .toolbarBackground(Palette.bar, for: .windowToolbar)
         .focusedSceneValue(\.detailPanelsCollapsed, $detailPanelsCollapsed)
         .focusedSceneValue(\.history, history)
         .focusedSceneValue(\.showPlaying, showPlaying)
+        .focusedSceneValue(\.openSearch) { openSearch(tag: nil) }
         // The server is the only source of truth and does not push: load once connected
         // (again after being unreachable), and reload when the window becomes active.
         .onChange(of: connection.isConnected, initial: true) { _, connected in
@@ -151,6 +162,18 @@ struct MainWindow: View {
             if connection.isConnected { reloadLibrary() }
             Task { await connection.refresh() }
         }
+    }
+
+    /// Opens the search palette; a tag click opens it filtered to the tag, with nothing
+    /// typed (decision 7).
+    private func openSearch(tag: Components.Schemas.TagRead?) {
+        if let tag {
+            search.update("")
+            search.filter(by: tag)
+        } else if !searchOpen {
+            search.filter(by: nil)
+        }
+        searchOpen = true
     }
 
     /// "Show playing" (⌘L, the player's title): an episode played from the Radio view in

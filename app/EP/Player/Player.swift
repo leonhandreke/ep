@@ -67,28 +67,70 @@ final class Player {
                 start(PlayItem.queue(from: [row], startingAt: 0, album: album))
             }
         case .album(let id):
-            let client = connection.client
-            requestTask = Task {
-                do {
-                    async let detail = client.getReleaseGroup(path: .init(id: id)).ok.body.json
+            play(EntityRef(type: .releaseGroup, id: id))
+        }
+    }
+
+    /// Plays an album, a track (recording) or an episode found in search (⌘↩), or puts it
+    /// next in the queue (⌥↩; with nothing playing, it plays). An episode found by what it
+    /// played starts at that entry. Artists and shows do not play.
+    func play(_ ref: EntityRef, from entryID: String? = nil, next: Bool = false) {
+        requestTask?.cancel()
+        let client = connection.client
+        requestTask = Task {
+            do {
+                let items: [PlayItem]
+                switch ref.type {
+                case .releaseGroup:
+                    async let detail = client.getReleaseGroup(path: .init(id: ref.id)).ok.body.json
                     let tracks = try await allPages { limit, offset in
                         let ok = try await client.listReleaseGroupTracks(
-                            path: .init(id: id), query: .init(limit: limit, offset: offset)
+                            path: .init(id: ref.id), query: .init(limit: limit, offset: offset)
                         ).ok
                         return (try ok.body.json, ok.headers.xTotalCount)
                     }
                     let group = try await detail
-                    guard !Task.isCancelled else { return }
                     let rows = tracks.map { TrackRow(track: $0, albumCreditID: group.artistCredit.id) }
-                    let items = PlayItem.queue(from: rows, startingAt: 0, album: group)
-                    if !items.isEmpty { start(items) }
-                } catch {
-                    guard !Task.isCancelled, !ServerConnection.isCancellation(error) else { return }
-                    connection.reportFailure(error)
+                    items = PlayItem.queue(from: rows, startingAt: 0, album: group)
+                case .recording:
+                    let row = TrackRow(recording: try await client.getRecording(path: .init(id: ref.id)).ok.body.json)
+                    guard !Task.isCancelled else { return }
+                    guard row.playability.playback != nil else {
+                        if !next { refuse(row) }
+                        return
+                    }
+                    items = PlayItem.queue(from: [row], startingAt: 0, album: nil)
+                case .radioEpisode:
+                    let episode = try await client.getRadioEpisode(path: .init(id: ref.id)).ok.body.json
+                    guard !Task.isCancelled else { return }
+                    guard let item = PlayItem(episode: episode, from: entryID) else {
+                        if !next { show(.noSource(title: episode.name)) }
+                        return
+                    }
+                    items = [item]
+                case .artist, .radioShow:
+                    return
                 }
+                guard !Task.isCancelled, !items.isEmpty else { return }
+                if next, current != nil {
+                    queue.insert(contentsOf: items, at: 0)
+                } else {
+                    start(items)
+                }
+            } catch {
+                guard !Task.isCancelled, !ServerConnection.isCancellation(error) else { return }
+                connection.reportFailure(error)
             }
         }
     }
+
+    /// Whether `play(_:)` can play this kind of entity.
+    static func plays(_ type: Components.Schemas.EntityType) -> Bool {
+        [.releaseGroup, .recording, .radioEpisode].contains(type)
+    }
+
+    /// Waits for a play request being loaded (tests).
+    func settle() async { await requestTask?.value }
 
     /// Plays a radio episode from one of its tracklist entries (or the start): the
     /// Radio view's "play from here". The queue is left as it is.
