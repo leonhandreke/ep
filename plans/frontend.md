@@ -202,7 +202,8 @@ How the remaining work is run (user's instructions, to limit usage):
   - 7+8 Radio view, search, sources, editing
   - 9 Import
   - 10 Settings, states, polish
-- Each agent is pointed at only the sections of `plans/frontend-design.md` it needs.
+- Every agent reads all of `plans/frontend-design.md` and this plan, so it understands
+  the whole app; its brief names the sections its stage implements, to read closely.
 - Commits are authorised; co-author line names the model that did the work.
 
 Backend items waiting for the next backend-friction round:
