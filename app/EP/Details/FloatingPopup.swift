@@ -7,7 +7,7 @@ import SwiftUI
 /// panel it belongs to. Used by the tag suggestions and the `[[` link suggestions.
 final class FloatingPopup {
     private var panel: NSPanel?
-    private var hosting: NSHostingView<AnyView>?
+    private var hosting: PopupHostingView?
 
     var isShown: Bool { panel?.isVisible == true }
 
@@ -18,7 +18,7 @@ final class FloatingPopup {
         if let hosting {
             hosting.rootView = AnyView(content)
         } else {
-            let hosting = NSHostingView(rootView: AnyView(content))
+            let hosting = PopupHostingView(rootView: AnyView(content))
             panel.contentView = hosting
             self.hosting = hosting
         }
@@ -61,6 +61,11 @@ final class FloatingPopup {
     deinit {
         MainActor.assumeIsolated { hide() }
     }
+}
+
+/// Takes the click that is the first in a window that is not key (the popup never is).
+private final class PopupHostingView: NSHostingView<AnyView> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
 private final class PopupPanel: NSPanel {

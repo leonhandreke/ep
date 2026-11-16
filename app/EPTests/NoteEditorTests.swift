@@ -322,6 +322,21 @@ struct NoteDocumentTests {
         if case .failed = document.status {} else { Issue.record("expected failed, got \(document.status)") }
         #expect(document.hasUnsavedChanges && document.text == "New")
         #expect(!connection.isConnected)  // the banner shows; notes are read-only
+        // Left behind, the edit waits (it is not dropped) and comes back with its entity.
+        #expect(NoteDocument.orphan(for: Self.ref, connection: connection) === document)
+        #expect(NoteDocument.unsaved.values.contains { $0 === document })
+    }
+
+    @Test func aReloadReadBeforeOurOwnSaveNeverBringsBackTheOldText() async throws {
+        let server = NoteServer([(.ok, DetailFixtures.note("artist", "a1", body: "New", updatedAt: Self.t2))])
+        let (document, _) = try await document("Old", at: Self.t1, server: server)
+        document.edit("New")
+        await document.settle()
+        #expect(document.status == .saved)
+        let stale = try JSONDecoder.ep.decode(
+            Components.Schemas.NoteRead.self, from: Data(DetailFixtures.note("artist", "a1", body: "Old", updatedAt: Self.t1).utf8))
+        document.apply(stale)
+        #expect(document.text == "New" && document.baseUpdatedAt != nil)
     }
 }
 

@@ -1,7 +1,32 @@
+import AppKit
 import SwiftUI
+
+/// Quitting waits for the notes being saved; edits that cannot be saved (changed elsewhere,
+/// server unreachable) are never dropped without asking.
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard !NoteDocument.unsaved.isEmpty else { return .terminateNow }
+        Task { @MainActor in
+            let saved = await NoteDocument.settleUnsaved(timeout: .seconds(5))
+            sender.reply(toApplicationShouldTerminate: saved || Self.confirmDiscard(NoteDocument.unsaved.count))
+        }
+        return .terminateLater
+    }
+
+    private static func confirmDiscard(_ count: Int) -> Bool {
+        let alert = NSAlert()
+        alert.messageText = String(localized: "Some notes are not saved")
+        alert.informativeText = String(
+            localized: "\(count) note(s) could not be saved: they were changed elsewhere or the server cannot be reached. Quitting now loses these edits.")
+        alert.addButton(withTitle: String(localized: "Cancel"))
+        alert.addButton(withTitle: String(localized: "Quit Anyway"))
+        return alert.runModal() == .alertSecondButtonReturn
+    }
+}
 
 @main
 struct EPApp: App {
+    @NSApplicationDelegateAdaptor private var appDelegate: AppDelegate
     @State private var settings: AppSettings
     @State private var connection: ServerConnection
     @State private var covers = CoverImages()

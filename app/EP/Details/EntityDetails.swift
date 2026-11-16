@@ -43,6 +43,9 @@ final class EntityDetails {
     func show(_ ref: EntityRef?) {
         guard ref != self.ref else { return }
         note?.flush()
+        // An edit that could not be saved yet stays in `NoteDocument.unsaved` and comes
+        // back when this entity is shown again.
+        note?.isShown = false
         self.ref = ref
         entity = nil
         note = nil
@@ -96,7 +99,14 @@ final class EntityDetails {
         if let note, note.ref == ref {
             note.apply(details.note)
         } else if let ref {
-            let document = NoteDocument(details.note, ref: ref, connection: connection, debounce: noteDebounce)
+            let document: NoteDocument
+            if let orphan = NoteDocument.orphan(for: ref, connection: connection) {
+                document = orphan
+                document.apply(details.note)
+            } else {
+                document = NoteDocument(details.note, ref: ref, connection: connection, debounce: noteDebounce)
+            }
+            document.isShown = true
             document.onSaved = { [weak self] in self?.onNoteSaved?() }
             note = document
         }

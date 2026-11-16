@@ -40,6 +40,16 @@ final class NoteDocument {
     /// Called when the server told more about link targets (the editor restyles).
     @ObservationIgnored var onTargetsChanged: (() -> Void)?
 
+    /// Documents with edits the server does not have yet, whether or not they are shown
+    /// (the note was left while unreachable, in conflict, or the save failed). They stay
+    /// until saved, so the text is never dropped: the panel shows the same document again
+    /// when its entity comes back, the app waits for them when quitting, and a reconnect
+    /// saves them. Nothing is kept on disk.
+    private(set) static var unsaved: [ObjectIdentifier: NoteDocument] = [:]
+
+    /// A panel shows this document (not an orphan waiting for its entity to be shown again).
+    @ObservationIgnored var isShown = false
+
     @ObservationIgnored private(set) var baseUpdatedAt: Date?
     @ObservationIgnored private let connection: ServerConnection
     @ObservationIgnored private let debounce: Duration
@@ -58,12 +68,53 @@ final class NoteDocument {
 
     var hasUnsavedChanges: Bool { text != savedText }
 
+    /// An edited note whose panel went away, for `ref`; taken over by the next panel that shows it.
+    static func orphan(for ref: EntityRef, connection: ServerConnection) -> NoteDocument? {
+        unsaved.values.first { $0.ref == ref && $0.connection === connection && !$0.isShown }
+    }
+
+    /// Saves every edited note now (reconnect, quit).
+    static func flushUnsaved() {
+        for document in unsaved.values { document.flush() }
+    }
+
+    /// Waits until nothing is edited and unsaved any more, or `timeout`; true when all saved.
+    static func settleUnsaved(timeout: Duration) async -> Bool {
+        flushUnsaved()
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
+            let pending = unsaved.values
+            if pending.isEmpty { return true }
+            // A conflict or failure only ends with the user's decision: no use waiting.
+            if pending.allSatisfy({ $0.needsUser }) { return false }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        return unsaved.isEmpty
+    }
+
+    /// Unsaved and not going to save by itself (conflict, failed, unreachable).
+    var needsUser: Bool {
+        guard hasUnsavedChanges else { return false }
+        if case .conflict = status { return true }
+        if case .failed = status { return true }
+        return !connection.isConnected
+    }
+
+    private func track() {
+        if hasUnsavedChanges {
+            Self.unsaved[ObjectIdentifier(self)] = self
+        } else {
+            Self.unsaved[ObjectIdentifier(self)] = nil
+        }
+    }
+
     // MARK: - Editing
 
     /// The user changed the text: saved after the debounce.
     func edit(_ newText: String) {
         guard newText != text else { return }
         text = newText
+        track()
         if case .conflict = status { return }
         status = hasUnsavedChanges ? .editing : .idle
         scheduleSave()
@@ -88,6 +139,9 @@ final class NoteDocument {
     /// The note as the server has it now (a reload). Taken over only when nothing here is
     /// unsaved; otherwise the next save decides (and conflicts if it changed).
     func apply(_ note: Components.Schemas.NoteRead) {
+        // An answer older than what this document saved or loaded (a reload that was read
+        // before our own save) would bring back the old text and a stale base.
+        if let base = baseUpdatedAt, let updated = note.updatedAt, updated < base { return }
         targets = Self.targets(of: note)
         guard !hasUnsavedChanges, saveTask == nil, status != .saving else { return }
         if case .conflict = status { return }
@@ -103,6 +157,7 @@ final class NoteDocument {
         guard case .conflict(let current) = status else { return }
         baseUpdatedAt = current.updatedAt
         savedText = current.body
+        track()
         guard hasUnsavedChanges else {
             status = .idle
             return
@@ -174,6 +229,7 @@ final class NoteDocument {
                 outcome = .failed(String(localized: "Not saved — server unreachable."))
             }
             saveTask = nil
+            track()
             switch outcome {
             case .saved where hasUnsavedChanges:
                 status = .editing
@@ -189,6 +245,7 @@ final class NoteDocument {
         text = body
         savedText = body
         revision += 1
+        track()
     }
 
     private static func targets(of note: Components.Schemas.NoteRead) -> [LinkKey: LinkTarget?] {

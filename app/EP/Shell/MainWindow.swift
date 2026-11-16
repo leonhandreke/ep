@@ -144,6 +144,7 @@ struct MainWindow: View {
     }
 
     private func reloadLibrary() {
+        NoteDocument.flushUnsaved()
         artists.reload()
         browser.reload()
         artistDetails.reload()

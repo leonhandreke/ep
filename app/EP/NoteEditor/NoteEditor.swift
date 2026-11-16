@@ -140,6 +140,18 @@ final class NoteEditorCoordinator: NSObject, NSTextViewDelegate {
     private var editing = false
 
     func textView(_ textView: NSTextView, shouldChangeTextIn range: NSRange, replacementString: String?) -> Bool {
+        // A deletion that reaches into a link's hidden `type:uuid|` (Backspace at the start
+        // of the display text) would break the link invisibly: it removes the whole link,
+        // as deleting a chip does.
+        if let view = textView as? NoteTextView, (replacementString ?? "").isEmpty, range.length > 0,
+            let link = view.styling.links.first(where: {
+                NSIntersectionRange($0.hiddenRange, range).length > 0
+                    && !(range.location <= $0.range.location && NSMaxRange(range) >= NSMaxRange($0.range))
+            })
+        {
+            replace(NSUnionRange(range, link.range), with: "")
+            return false
+        }
         editing = true
         return true
     }
@@ -357,10 +369,15 @@ final class NoteEditorCoordinator: NSObject, NSTextViewDelegate {
     }
 
     private func replace(_ link: NoteLink, with text: String) {
-        guard let textView, textView.isEditable, textView.shouldChangeText(in: link.range, replacementString: text)
+        replace(link.range, with: text)
+    }
+
+    private func replace(_ range: NSRange, with text: String) {
+        guard let textView, textView.isEditable, NSMaxRange(range) <= (textView.string as NSString).length,
+            textView.shouldChangeText(in: range, replacementString: text)
         else { return }
-        textView.textStorage?.replaceCharacters(in: link.range, with: text)
+        textView.textStorage?.replaceCharacters(in: range, with: text)
         textView.didChangeText()
-        textView.setSelectedRange(NSRange(location: link.range.location + (text as NSString).length, length: 0))
+        textView.setSelectedRange(NSRange(location: range.location + (text as NSString).length, length: 0))
     }
 }
