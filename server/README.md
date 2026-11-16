@@ -121,7 +121,9 @@ uv run alembic revision --autogenerate -m "add catalogue"
   one; also a radio-only recording whose episode file is gone), `link_only` (`link` to open), `no_source`. What plays: the recording's
   `preferred_source_id` if it plays, else the oldest library source whose file is
   there, else the oldest radio excerpt. One query for a whole list, plus a `stat` per
-  file tried. `PlaybackRead.file_duration_ms` is a scrubber's scale.
+  file tried. `PlaybackRead.file_duration_ms` is a scrubber's scale; `media_type` (the
+  stream's `Content-Type`) and `codec` say which decoder the file needs, before any of it
+  is fetched.
 - `GET /recordings/{id}/sources` (`RecordingSourceRead`): each source's role, its
   ancestors (where a file came from), the file it plays from (codec, sample rate, bit
   depth, bit rate, host path, whether it is there), the radio entry of an excerpt,
@@ -174,8 +176,11 @@ uv run alembic revision --autogenerate -m "add catalogue"
 
 ## Audio formats and AVPlayer
 
-`/sources/{id}/stream` is a `FileResponse`: `Content-Type` from the extension
-(`audio/mpeg`, `audio/mp4`, `audio/flac`, `audio/ogg`, ...), `Content-Length`,
+`/sources/{id}/stream` is a `FileResponse`: `Content-Type` is the file's container as
+probed at import (`source.media_type`: `audio/mpeg`, `audio/mp4`, `audio/flac`,
+`audio/ogg`, `audio/webm`, ...; the extension for a file not probed), the same as
+`PlaybackRead.media_type`, which comes with `codec` (ffprobe's name: `mp3`, `aac`,
+`flac`, `opus`, `vorbis`, ...: a container does not say its codec), `Content-Length`,
 `Accept-Ranges: bytes`, and `206` with `Content-Range` for ranges, including AVPlayer's
 first `bytes=0-1` probe (`tests/test_app_fit.py`); AVPlayer sends no `HEAD`.
 AVFoundation plays MP3, AAC/ALAC in MP4/M4A, FLAC, WAV and AIFF. It does **not** play
@@ -192,7 +197,10 @@ uv run python -m ep.seed --database-url postgresql+psycopg://ep:ep@localhost:543
 `ep/seed.py` migrates, refuses a database with data and a non-empty directory or one
 under `~/Music`, and writes a small fixed library (every play state, a multi-disc and
 a single-file album, a radio show with two episodes, notes with links and a broken
-one, tags, jobs in each state) with generated audio and covers. It prints the
+one, tags, jobs in each state) with generated audio and covers. The audio covers every
+decoder path: FLAC, MP3, AAC in M4A, Ogg Vorbis (Sigur Rós), WebM/Opus (the YouTube loose
+track "Loose Tone") and Ogg Opus (the episode "Homage to the night shift"; the other
+episode is M4A). It prints the
 `EP_LIBRARY_DIR` and `EP_MEDIA_ROOTS` to run the server with. Run no worker against it
 (the demo jobs are rows only). `tests/test_seed.py` seeds a scratch database.
 
@@ -228,9 +236,10 @@ docker rm -f ep-harness-db && rm -rf "$D"     # tear down
   `start_ms`..`end_ms`. Remote-only sources have `playback: null` and stream as a 409.
   For lists, `ep.playback.resolve_where` / `recording_playbacks` load the sources and
   all their ancestors in one recursive-CTE query and resolve them in memory.
-- `ep.probe.probe(path)` reads codec/duration (`ffprobe`, in the image) and tags plus the
-  embedded cover (`mutagen`). It never writes. `POST /sources` uses it to fill in a new
-  file source's codec, duration and size.
+- `ep.probe.probe(path)` reads container (as a media type), codec and duration
+  (`ffprobe`, in the image) and tags plus the embedded cover (`mutagen`). It never
+  writes. `POST /sources` uses it to fill in a new file source's facts, and
+  `PATCH /sources/{id}` again when a file's `uri` changes to a file that is there.
 - Covers are uploaded with `PUT /covers/release-group/{id}` (the image file as the
   body) and stored in
   `EP_LIBRARY_DIR/_covers/` (`ep.covers`), never next to files in watched directories.

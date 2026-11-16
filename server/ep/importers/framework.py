@@ -1495,6 +1495,7 @@ class _Applier:
             uri=medium.path,
             parent_id=parent_id,
             managed=medium.managed,
+            media_type=medium.media_type,
             codec=medium.codec,
             duration_ms=medium.duration_ms,
             size=medium.size,

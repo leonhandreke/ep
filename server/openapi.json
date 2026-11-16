@@ -2255,7 +2255,7 @@
           "sources"
         ],
         "summary": "Update Source",
-        "description": "Change a source; a file's new ``uri`` (to locate a moved file) may be a host path\n(``EP_HOST_PATHS``).",
+        "description": "Change a source; a file's new ``uri`` (to locate a moved file) may be a host path\n(``EP_HOST_PATHS``). A file found at its new ``uri`` is read again (media type,\ncodec, ...: it may have been re-encoded).",
         "operationId": "update_source",
         "parameters": [
           {
@@ -6525,6 +6525,10 @@
             "type": "boolean",
             "title": "Exists"
           },
+          "media_type": {
+            "type": "string",
+            "title": "Media Type"
+          },
           "codec": {
             "anyOf": [
               {
@@ -6587,6 +6591,7 @@
           "path",
           "host_path",
           "exists",
+          "media_type",
           "codec",
           "sample_rate",
           "bit_depth",
@@ -7320,6 +7325,17 @@
             "title": "Download",
             "default": false
           },
+          "media_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Media Type"
+          },
           "codec": {
             "anyOf": [
               {
@@ -7416,6 +7432,7 @@
           "managed",
           "origin",
           "download",
+          "media_type",
           "codec",
           "duration_ms",
           "size",
@@ -8942,6 +8959,21 @@
               }
             ],
             "title": "File Duration Ms"
+          },
+          "media_type": {
+            "type": "string",
+            "title": "Media Type"
+          },
+          "codec": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Codec"
           }
         },
         "type": "object",
@@ -8950,7 +8982,9 @@
           "file_source_id",
           "start_ms",
           "end_ms",
-          "file_duration_ms"
+          "file_duration_ms",
+          "media_type",
+          "codec"
         ],
         "title": "PlaybackRead",
         "description": "How to play a source: stream ``file_source_id`` and play ``start_ms`` to ``end_ms``.\n\n``GET /sources/{id}/stream`` serves the whole file for any source that resolves to\nit; the client seeks. ``end_ms`` null means to the end of the file."
@@ -11176,6 +11210,17 @@
             "type": "boolean",
             "title": "Managed"
           },
+          "media_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Media Type"
+          },
           "codec": {
             "anyOf": [
               {
@@ -11298,6 +11343,7 @@
           "end_ms",
           "recording_id",
           "managed",
+          "media_type",
           "codec",
           "duration_ms",
           "size",

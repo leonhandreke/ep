@@ -129,10 +129,16 @@ def test_play_states(
     assert detail["play_states"] == dict.fromkeys(states, 1)
     assert detail["link_kinds"] == ["spotify"]
 
-    # Locate…: a new path for the missing file; it plays again.
-    shutil.copyfile(audio_dir / "song.mp3", gone)
-    assert client.patch(f"/sources/{lost['id']}", json={"uri": str(gone)}).status_code == 200
-    assert client.get(f"/recordings/{missing['id']}").json()["playability"]["state"] == "file"
+    # Locate…: a new path for the missing file (re-encoded meanwhile); it plays again.
+    found = settings.media_roots[2] / "found.opus"
+    shutil.copyfile(audio_dir / "song.opus", found)
+    assert client.patch(f"/sources/{lost['id']}", json={"uri": str(found)}).status_code == 200
+    playability = client.get(f"/recordings/{missing['id']}").json()["playability"]
+    assert playability["state"] == "file"
+    assert (playability["playback"]["media_type"], playability["playback"]["codec"]) == (
+        "audio/ogg",
+        "opus",
+    )
 
     # The radio entry as the sources list shows it.
     [excerpt_source] = client.get(f"/recordings/{excerpt['id']}/sources").json()
@@ -478,15 +484,21 @@ def test_timestamps_have_milliseconds_in_utc(client: TestClient) -> None:
 
 
 @pytest.mark.parametrize(
-    ("name", "media_type"),
-    [("song.mp3", "audio/mpeg"), ("song.m4a", "audio/mp4"), ("song.opus", "audio/ogg")],
+    ("name", "media_type", "codec"),
+    [
+        ("song.mp3", "audio/mpeg", "mp3"),
+        ("song.m4a", "audio/mp4", "aac"),
+        ("song.opus", "audio/ogg", "opus"),
+        ("song.webm", "audio/webm", "opus"),
+    ],
 )
 def test_stream_types_and_ranges(
-    client: TestClient, audio_dir: Path, name: str, media_type: str
+    client: TestClient, audio_dir: Path, name: str, media_type: str, codec: str
 ) -> None:
-    """What AVPlayer needs: the right type, and a 206 with the total for its first
-    two-byte probe."""
+    """What a player needs: the format before fetching (playback info), the same type on
+    the stream, and a 206 with the total for AVPlayer's first two-byte probe."""
     file = source(client, "file", uri=str(audio_dir / name))
+    assert (file["playback"]["media_type"], file["playback"]["codec"]) == (media_type, codec)
     size = (audio_dir / name).stat().st_size
     response = client.get(f"/sources/{file['id']}/stream", headers={"Range": "bytes=0-1"})
     assert response.status_code == 206

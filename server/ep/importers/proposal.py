@@ -147,6 +147,7 @@ class IncomingMedium(Model):
     origin: Origin | None = None
     # A download still to be done.
     download: bool = False
+    media_type: str | None = None
     codec: str | None = None
     duration_ms: int | None = None
     size: int | None = None

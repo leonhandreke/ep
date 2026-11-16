@@ -124,7 +124,8 @@ def _ffmpeg(*args: str | Path) -> None:
 
 @pytest.fixture(scope="session")
 def audio_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """Small generated audio files: a fully tagged FLAC with a cover, an MP3, an M4A, an Opus."""
+    """Small generated audio files: a fully tagged FLAC with a cover, an MP3, an M4A, an
+    Ogg Opus, a WebM/Opus."""
     directory = tmp_path_factory.mktemp("audio")
     cover = directory / "cover.png"
     _ffmpeg("-f", "lavfi", "-i", "color=c=red:s=8x8", "-frames:v", "1", cover)
@@ -157,6 +158,7 @@ def audio_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
     _ffmpeg(*sine(2), "-c:a", "aac", "-metadata", "title=Lilac Wine", directory / "song.m4a")
     opus = ("-c:a", "libopus", "-metadata", "title=Ne me quitte pas")
     _ffmpeg(*sine(2), *opus, directory / "song.opus")
+    _ffmpeg(*sine(2), "-c:a", "libopus", directory / "song.webm")
     # Ogg covers are base64 FLAC picture blocks in a comment (only the fixture is written).
     picture = Picture()
     picture.type, picture.mime, picture.data = 3, "image/png", cover.read_bytes()

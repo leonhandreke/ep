@@ -187,6 +187,7 @@ def _recording_source_read(
                 path=str(playback.path),
                 host_path=to_host(playback.path, settings),
                 exists=playback.path.is_file(),
+                media_type=playback.media_type,
                 codec=node.codec,
                 sample_rate=node.sample_rate,
                 bit_depth=node.bit_depth,

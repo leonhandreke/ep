@@ -17,6 +17,8 @@ radio; albums, an EP, a single and a compilation with covers; a multi-disc album
 tracks; a single-file album played by slices; tracks that are link-only, without a
 source, or whose file is missing; a radio show with two episodes (exact and estimated
 times; entries matched to an album track, to a loose track, radio-only and unmatched);
+every audio format a client decodes (FLAC, MP3, AAC in M4A, Ogg Vorbis, an Ogg Opus
+episode, a WebM/Opus YouTube download);
 notes with links between artists, albums, tracks and episodes (one broken); tags; and
 import jobs running, waiting, needing review, failed and done.
 
@@ -92,6 +94,7 @@ from ep.models import (
 )
 from ep.notes.links import format_link
 from ep.notes.store import save_note
+from ep.probe import probe
 
 SERVER_DIR = Path(__file__).resolve().parent.parent
 NAMESPACE = uuid.UUID("5d0c3a1e-8a51-4c1e-9a43-6f1d2b7e0e11")
@@ -122,16 +125,26 @@ def _ffmpeg(*args: str | Path) -> None:
     subprocess.run(["ffmpeg", "-v", "error", "-y", *map(str, args)], check=True)
 
 
+# Encoder options by extension (flac: ffmpeg's default). Every decoder path of a client:
+# MP3, AAC in MP4, FLAC, Opus in Ogg (.opus) and WebM, Vorbis in Ogg (.ogg).
+_ENCODERS = {
+    ".mp3": ["-c:a", "libmp3lame", "-b:a", "192k"],
+    ".m4a": ["-c:a", "aac"],
+    ".opus": ["-c:a", "libopus", "-b:a", "64k"],
+    ".webm": ["-c:a", "libopus", "-b:a", "64k"],
+    ".ogg": ["-c:a", "vorbis", "-strict", "experimental", "-ac", "2"],
+}
+
+
 def tone(path: Path, seconds: float, frequency: int) -> Path:
-    """A sine tone; the codec follows the extension (mp3, flac, m4a)."""
+    """A sine tone; the codec follows the extension (``_ENCODERS``)."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    codec = {".mp3": ["-c:a", "libmp3lame", "-b:a", "192k"], ".m4a": ["-c:a", "aac"]}
     _ffmpeg(
         "-f",
         "lavfi",
         "-i",
         f"sine=frequency={frequency}:duration={seconds}:sample_rate=44100",
-        *codec.get(path.suffix, []),
+        *_ENCODERS.get(path.suffix, []),
         "-map_metadata",
         "-1",
         "-fflags",
@@ -272,11 +285,17 @@ class Seeder:
         parent: Source | None = None,
         write: bool = True,
     ) -> Source:
-        """A file source (generated unless ``write`` is false: a missing file)."""
+        """A file source (generated unless ``write`` is false: a missing file, FLAC). Its
+        facts are read from the file, as an import would."""
         self.frequency += 55
         if write:
-            tone(path, seconds, self.frequency)
-        codec = {".mp3": "mp3", ".flac": "flac", ".m4a": "aac"}[path.suffix]
+            facts = probe(tone(path, seconds, self.frequency)).audio_facts()
+        else:
+            facts = {
+                "media_type": "audio/flac",
+                "codec": "flac",
+                "duration_ms": round(seconds * 1000),
+            }
         source = Source(
             id=det("source", str(path.relative_to(self.library.parent))),
             kind=SourceKind.file,
@@ -284,14 +303,9 @@ class Seeder:
             recording_id=recording.id if recording else None,
             parent_id=parent.id if parent else None,
             managed=path.is_relative_to(self.library),
-            codec=codec,
-            duration_ms=round(seconds * 1000),
-            size=path.stat().st_size if write else None,
-            sample_rate=44100,
-            bit_depth=16 if codec == "flac" else None,
-            bit_rate={"mp3": 192000, "aac": 128000}.get(codec),
-            channels=1,
         )
+        for name, value in facts.items():
+            setattr(source, name, value)
         self.session.add(source)
         return source
 
@@ -412,10 +426,11 @@ class Seeder:
             start = (position - 1) * 4000
             self.slice(whole, start, start + 4000 if position < 3 else None, recording)
 
-        # Loose tracks: one downloaded from YouTube, one only a link.
+        # Loose tracks: one downloaded from YouTube (WebM/Opus, what yt-dlp keeps), one
+        # only a link.
         loose = self.recording("Loose Tone", b)
         youtube = self.link(SourceKind.youtube, "https://www.youtube.com/watch?v=-i8dwSGgZjE")
-        self.file(self.library / "Björk" / "Loose Tone.m4a", 4, loose, parent=youtube)
+        self.file(self.library / "Björk" / "Loose Tone.webm", 4, loose, parent=youtube)
         demo = self.recording("Demo 1993", b)
         self.link(SourceKind.soundcloud, "https://soundcloud.com/bjork/demo-1993", demo)
 
@@ -429,7 +444,7 @@ class Seeder:
         )
         svefn = self.recording("Svefn-g-englar", s)
         self.track(agaetis, svefn, 1)
-        self.album_files("Sigur Rós", agaetis, ".mp3", svefn)
+        self.album_files("Sigur Rós", agaetis, ".ogg", svefn)  # Ogg Vorbis
         heim = self.release_group(
             "Hvarf/Heim", s, ReleaseGroupType.compilation, "2007-11-05", "#7a8b6f"
         )
@@ -469,6 +484,7 @@ class Seeder:
                 datetime(2025, 3, 14, 22, tzinfo=UTC),
                 "London",
                 60,
+                ".opus",  # Ogg Opus, as downloaded from SoundCloud
                 False,
                 [
                     ("Björk", "Jóga", self.recordings["Jóga"], 5000, 15000),
@@ -484,6 +500,7 @@ class Seeder:
                 datetime(2024, 11, 24, 22, tzinfo=UTC),
                 None,
                 40,
+                ".m4a",
                 True,
                 [
                     ("Björk", "Cocoon", self.recordings["Cocoon"], 5000, 15000),
@@ -491,7 +508,7 @@ class Seeder:
                 ],
             ),
         ]
-        for slug, name, broadcast_at, location, seconds, estimated, entries in episodes:
+        for slug, name, broadcast_at, location, seconds, extension, estimated, entries in episodes:
             page = self.link(
                 SourceKind.nts, f"https://www.nts.live/shows/late-night-tapes/episodes/{slug}"
             )
@@ -500,7 +517,7 @@ class Seeder:
                 / "_radio"
                 / "NTS"
                 / "Late Night Tapes"
-                / f"{broadcast_at:%Y-%m-%d} {name}.m4a"
+                / f"{broadcast_at:%Y-%m-%d} {name}{extension}"
             )
             file = self.file(path, seconds, parent=page)
             episode = RadioEpisode(

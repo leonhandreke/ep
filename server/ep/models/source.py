@@ -47,6 +47,10 @@ class Source(Base, table=True):
     recording_id: uuid.UUID | None = Field(default=None, foreign_key="recording.id", index=True)
     # True if EP downloaded it into the managed library; false for files indexed in place.
     managed: bool = False
+    # A ``file``'s container as a media type (``ep.probe.media_type``: audio/mpeg,
+    # audio/ogg, audio/webm, ...) and its audio codec as ffprobe names it (mp3, aac,
+    # flac, opus, vorbis, ...).
+    media_type: str | None = None
     codec: str | None = None
     duration_ms: int | None = None
     size: int | None = Field(default=None, sa_type=sa.BigInteger)

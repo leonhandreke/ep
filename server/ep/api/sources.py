@@ -1,6 +1,5 @@
-import mimetypes
 import uuid
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from pathlib import Path
 from typing import Any, Never
 
@@ -29,31 +28,6 @@ OUTSIDE_MEDIA_ROOTS: dict[int | str, dict[str, Any]] = {
         "description": "The file is outside the configured media roots",
     }
 }
-
-# Types AVPlayer recognises; Python's table has e.g. audio/mp4a-latm for .m4a.
-_AUDIO_TYPES = {
-    ".aac": "audio/aac",
-    ".aif": "audio/aiff",
-    ".aiff": "audio/aiff",
-    ".flac": "audio/flac",
-    ".m4a": "audio/mp4",
-    ".m4b": "audio/mp4",
-    ".mp3": "audio/mpeg",
-    ".mp4": "audio/mp4",
-    ".oga": "audio/ogg",
-    ".ogg": "audio/ogg",
-    ".opus": "audio/ogg",
-    ".wav": "audio/wav",
-    ".webm": "audio/webm",
-}
-
-
-def audio_media_type(path: Path) -> str:
-    return (
-        _AUDIO_TYPES.get(path.suffix.lower())
-        or mimetypes.guess_file_type(path)[0]
-        or "application/octet-stream"
-    )
 
 
 def source_read(source: Source, playback: Playback | None, settings: Settings) -> SourceRead:
@@ -105,14 +79,15 @@ def _check_source(session: Session, source: Source, media_roots: Sequence[Path])
         ancestor = get_or_422(session, Source, ancestor, ("parent_id",)).parent_id
 
 
-def _fill_file_facts(source: Source) -> None:
-    """Read codec, duration and size of a new file source from the file itself."""
+def _fill_file_facts(source: Source, given: Collection[str] = ()) -> None:
+    """Read media type, codec, duration, size and stream facts of a file source from the
+    file itself, except the ``given`` ones."""
     try:
         facts = probe(Path(source.uri or ""))
     except ProbeError as e:
         raise unprocessable(("uri",), str(e), source.uri, type="value_error") from None
     for name, value in facts.audio_facts().items():
-        if getattr(source, name) is None:
+        if name not in given:
             setattr(source, name, value)
 
 
@@ -129,7 +104,7 @@ def create_source(body: SourceCreate, session: SessionDep, settings: SettingsDep
         source.uri = from_host(source.uri, settings)
     _check_source(session, source, settings.media_roots)
     if source.kind == SourceKind.file:
-        _fill_file_facts(source)
+        _fill_file_facts(source, body.model_dump(exclude_none=True))
     session.add(source)
     session.commit()
     return source_read(source, try_resolve(source), settings)
@@ -146,13 +121,22 @@ def update_source(
     id: uuid.UUID, body: SourceUpdate, session: SessionDep, settings: SettingsDep
 ) -> SourceRead:
     """Change a source; a file's new ``uri`` (to locate a moved file) may be a host path
-    (``EP_HOST_PATHS``)."""
+    (``EP_HOST_PATHS``). A file found at its new ``uri`` is read again (media type,
+    codec, ...: it may have been re-encoded)."""
     source = get_or_404(session, Source, id)
+    old_uri = source.uri
     with session.no_autoflush:
-        source.sqlmodel_update(body.model_dump())
+        changes = body.model_dump()
+        source.sqlmodel_update(changes)
         if source.kind is SourceKind.file and source.uri:
             source.uri = from_host(source.uri, settings)
         _check_source(session, source, settings.media_roots)
+        if (
+            source.kind is SourceKind.file
+            and source.uri != old_uri
+            and Path(source.uri or "").is_file()
+        ):
+            _fill_file_facts(source, changes)
     session.commit()
     return source_read(source, try_resolve(source), settings)
 
@@ -198,4 +182,4 @@ def stream_source(id: uuid.UUID, session: SessionDep, settings: SettingsDep) -> 
         raise HTTPException(status.HTTP_403_FORBIDDEN, "file is outside the media roots")
     if not playback.path.is_file():
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"file not found: {playback.path}")
-    return FileResponse(playback.path, media_type=audio_media_type(playback.path))
+    return FileResponse(playback.path, media_type=playback.media_type)

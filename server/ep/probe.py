@@ -6,6 +6,7 @@ read-only watched directory).
 
 import base64
 import json
+import mimetypes
 import re
 import subprocess
 import uuid
@@ -29,6 +30,55 @@ for _key, _name in {
 
 _UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.I)
 _FRONT_COVER = 3  # ID3 / FLAC picture type
+
+
+# Media types by ffprobe container format name.
+_FORMAT_TYPES = {
+    "aac": "audio/aac",
+    "aiff": "audio/aiff",
+    "flac": "audio/flac",
+    "mov,mp4,m4a,3gp,3g2,mj2": "audio/mp4",
+    "mp3": "audio/mpeg",
+    "ogg": "audio/ogg",
+    "wav": "audio/wav",
+}
+
+# Media types by file extension, for files not probed. Python's table has e.g.
+# audio/mp4a-latm for .m4a and nothing for .opus.
+_EXTENSION_TYPES = {
+    ".aac": "audio/aac",
+    ".aif": "audio/aiff",
+    ".aiff": "audio/aiff",
+    ".flac": "audio/flac",
+    ".m4a": "audio/mp4",
+    ".m4b": "audio/mp4",
+    ".mka": "audio/x-matroska",
+    ".mp3": "audio/mpeg",
+    ".mp4": "audio/mp4",
+    ".oga": "audio/ogg",
+    ".ogg": "audio/ogg",
+    ".opus": "audio/ogg",
+    ".wav": "audio/wav",
+    ".webm": "audio/webm",
+}
+
+
+def media_type_of_path(path: Path) -> str:
+    """The media type of an audio file going by its extension (a file not probed)."""
+    return (
+        _EXTENSION_TYPES.get(path.suffix.lower())
+        or mimetypes.guess_file_type(path)[0]
+        or "application/octet-stream"
+    )
+
+
+def media_type(format_name: str, path: Path) -> str:
+    """The media type of a probed file: its container as ffprobe read it; the extension
+    only tells WebM from other Matroska (ffprobe names both "matroska,webm") and stands
+    in for formats not in the table."""
+    if format_name == "matroska,webm":
+        return "audio/webm" if path.suffix.lower() == ".webm" else "audio/x-matroska"
+    return _FORMAT_TYPES.get(format_name) or media_type_of_path(path)
 
 
 class ProbeError(Exception):
@@ -71,6 +121,8 @@ class ProbeResult:
     codec: str
     # ffprobe container format name, e.g. flac, mp3, "mov,mp4,m4a,3gp,3g2,mj2".
     format: str
+    # The container as a media type (``media_type``), e.g. audio/ogg, audio/webm.
+    media_type: str
     tags: Tags
     cover: Cover | None
     # Stream facts (null when the format does not state them): sample rate in Hz, bits
@@ -83,6 +135,7 @@ class ProbeResult:
     def audio_facts(self) -> dict[str, int | str | None]:
         """The columns of a ``file`` source (and ``IncomingMedium``) read from the file."""
         return {
+            "media_type": self.media_type,
             "codec": self.codec,
             "duration_ms": self.duration_ms,
             "size": self.size,
@@ -107,6 +160,7 @@ def probe(path: Path) -> ProbeResult:
         duration_ms=round(float(duration) * 1000) if duration else None,
         codec=stream["codec_name"],
         format=info["format"]["format_name"],
+        media_type=media_type(info["format"]["format_name"], path),
         tags=tags,
         cover=cover,
         sample_rate=_int(stream.get("sample_rate")),

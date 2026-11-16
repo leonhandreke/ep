@@ -65,13 +65,26 @@ def check(client: TestClient) -> None:
     assert states == {"file", "slice", "radio_excerpt", "file_missing", "link_only", "no_source"}
     [show] = client.get("/radio/shows").json()
     episodes = client.get(f"/radio/shows/{show['id']}/episodes").json()
-    entries = [
-        entry
-        for episode in episodes
-        for entry in client.get(f"/radio/episodes/{episode['id']}").json()["tracks"]
-    ]
+    episode_details = [client.get(f"/radio/episodes/{e['id']}").json() for e in episodes]
+    entries = [entry for detail in episode_details for entry in detail["tracks"]]
     assert {entry["offset_is_estimate"] for entry in entries} == {True, False}
     assert {entry["state"] for entry in entries} == {"in_library", "excerpt_only", "not_matched"}
+    # Every format a client decodes, each in what plays.
+    playbacks = [detail["playback"] for detail in episode_details] + [
+        track["playability"]["playback"]
+        for artist in artists
+        for release_group in client.get(f"/artists/{artist['id']}/release-groups").json()
+        for track in client.get(f"/release-groups/{release_group['id']}/tracks").json()
+    ]
+    playbacks += [recording["playability"]["playback"] for recording in loose]
+    assert {(p["media_type"], p["codec"]) for p in playbacks if p} == {
+        ("audio/flac", "flac"),
+        ("audio/mp4", "aac"),
+        ("audio/mpeg", "mp3"),
+        ("audio/ogg", "vorbis"),
+        ("audio/ogg", "opus"),
+        ("audio/webm", "opus"),
+    }
     jobs = client.get("/imports").json()
     assert {job["state"] for job in jobs} == {
         "queued",

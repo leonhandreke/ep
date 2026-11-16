@@ -34,6 +34,8 @@ def test_create_file_source_reads_facts_from_the_file(client: TestClient, audio_
         "start_ms": 0,
         "end_ms": None,
         "file_duration_ms": source["duration_ms"],
+        "media_type": "audio/flac",
+        "codec": "flac",
     }
     assert client.get(f"/sources/{source['id']}").json() == source
 
@@ -207,6 +209,8 @@ def test_recording_sources_and_track_playback(client: TestClient, audio_dir: Pat
             "start_ms": 2000,
             "end_ms": 4000,
             "file_duration_ms": duration,
+            "media_type": "audio/flac",
+            "codec": "flac",
         },
         None,
     ]

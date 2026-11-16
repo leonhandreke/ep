@@ -185,6 +185,7 @@ class FolderImporter(Importer):
                 key=str(path),
                 path=str(path),
                 sha256=sha256,
+                media_type=result.media_type,
                 codec=result.codec,
                 duration_ms=result.duration_ms,
                 size=result.size,

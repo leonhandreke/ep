@@ -323,6 +323,12 @@ class PlaybackRead(BaseModel):
     end_ms: int | None
     # Length of the whole file, if known (the scale of a scrubber over the file).
     file_duration_ms: int | None
+    # The file's container as a media type, the ``Content-Type`` its stream is served
+    # with (audio/mpeg, audio/mp4, audio/flac, audio/ogg, audio/webm, ...), and its
+    # audio codec as ffprobe names it (mp3, aac, alac, flac, opus, vorbis, ...; null if
+    # not known). Enough to choose a decoder before fetching any of the file.
+    media_type: str
+    codec: str | None
 
 
 class LinkRead(BaseModel):
@@ -601,7 +607,8 @@ class SourceCreate(BaseModel):
     end_ms: PositiveInt | None = None
     recording_id: uuid.UUID | None = None
     managed: bool = False
-    # For file sources, codec/duration_ms/size are read from the file when omitted.
+    # For file sources, codec/duration_ms/size are read from the file when omitted (and
+    # always its media type).
     codec: NonEmptyStr | None = None
     duration_ms: NonNegativeInt | None = None
     size: NonNegativeInt | None = None
@@ -632,6 +639,8 @@ class SourceRead(Read):
     end_ms: int | None
     recording_id: uuid.UUID | None
     managed: bool
+    # A file's container as a media type and its audio codec (``PlaybackRead``).
+    media_type: str | None
     codec: str | None
     duration_ms: int | None
     size: int | None
@@ -669,6 +678,7 @@ class FileRead(BaseModel):
     path: str
     host_path: str | None
     exists: bool
+    media_type: str
     codec: str | None
     sample_rate: int | None
     bit_depth: int | None

@@ -12,6 +12,7 @@ from sqlalchemy import true as sa_true
 from sqlmodel import Session, col, select
 
 from ep.models import RadioEpisodeTrack, Recording, Source, SourceKind
+from ep.probe import media_type_of_path
 
 # Source kinds that are links to somewhere else (not playable here yet).
 LINK_KINDS = frozenset(set(SourceKind) - {SourceKind.file, SourceKind.slice})
@@ -31,6 +32,10 @@ class Playback:
     end_ms: int | None
     # Length of the whole file, if known.
     file_duration_ms: int | None = None
+    # The file's container (as probed; else from its extension: the stream's
+    # ``Content-Type``) and audio codec.
+    media_type: str = "application/octet-stream"
+    codec: str | None = None
 
 
 def resolve(source: Source) -> Playback:
@@ -64,7 +69,17 @@ def resolve(source: Source) -> Playback:
         start, end = piece_start, piece_end
         if end is not None and start >= end:
             raise NotPlayable(f"slice {piece.id} lies outside its parent")
-    return Playback(source.id, node.id, Path(node.uri), start, end, node.duration_ms)
+    path = Path(node.uri)
+    return Playback(
+        source.id,
+        node.id,
+        path,
+        start,
+        end,
+        node.duration_ms,
+        node.media_type or media_type_of_path(path),
+        node.codec,
+    )
 
 
 def resolve_where(

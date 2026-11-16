@@ -32,7 +32,6 @@ from ep.api.schemas import (
     ProgressRead,
     ReviewRequest,
 )
-from ep.api.sources import audio_media_type
 from ep.entities import load_entities
 from ep.host_paths import from_host, to_host
 from ep.importers.framework import (
@@ -63,6 +62,7 @@ from ep.media_roots import is_within_media_roots
 from ep.metadata import bandcamp, nts
 from ep.metadata.ytdlp import youtube_url
 from ep.models import EntityType, ImportJob, ImportKind, JobStage, JobState, WatchDir
+from ep.probe import media_type_of_path
 from ep.settings import Settings
 
 router = APIRouter(prefix="/imports", tags=["imports"])
@@ -500,4 +500,4 @@ def stream_import_track(
     allowed = [*settings.media_roots, job_work_dir(settings.library_dir, job.id)]
     if not is_within_media_roots(path, allowed) or not path.is_file():
         raise HTTPException(status.HTTP_409_CONFLICT, "the track's audio is not available")
-    return FileResponse(path, media_type=audio_media_type(path))
+    return FileResponse(path, media_type=medium.media_type or media_type_of_path(path))
