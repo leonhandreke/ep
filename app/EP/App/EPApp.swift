@@ -29,8 +29,8 @@ struct EPApp: App {
     static let isUnitTestHost = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
 
     var body: some Scene {
-        WindowGroup("EP", id: "main") {
-            MainWindow(connection: connection, player: player)
+        WindowGroup("EP", id: "main", for: WindowTarget.self) { $target in
+            MainWindow(connection: connection, player: player, initialTarget: target?.target)
                 .environment(settings)
                 .environment(connection)
                 .environment(covers)

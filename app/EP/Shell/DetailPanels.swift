@@ -8,20 +8,36 @@ import SwiftUI
 struct DetailPanels: View {
     let section: AppSection
     @Binding var collapsed: Bool
+    let artist: EntityDetails
+    let album: EntityDetails
+    let track: EntityDetails
     @Environment(LibraryBrowser.self) private var browser
 
     var body: some View {
         switch section {
         case .library:
             ColumnGrid(spec: .library) {
-                DetailPanel(id: "artist", badge: "Artist", title: browser.artist?.name, collapsed: $collapsed)
-                DetailPanel(id: "album", badge: "Album", title: albumTitle, collapsed: $collapsed)
+                DetailPanel(id: "artist", badge: "Artist", title: browser.artist?.name, collapsed: $collapsed) {
+                    DetailPanelBody(details: artist, id: "detail.artist", kind: .artist(name: browser.artist?.name))
+                }
+                DetailPanel(id: "album", badge: "Album", title: albumTitle, collapsed: $collapsed) {
+                    if browser.location.album == .looseTracks {
+                        LooseTracksHint()
+                    } else {
+                        DetailPanelBody(details: album, id: "detail.album", kind: .album)
+                    }
+                }
                 DetailPanel(
                     id: "track", badge: "Track", title: browser.selectedTrack?.title, collapsed: $collapsed,
-                    trailingBorder: false)
+                    trailingBorder: false
+                ) {
+                    DetailPanelBody(details: track, id: "detail.track", kind: .track)
+                }
             }
         case .radio:
-            DetailPanel(id: "episode", badge: "Episode", collapsed: $collapsed, trailingBorder: false)
+            DetailPanel(id: "episode", badge: "Episode", collapsed: $collapsed, trailingBorder: false) {
+                Color.clear
+            }
         }
     }
 
@@ -34,19 +50,32 @@ struct DetailPanels: View {
     }
 }
 
-private struct DetailPanel: View {
+/// The album panel for "Loose tracks", which is no entity: nothing to note or tag.
+private struct LooseTracksHint: View {
+    var body: some View {
+        Text("Recordings on no release. Their notes and tags are in the track panel.")
+            .font(Typography.secondary)
+            .foregroundStyle(Palette.text3)
+            .padding(.horizontal, 18)
+            .padding(.top, 14)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+}
+
+private struct DetailPanel<Content: View>: View {
     let id: String
     let badge: LocalizedStringKey
     var title: String?
     @Binding var collapsed: Bool
     var trailingBorder = true
+    @ViewBuilder var content: Content
 
     var body: some View {
         VStack(spacing: 0) {
             header
             if !collapsed {
-                ScrollView {}
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                content
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
         .background(Palette.bg)

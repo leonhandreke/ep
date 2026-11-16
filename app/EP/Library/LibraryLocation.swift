@@ -23,7 +23,7 @@ struct LibraryLocation: Hashable {
 
 /// Something `LibraryBrowser.navigate(to:)` can show. Later stages (note links, search
 /// results, "Show playing") navigate through it.
-enum LibraryEntity: Hashable {
+nonisolated enum LibraryEntity: Hashable, Codable, Sendable {
     case artist(String)
     case releaseGroup(String)
     case track(String)
