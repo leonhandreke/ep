@@ -12,8 +12,9 @@ final class RadioFlowTests: EPUITestCase {
         waitForText("Homage to the night shift", in: app.element("tracklist.header"))
 
         // Entry 1 (Jóga, 0:05–0:15) of the Ogg Opus episode: the decoding engine plays it.
+        // (Double-click on the time: the artist and title of a matched entry are links.)
         let first = waitFor(app.row("tracklist", id: Seed.nightShiftEntry1))
-        first.doubleClick()
+        first.coordinate(withNormalizedOffset: CGVector(dx: 0.04, dy: 0.5)).doubleClick()
         waitForText("Jóga", in: player.element("player.title"))
         waitForText("Late Night Tapes", in: player.element("player.context"))
         waitForText("Pause (Space)", in: player.element("player.playPause"))
