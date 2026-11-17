@@ -198,8 +198,8 @@ How the remaining work is run (user's instructions, to limit usage):
 - Remaining stages are merged into fewer agents:
   - 3 Library browsing (done)
   - 4 Player (done; AVPlayer plus an in-app engine for Ogg and WebM)
-  - 5+6 Detail panels and note editor
-  - 7+8 Radio view, search, sources, editing
+  - 5+6 Detail panels and note editor (done)
+  - 7+8 Radio view, search, sources, editing (done)
   - 9 Import
   - 10 Settings, states, polish
 - Every agent reads all of `plans/frontend-design.md` and this plan, so it understands
@@ -212,16 +212,20 @@ letter search, non-blocking unreadable files, stale work-dir clean-up).
 
 Progress since: stage 3 (reviewed, ec5246f), a second backend round (8c40f83:
 `media_type`/`codec` on playback, Ogg and WebM in the seed), stage 4 Player (4a935a2,
-reviewed d890448). Stages 5+6 in progress.
+reviewed d890448). 
 
-Owed harness pass (the screen was locked, so nothing of stage 4 has been seen running):
-player scenarios, `PlayerFlowTests` incl. `testEveryFormatPlaysAndSeeks` and
-`testSpaceInTypeToSelectDoesNotTogglePlayback`, library scenarios with the paged artist
-list. Any agent about to use the harness first checks the screen is unlocked and skips
-the harness (reporting it) if not.
+Stages 5+6 (reviewed 3754d99), 7+8 (reviewed 5d63141) and backend round 3 (26f9288:
+tag sort, tag-only `/search` with paging, `will_play`/`playable` sources) are done. The
+harness pass over stages 3–8 ran on 2026-11-17 (flow tests pass). Any agent about to use
+the harness first checks the screen is unlocked and skips the harness (reporting it) if
+not. App unit suites have `.timeLimit`; a crashed test host leaves a macOS crash dialog
+that can stall runs.
 
 Left for stage 10: unfocused selection colour (`--selsoft`), Now Playing cover art,
-persisting volume, an artist hidden by the filter having no highlighted row.
+persisting volume, an artist hidden by the filter having no highlighted row, Radio
+"Linked from" as the board's 200 px | snippet grid, "Drop image to replace" only while
+dropping; re-shoot `radioEpisode`, `searchResults`, `artistEditSheet`, album sheet;
+⌥⌘D and ⌥↩ by real keyboard; cover drop.
 
 Waiting on the user:
 - The screen must be unlocked for harness runs.
