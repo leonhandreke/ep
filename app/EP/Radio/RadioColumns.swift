@@ -418,7 +418,20 @@ private struct TracklistRow: View {
         .help(RadioFormat.help(entry))
         .accessibilityElement(children: .combine)
         .accessibilityValue(isPlaying ? String(localized: "Now playing") : "")
+        // The links are folded into the row: VoiceOver reaches them as actions.
+        .accessibilityActions {
+            if let artist = recording?.artistCredit.names.first {
+                Button("Show Artist") { open(EntityRef(type: .artist, id: artist.artistId)) }
+            }
+            if let recording {
+                Button("Show Track") { open(EntityRef(type: .recording, id: recording.id)) }
+            }
+        }
         .accessibilityIdentifier("tracklist.row.\(entry.id)")
+    }
+
+    private func open(_ ref: EntityRef) {
+        openEntity?(OpenTarget(entity: ref), newWindow: false)
     }
 
     /// A matched entry's artist or title: an `--accent` link into the Library; unmatched

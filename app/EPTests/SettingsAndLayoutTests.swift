@@ -3,6 +3,7 @@ import Testing
 
 @testable import EP
 
+@Suite(.timeLimit(.minutes(1)))
 struct AppSettingsTests {
     /// A defaults domain of the test's own, emptied before and after (cfprefsd keeps an
     /// empty file per domain, so the name is fixed rather than unique per run).
@@ -45,6 +46,7 @@ struct AppSettingsTests {
     }
 }
 
+@Suite(.timeLimit(.minutes(1)))
 struct ColumnGridTests {
     @Test func sharesWidthByFractionAboveTheMinimums() {
         #expect(ColumnGrid.widths(total: 2000, spec: .library) == [500, 600, 900])
@@ -64,6 +66,7 @@ struct ColumnGridTests {
     }
 }
 
+@Suite(.timeLimit(.minutes(1)))
 struct LaunchOptionsTests {
     @Test func parsesLaunchWindowSizes() {
         #expect(LaunchOptions.parseSize("1280x800") == CGSize(width: 1280, height: 800))

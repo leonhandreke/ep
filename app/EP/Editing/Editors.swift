@@ -120,14 +120,17 @@ final class AlbumEditor {
                 tracks[index].originalCredit = tracks[index].credit
             }
             if TrackOrder.changed(tracks, from: originalOrder) {
-                var created: [String: String] = [:]
-                for row in tracks where row.trackID == nil {
+                // A track made here is kept as a track of the album at once, so a Save that
+                // fails later and is repeated does not make it twice.
+                for index in tracks.indices where tracks[index].trackID == nil {
+                    let row = tracks[index]
                     let track = try await client.createTrack(
                         body: .json(.init(disc: row.disc, newRecording: .init(title: row.title), releaseGroupId: id))
                     ).created.body.json
-                    created[row.id] = track.id
+                    tracks[index].trackID = track.id
+                    tracks[index].recordingID = track.recording.id
                 }
-                let places = TrackOrder.places(tracks, ids: created)
+                let places = TrackOrder.places(tracks)
                 let ordered = try await client.setReleaseGroupTrackOrder(
                     path: .init(id: id), body: .json(.init(tracks: places))
                 ).ok.body.json

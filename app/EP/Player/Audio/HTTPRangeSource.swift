@@ -13,9 +13,12 @@ nonisolated final class HTTPRangeSource: @unchecked Sendable {
         case status(Int)
         case noLength
         case cancelled
+        case timedOut
     }
 
     static let blockSize = 64 * 1024
+    /// The longest a read waits for one Range request.
+    static let readTimeout: DispatchTimeInterval = .seconds(120)
     /// Blocks fetched at once when reading straight on.
     static let sequentialBlocks = 8
     static let cacheLimit = 96
@@ -141,7 +144,12 @@ nonisolated final class HTTPRangeSource: @unchecked Sendable {
         }
         if alreadyCancelled { throw Failure.cancelled }
         task.resume()
-        semaphore.wait()
+        // URLSession has its own timeouts; this one only keeps a reader thread from
+        // waiting for ever on an answer that never comes.
+        if semaphore.wait(timeout: .now() + Self.readTimeout) == .timedOut {
+            task.cancel()
+            throw Failure.timedOut
+        }
         if lock.withLock({ cancelled }) { throw Failure.cancelled }
         return try box.result!.get()
     }

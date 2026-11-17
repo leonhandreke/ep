@@ -7,6 +7,7 @@ import Testing
 @testable import EP
 
 /// The generated client configured for the server's conventions (server/README.md).
+@Suite(.timeLimit(.minutes(1)))
 struct APIClientTests {
     @Test func decodesFractionalSecondTimestampsAndNulls() async throws {
         let transport = StubTransport(
@@ -79,6 +80,7 @@ struct APIClientTests {
 
 /// The checked-in client (Packages/EPAPI/Sources/EPAPI/Generated) matches the server's
 /// document, like the server's own openapi.json staleness test.
+@Suite(.timeLimit(.minutes(1)))
 struct OpenAPIDocumentTests {
     @Test func clientIsGeneratedFromTheCurrentDocument() throws {
         let document = URL(filePath: #filePath)

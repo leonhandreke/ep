@@ -64,6 +64,7 @@ nonisolated enum RadioFixtures {
 
 private typealias R = RadioFixtures
 
+@Suite(.timeLimit(.minutes(1)))
 struct RadioBrowserTests {
     @Test func selectingAShowAndEpisodeLoadsTheTracklistAndHistoryGoesBack() async throws {
         let radio = RadioBrowser(connection: await stubConnection(methodRouted(R.routes)))
@@ -151,6 +152,7 @@ struct RadioBrowserTests {
 }
 
 @MainActor
+@Suite(.timeLimit(.minutes(1)))
 struct RadioPlayingTests {
     /// An episode played from the Radio view is shown there at the entry playing; a
     /// track's radio excerpt played from the Library is shown in the Library.

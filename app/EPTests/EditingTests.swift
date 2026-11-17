@@ -49,6 +49,7 @@ private func sent<Body: Encodable, Key: CodingKey>(_ patch: Patch<Body, Key>?) t
     return object as NSDictionary
 }
 
+@Suite(.timeLimit(.minutes(1)))
 struct EditFormTests {
     @Test func anUnchangedAlbumSendsNothingAndChangesSendOnlyThemselves() throws {
         let group = try E.decode(Components.Schemas.ReleaseGroupDetail.self, E.group)
@@ -130,6 +131,7 @@ struct EditFormTests {
     }
 }
 
+@Suite(.timeLimit(.minutes(1)))
 struct AlbumEditorTests {
     @Test func saveSendsThePatchTheChangedCreditAndTheNewOrder() async throws {
         let tracks = "[\(E.track("t1", "Pleasure Is All Mine", position: 1)), \(E.track("t2", "Where Is the Line", position: 2))]"
@@ -190,6 +192,7 @@ struct AlbumEditorTests {
     }
 }
 
+@Suite(.timeLimit(.minutes(1)))
 struct CreatorTests {
     @Test func aRecordingByHandIsCreditedAndLinkable() async throws {
         let transport = methodRouted([

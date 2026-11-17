@@ -6,6 +6,7 @@ import Testing
 
 @testable import EP
 
+@Suite(.timeLimit(.minutes(1)))
 struct ServerConnectionTests {
     @Test func connectsWhenTheServerAnswers() async throws {
         let transport = StubTransport(json: Fixtures.server)

@@ -36,6 +36,7 @@ nonisolated enum SourcesFixtures {
 
 private typealias SF = SourcesFixtures
 
+@Suite(.timeLimit(.minutes(1)))
 struct SourcesStoreTests {
     private func store(_ extra: [String: (HTTPResponse.Status, String)] = [:]) async -> (SourcesStore, StubTransport) {
         var routes: [String: (HTTPResponse.Status, String)] = [

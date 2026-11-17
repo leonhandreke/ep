@@ -79,6 +79,7 @@ nonisolated func methodRouted(_ routes: [String: (HTTPResponse.Status, String)])
     }
 }
 
+@Suite(.timeLimit(.minutes(1)))
 struct EntityDetailsTests {
     @Test func loadsNoteTagsBacklinksAndRadioAppearancesInOneRequest() async throws {
         let transport = methodRouted([
@@ -145,6 +146,7 @@ struct EntityDetailsTests {
     }
 }
 
+@Suite(.timeLimit(.minutes(1)))
 struct TagSuggestionsTests {
     @Test func suggestsOtherTagsThenCreateUnlessTheNameExists() async throws {
         let transport = methodRouted([

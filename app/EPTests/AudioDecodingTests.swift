@@ -92,7 +92,7 @@ private func peak(_ buffer: AVAudioPCMBuffer) -> Float {
     return (0..<Int(buffer.frameLength)).reduce(Float(0)) { max($0, abs(samples[$1])) }
 }
 
-@Suite(.enabled(if: AudioFixtures.ffmpeg != nil, "needs ffmpeg"))
+@Suite(.timeLimit(.minutes(1)), .enabled(if: AudioFixtures.ffmpeg != nil, "needs ffmpeg"))
 struct AudioDecodingTests {
     private func decoder(for data: Data, name: String) async throws -> (any PCMDecoder, HTTPRangeSource) {
         RangeFileServer.serve(data, at: "/\(name)")
@@ -167,7 +167,7 @@ struct AudioDecodingTests {
 }
 
 /// The decoding engine end to end (muted): plays from a time, reports time, seeks, ends.
-@Suite(.enabled(if: AudioFixtures.ffmpeg != nil, "needs ffmpeg"), .serialized)
+@Suite(.timeLimit(.minutes(1)), .enabled(if: AudioFixtures.ffmpeg != nil, "needs ffmpeg"), .serialized)
 @MainActor
 struct DecodingEngineTests {
     @Test(arguments: ["opus.ogg", "opus.webm"])
@@ -195,6 +195,7 @@ struct DecodingEngineTests {
 }
 
 /// Malformed Matroska must fail cleanly: an error or the end, never a crash or a spin.
+@Suite(.timeLimit(.minutes(1)))
 struct WebMRobustnessTests {
     @Test func lacedBlocksWithHugeSizesAreRefused() {
         // Track 1, timecode 0, EBML lacing, 4 frames: sizes that would overflow a sum.

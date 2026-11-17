@@ -99,6 +99,7 @@ private func queries(_ transport: StubTransport, path: String) -> [String] {
     transport.requests.compactMap(\.request.path).filter { $0.hasPrefix(path + "?") || $0 == path }
 }
 
+@Suite(.timeLimit(.minutes(1)))
 struct ArtistListTests {
     @Test func filterIsDebouncedAndOnlyTheLastQueryRuns() async throws {
         let transport = routed(["/artists": "[\(F.artist("a1", "Björk"))]"])
@@ -178,6 +179,7 @@ struct ArtistListTests {
     }
 }
 
+@Suite(.timeLimit(.minutes(1)))
 struct PagingTests {
     @Test func allPagesLoadsUntilTheTotal() async throws {
         var offsets: [Int] = []
@@ -190,6 +192,7 @@ struct PagingTests {
     }
 }
 
+@Suite(.timeLimit(.minutes(1)))
 struct LibraryBrowserTests {
     static let routes: [String: String] = [
         "/artists/a1": F.artistDetail("a1", "Björk"),
@@ -315,6 +318,7 @@ struct LibraryBrowserTests {
     }
 }
 
+@Suite(.timeLimit(.minutes(1)))
 struct TrackRowTests {
     /// A row from a track decoded by the generated client (its date decoding).
     private func row(_ state: String, link: String? = nil, credit: String? = nil) async throws -> TrackRow {

@@ -247,7 +247,8 @@ private struct AlbumEditBody: View {
     }
 
     private func useImage(at url: URL) -> Bool {
-        guard let type = UTType(filenameExtension: url.pathExtension),
+        // A dropped web link is not an image on this Mac (and must not be fetched here).
+        guard url.isFileURL, let type = UTType(filenameExtension: url.pathExtension),
             [UTType.png, .jpeg, .webP].contains(where: type.conforms(to:)),
             let data = try? Data(contentsOf: url)
         else { return false }

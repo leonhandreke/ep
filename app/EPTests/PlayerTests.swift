@@ -134,6 +134,7 @@ private func settle() async {
 }
 
 @MainActor
+@Suite(.timeLimit(.minutes(1)))
 struct PlayerTests {
     @Test func playingATrackQueuesTheRestOfTheAlbumThatPlays() async throws {
         let (player, engine) = makePlayer()
@@ -273,6 +274,7 @@ struct PlayerTests {
 }
 
 @MainActor
+@Suite(.timeLimit(.minutes(1)))
 struct EpisodePlaybackTests {
     @Test func anEpisodePlaysFromAnEntryWithItsTracklistAsMarks() async throws {
         let (player, engine) = makePlayer()
