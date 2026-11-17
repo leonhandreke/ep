@@ -126,7 +126,7 @@ app/
     a cold start without a server shows the unreachable state with no data.
 13. **Multiple windows.** ⌥⌘-click opens the target in a new main window. Each window
     has its own navigation history; all share one player.
-14. **Dark appearance.** Derived from the design's dark tokens and system materials.
+14. **Dark appearance.** Not built for now (the user's decision, 2026-11-17); light only.
 15. **Standalone notes, playlists, cover grid.** Out of scope.
 
 ## Stages
