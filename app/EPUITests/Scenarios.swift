@@ -277,6 +277,58 @@ final class Scenarios: EPUITestCase {
         screenshot("settings", of: settings)
     }
 
+    // MARK: - Import
+
+    /// The toolbar's Import button with the seeded queue: a running job's ring and the
+    /// failed job's "!" badge.
+    func testImportBadge() throws {
+        let app = try launchConnected()
+        // The badge is part of the button's one accessibility element: its label says it.
+        waitForText("1 failed", in: app.element("toolbar.import"))
+        screenshot("importBadge")
+    }
+
+    /// The import sheet with an NTS episode link typed: the server's kind pill.
+    func testImportLink() throws {
+        let app = try launchConnected()
+        app.element("toolbar.import").click()
+        let field = waitFor(app.element("import.link"))
+        field.click()
+        field.typeText("https://www.nts.live/shows/late-night-tapes/episodes/turiya-and-friends")
+        waitForText("NTS episode", in: app.element("import.kind"))
+        screenshot("importLink")
+    }
+
+    /// The queue (⇧⌘I): the running job's card, then a job in each state.
+    func testImportQueue() throws {
+        let app = try launchConnected()
+        app.typeKey("i", modifierFlags: [.command, .shift])
+        waitFor(app.element("import.job.\(Seed.agoraJob)"))
+        waitFor(app.element("import.job.\(Seed.treasureJob)"))
+        screenshot("importQueue")
+    }
+
+    /// The failed job with its log expanded.
+    func testImportFailed() throws {
+        let app = try launchConnected()
+        app.typeKey("i", modifierFlags: [.command, .shift])
+        waitFor(app.element("import.job.\(Seed.shadeJob).toggleLog")).click()
+        waitFor(app.element("import.job.\(Seed.shadeJob).log"))
+        screenshot("importFailed")
+    }
+
+    /// The review sheet at the episode's "same recording?" question.
+    func testReviewSameRecording() throws {
+        let app = try launchConnected()
+        app.typeKey("i", modifierFlags: [.command, .shift])
+        waitFor(app.element("import.job.\(Seed.turiyaJob).review")).click()
+        waitForText("same recording", in: app.element("review.question"))
+        screenshot("reviewSameRecording")
+    }
+
+    // No "review with a long radio tracklist" scenario: the seed's review job has four
+    // entries (backend friction: a 30-entry review job in the seed).
+
     /// Radio → Late Night Tapes → "Homage to the night shift".
     private func openNightShift(in app: XCUIApplication) {
         app.element("toolbar.section").radioButtons["Radio"].click()

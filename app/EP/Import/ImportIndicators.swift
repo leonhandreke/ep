@@ -51,10 +51,8 @@ struct ImportToolbarButton: View {
             EmptyView()
         case .review(let count):
             BadgeView(text: count > 99 ? "99+" : String(count), color: Palette.warn)
-                .accessibilityIdentifier("toolbar.import.badge")
         case .failed:
             BadgeView(text: "!", color: Palette.danger)
-                .accessibilityIdentifier("toolbar.import.badge")
         }
     }
 }

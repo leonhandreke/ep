@@ -131,4 +131,18 @@ enum Seed {
     static let nightShiftEntry2 = "a4eb9251-3de0-5ef4-bfb0-ef05e1c85668"
     /// The tag "strings" (Homogenic, Jóga, Vespertine).
     static let stringsTag = "29734eee-8a42-579d-9c51-07f68f4f9b80"
+    /// Import jobs, one per state: Agora running (downloading 3 of 5), Bunny Rabbit queued
+    /// behind it, Shade failed (an error), Neighborhoods in review with two failed
+    /// downloads, Ágætis byrjun in review (another release of an album in the library),
+    /// the NTS episode "Turiya and friends" in review (same recording?, no title, which
+    /// Arca?, one answered), Treasure and Untrue done.
+    static let agoraJob = "94087dcb-e486-5f50-8538-230a41897245"
+    static let bunnyJob = "9f15ee56-e29c-5ee5-8551-2c6d92b31fae"
+    static let shadeJob = "c9d118df-258a-5174-8e5d-5e649abd12e8"
+    static let playlistJob = "85d54eef-d0d8-5d78-b129-061a58c1d51a"
+    static let agaetisJob = "756717e8-e3c7-57be-b8c9-a0b3b312f141"
+    static let turiyaJob = "340733ea-43dc-565c-a805-85e8af2c8158"
+    static let treasureJob = "2c8b134e-fe16-561c-8071-57973258facf"
+    /// The episode job's track keys are its URL with "#<entry>".
+    static let turiyaURL = "https://www.nts.live/shows/late-night-tapes/episodes/turiya-and-friends"
 }

@@ -33,6 +33,11 @@ EP/                   the app target
   Search/             SearchStore (debounced, grouped, tag filter) and the ⌘K palette
   Editing/            edit forms (PATCH bodies) and their stores, the edit sheets, credits
                       as tokens, create by hand (Creator), MusicBrainz search; WindowSheet
+  Import/             ImportStore (one for the app: summary polling while jobs run, jobs,
+                      logs, actions, toast, library reloads), ImportDraft (link kind via
+                      /links/classify, folder by host path), ReviewModel (issues as
+                      questions, defaults, keys, answers); the import and review sheets,
+                      toolbar button, toast, ⌘V monitor
   Player/             Player (one for the app: item, queue, transport), PlayItem (spans,
                       long-file entries), player bar, Now Playing, Space key
     Audio/            engines: AVPlayer, and AVAudioEngine fed by decoders for Ogg
@@ -45,7 +50,7 @@ Packages/EPAPIGenerator/  tools that generate it (not part of the app build)
 scripts/              build, run, test, generate-api wrappers; ui-test/uitest (the harness)
 ```
 
-Later features go in `EP/<Feature>/` (`Import/`, …), each with its `@Observable` store(s) and its views. No extra
+Later features go in `EP/<Feature>/`, each with its `@Observable` store(s) and its views. No extra
 layers: views read stores from the environment, stores call the generated client.
 
 ## Build, run, test (from the repo root)
@@ -142,7 +147,15 @@ names).
   `.group.<topHit|tracks|albums|artists|radio>`, `.row.<n>`), `sources` (`.popover`,
   `.option.<source>`, `.locate.<source>`, `.add`, `.showInFinder`), the sheets
   `edit.album` / `edit.artist` / `edit.track` (`.title`, `.name`, `.credit`, `.date`,
-  `.save`, `.cancel`, `.detach`), `create`, `musicBrainz` and `repoint`. Containers a test needs to find (columns,
+  `.save`, `.cancel`, `.detach`), `create`, `musicBrainz` and `repoint`; the import sheet
+`import` (`.sheet`, `.link`, `.kind`, `.start`, `.chooseFolder`, `.error`, `.jobs`,
+`.stages`, `.done`, `.actionError`, `.job.<job>` with `.review`, `.retry`, `.dismiss`,
+`.cancel`, `.showExisting`, `.toggleLog`, `.log`, `.detail`; the toast `import.toast`
+with `.open`, `.close`), the toolbar's `toolbar.import` (its label says the badge), and
+the review sheet `review` (`.sheet`, `.title`, `.headline`, `.filter`, `.questions`,
+`.row.<issue id>`, `.detail`, `.eyebrow`, `.question`, `.comparison`, `.options`,
+`.option.<choice>:<candidate>`, `.search` with `.field` and `.row.<n>`, `.later`,
+`.confirm`, `.error`). Containers a test needs to find (columns,
   panels, banner, player bar) use `.accessibilityElement(children: .contain)` plus an
   identifier, so their controls stay reachable. Identifiers are API for the harness; do
   not rename them casually.
@@ -172,6 +185,15 @@ names).
   the view shown. "Show playing" shows an episode played from the Radio view there, at
   the entry playing, and anything else in the Library. Playing goes
   through `LibraryBrowser.play(_:)` (`onPlay`, set by the player).
+- **Imports**: `ImportStore` polls `GET /imports/summary` only while a job is queued or
+  running (and once on connect, window activation and after a start, review or action),
+  reloads `GET /imports` when the summary changes, toasts a job that reached done, failed
+  or needs review, and bumps `libraryChanges` (windows reload) when one put rows into the
+  library. Folders are sent as paths on this Mac; the server maps them (`EP_HOST_PATHS`)
+  and refuses one outside its media roots (the sheet names the folders it reads). The
+  review sheet works for any issue kind: the kinds it has words for get a question, any
+  other shows its message and choices. ⇧⌘I opens the sheet for its jobs (Return reviews
+  the newest job waiting); ⌘V with a link (not in a text field) opens it with the link.
 - **Playback**: `Player` (in the environment of every window) plays what
   `LibraryBrowser.play(_:)` asks for and, for the Radio view, `playEpisode(_:from:)`.
   An item is a span of one file streamed from `GET /sources/{id}/stream`; a

@@ -31,7 +31,7 @@ struct ImportSheet: View {
             jobs
             footer
         }
-        .frame(width: 860, height: 640)
+        .frame(width: 1000, height: 660)
         .background(Palette.bg)
         .overlay {
             if dropTargeted {
@@ -433,12 +433,12 @@ private struct JobRow: View {
                     .font(Typography.secondary)
                     .foregroundStyle(Palette.text2)
                     .lineLimit(1)
-                    .frame(width: 180, alignment: .leading)
+                    .frame(width: 170, alignment: .leading)
                 Text(ImportFormat.time(job.createdAt))
                     .font(Typography.secondary)
                     .foregroundStyle(Palette.text3)
                     .lineLimit(1)
-                    .frame(width: 110, alignment: .leading)
+                    .frame(width: 90, alignment: .leading)
                 actions
             }
             if isExpanded {
