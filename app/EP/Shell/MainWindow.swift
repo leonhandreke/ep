@@ -54,6 +54,8 @@ struct MainWindow: View {
     @State private var sheet: WindowSheet?
     /// What this window was opened to show (⌥⌘-click), shown once connected.
     @State private var pendingTarget: OpenTarget?
+    /// Tells this window apart for the import toast, which shows in the active window only.
+    @State private var windowID = UUID()
     @Environment(\.openWindow) private var openWindow
     @SceneStorage("section") private var section = AppSection.library
     @SceneStorage("detailPanelsCollapsed") private var detailPanelsCollapsed = false
@@ -114,7 +116,7 @@ struct MainWindow: View {
     }
 
     @ViewBuilder private var toast: some View {
-        if let toast = imports.toast {
+        if let toast = imports.toast, imports.showsToast(in: windowID) {
             ImportToast(toast: toast) { open(toast) }
                 .padding(.trailing, 16)
                 .padding(.bottom, Metrics.playerBarHeight + 12)
@@ -125,10 +127,29 @@ struct MainWindow: View {
     /// The banner, the columns, the divider, the detail panels and the player bar.
     private var frame: some View {
         VStack(spacing: 0) {
-            if case .unreachable = connection.state {
+            if connection.isOffline {
                 UnreachableBanner()
             }
-            GeometryReader { geometry in
+            if showsEmptyLibrary {
+                EmptyLibraryView(importer: { openImport(link: nil) })
+            } else {
+                listsAndPanels
+                    // §11.2: what was last loaded stays visible, at 55 % opacity.
+                    .opacity(connection.isOffline ? 0.55 : 1)
+            }
+            PlayerBar(showPlaying: showPlaying)
+        }
+    }
+
+    /// §11.1: a library with nothing in it (first launch) shows how to bring music in,
+    /// in place of the Library's columns and panels.
+    private var showsEmptyLibrary: Bool {
+        guard section == .library, case .connected(let server) = connection.state else { return false }
+        return server.counts.isEmptyLibrary
+    }
+
+    private var listsAndPanels: some View {
+        GeometryReader { geometry in
                 let available = geometry.size.height - Metrics.dividerHeight
                 let panels = clampedPanelsHeight(available: available)
                 VStack(spacing: 0) {
@@ -150,8 +171,6 @@ struct MainWindow: View {
                     }
                 }
             }
-            PlayerBar(showPlaying: showPlaying)
-        }
     }
 
     /// Environment, sheets, toolbar, focused values and reloads.
@@ -178,6 +197,10 @@ struct MainWindow: View {
             .focusedSceneValue(\.showPlaying, showPlaying)
             .focusedSceneValue(\.openSearch) { openSearch(tag: nil) }
             .focusedSceneValue(\.newEntity) { kind in newEntity(kind) }
+            .focusedSceneValue(\.section, $section)
+            .focusedSceneValue(\.importClipboardLink) {
+                if let link = PasteLinkMonitor.MonitorView.link(on: .general) { openImport(link: link) }
+            }
             .focusedSceneValue(\.openImports) { sheet = WindowSheet(kind: .importer(link: nil, focusLink: false)) }
             // The server is the only source of truth and does not push: load once connected
             // (again after being unreachable), and reload when the window becomes active.
@@ -206,6 +229,9 @@ struct MainWindow: View {
                     location.episodeID.map { EntityRef(type: .radioEpisode, id: $0) }
                         ?? location.showID.map { EntityRef(type: .radioShow, id: $0) })
             }
+            .onChange(of: appearsActive, initial: true) { _, active in
+                if active { imports.toastWindow = windowID }
+            }
             .onChange(of: appearsActive) { _, active in
                 guard active else { return }
                 if connection.isConnected {
@@ -214,8 +240,15 @@ struct MainWindow: View {
                 }
                 Task { await connection.refresh() }
             }
+            .onDisappear {
+                if imports.toastWindow == windowID { imports.toastWindow = nil }
+            }
             // A job put something into the library: what this window shows may have changed.
-            .onChange(of: imports.libraryChanges) { reloadLibrary() }
+            // (The counts too: the empty library gives way to the columns.)
+            .onChange(of: imports.libraryChanges) {
+                reloadLibrary()
+                Task { await connection.refresh() }
+            }
     }
 
     @ViewBuilder private func sheetView(_ sheet: WindowSheet) -> some View {

@@ -55,11 +55,22 @@ final class ReviewModel {
         var eyebrow: String
         /// The incoming side of the comparison: label → value.
         var incoming: [(String, String)] = []
+        /// The incoming track's audio, for Space (preview), once its file is there.
+        var preview: Preview?
         var isOpen: Bool { issue != nil && issue?.answer == nil }
 
         static func == (lhs: Row, rhs: Row) -> Bool {
-            lhs.id == rhs.id && lhs.issue == rhs.issue && lhs.options == rhs.options
+            lhs.id == rhs.id && lhs.issue == rhs.issue && lhs.options == rhs.options && lhs.preview == rhs.preview
         }
+    }
+
+    /// Where an incoming track's audio is: `GET /imports/{id}/stream?track_key=` serves its
+    /// medium's whole file; the track is `startMS..<endMS` of it.
+    struct Preview: Equatable {
+        var trackKey: String
+        var mediaType: String
+        var startMS: Int
+        var endMS: Int?
     }
 
     private(set) var phase = Phase.loading
@@ -409,6 +420,18 @@ final class ReviewModel {
         let entries = Dictionary(
             (proposal?.radio?.entries ?? []).map { ($0.trackKey, $0) }, uniquingKeysWith: { first, _ in first })
         let radio = proposal?.radio != nil
+        let media = Dictionary(
+            (proposal?.media ?? []).map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
+
+        /// A medium's media type is known once its file is there (probed).
+        func preview(of track: Components.Schemas.IncomingTrack) -> Preview? {
+            guard let key = track.mediumKey, let mediaType = media[key]?.mediaType else { return nil }
+            let entry = entries[track.key]
+            return Preview(
+                trackKey: track.key, mediaType: mediaType, startMS: track.startMs ?? entry?.startMs ?? 0,
+                endMS: track.endMs ?? entry?.endMs)
+        }
+
         let source =
             job.linkKind?.displayName ?? (job.kind == .folder ? String(localized: "Folder") : job.kind.displayName)
 
@@ -475,6 +498,7 @@ final class ReviewModel {
                 row.timeIsEstimate = described.estimate
                 row.eyebrow = described.eyebrow
                 row.incoming = incoming(track: track)
+                row.preview = preview(of: track)
             } else if issue.subject._type == .artist,
                 let artist = proposal?.artists.first(where: { $0.key == issue.subject.key })
             {
@@ -505,7 +529,7 @@ final class ReviewModel {
             let row = Row(
                 id: "track:\(track.key)", issue: nil, time: described.time, timeIsEstimate: described.estimate,
                 title: described.title, question: outcome(of: track.target), outcome: outcome(of: track.target),
-                eyebrow: described.eyebrow, incoming: incoming(track: track))
+                eyebrow: described.eyebrow, incoming: incoming(track: track), preview: preview(of: track))
             rows.append((Double(position), issues.count + position, row))
         }
         return rows.sorted { ($0.anchor, $0.order) < ($1.anchor, $1.order) }.map(\.row)

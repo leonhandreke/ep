@@ -46,6 +46,9 @@ final class ImportStore {
     /// Rows whose log is expanded.
     private(set) var expanded: Set<String> = []
     private(set) var toast: Toast?
+    /// The main window that was active last: the toast shows there only, not in every
+    /// window (nil: no window became active yet, any may show it).
+    var toastWindow: UUID?
     /// Bumped when a job has put something into the library: windows reload what they show.
     private(set) var libraryChanges = 0
     /// What the last job action could not do (a 409: the job moved on meanwhile).
@@ -253,6 +256,11 @@ final class ImportStore {
             guard !Task.isCancelled, self?.toast?.id == toast.id else { return }
             self?.toast = nil
         }
+    }
+
+    /// Whether the main window `id` shows the toast.
+    func showsToast(in window: UUID) -> Bool {
+        toast != nil && (toastWindow == nil || toastWindow == window)
     }
 
     func dismissToast() {

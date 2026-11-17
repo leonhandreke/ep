@@ -76,10 +76,16 @@ private struct ShowsColumn: View {
 
     private var list: some View {
         ScrollViewReader { proxy in
-            List(selection: Binding(get: { radio.location.showID }, set: { radio.select(show: $0) })) {
+            List(
+                selection: shownSelection(radio.location.showID, focused: focus.wrappedValue == .shows) {
+                    radio.select(show: $0)
+                }
+            ) {
                 ForEach(radio.shows, id: \.id) { show in
                     ShowRow(show: show, emphasized: focus.wrappedValue == .shows && show.id == radio.location.showID)
                         .tag(show.id)
+                        .softSelection(
+                            focus.wrappedValue != .shows && show.id == radio.location.showID, radius: Radius.rowLarge)
                         .listRowInsets(EdgeInsets(top: 0, leading: 6, bottom: 0, trailing: 6))
                         .listRowSeparator(.hidden)
                 }
@@ -169,13 +175,20 @@ private struct EpisodesColumn: View {
 
     private var list: some View {
         ScrollViewReader { proxy in
-            List(selection: Binding(get: { radio.location.episodeID }, set: { radio.select(episode: $0) })) {
+            List(
+                selection: shownSelection(radio.location.episodeID, focused: focus.wrappedValue == .episodes) {
+                    radio.select(episode: $0)
+                }
+            ) {
                 ForEach(radio.episodes, id: \.id) { episode in
                     EpisodeRow(
                         episode: episode,
                         emphasized: focus.wrappedValue == .episodes && episode.id == radio.location.episodeID
                     )
                     .tag(episode.id)
+                    .softSelection(
+                        focus.wrappedValue != .episodes && episode.id == radio.location.episodeID,
+                        radius: Radius.rowLarge)
                     .listRowInsets(EdgeInsets(top: 0, leading: 6, bottom: 0, trailing: 6))
                     .listRowSeparator(.hidden)
                 }
@@ -307,13 +320,18 @@ private struct TracklistColumn: View {
     private func list(_ episode: Components.Schemas.RadioEpisodeDetail) -> some View {
         let playing = playingEntryID(episode)
         return ScrollViewReader { proxy in
-            List(selection: Binding(get: { radio.location.entryID }, set: { radio.select(entry: $0) })) {
+            List(
+                selection: shownSelection(radio.location.entryID, focused: focus.wrappedValue == .tracklist) {
+                    radio.select(entry: $0)
+                }
+            ) {
                 ForEach(episode.tracks, id: \.id) { entry in
                     TracklistRow(
                         entry: entry, emphasized: focus.wrappedValue == .tracklist && entry.id == radio.location.entryID,
                         isPlaying: entry.id == playing
                     )
                     .tag(entry.id)
+                    .softSelection(focus.wrappedValue != .tracklist && entry.id == radio.location.entryID)
                     .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
                     .listRowSeparator(.hidden)
                 }

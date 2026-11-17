@@ -91,4 +91,16 @@ struct OpenAPIDocumentTests {
         let sha256 = digest.map { String(format: "%02x", $0) }.joined()
         #expect(sha256 == OpenAPIDocument.sha256, "server/openapi.json changed: run app/scripts/generate-api.sh")
     }
+
+    /// A change to the normalizer, the generator's configuration or its version changes
+    /// the generated code as much as a new document.
+    @Test func clientIsGeneratedByTheCurrentGenerator() throws {
+        let tools = URL(filePath: #filePath).deletingLastPathComponent().appending(path: "../Packages/EPAPIGenerator")
+        let inputs = ["Sources/EPOpenAPINormalize/main.swift", "openapi-generator-config.yaml", "Package.resolved"]
+        let data = try inputs.reduce(into: Data()) { $0 += try Data(contentsOf: tools.appending(path: $1)) }
+        let sha256 = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        #expect(
+            sha256 == OpenAPIDocument.generatorSHA256,
+            "The normalizer, generator configuration or version changed: run app/scripts/generate-api.sh")
+    }
 }

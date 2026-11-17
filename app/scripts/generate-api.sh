@@ -2,7 +2,8 @@
 # Regenerates the API client (Packages/EPAPI/Sources/EPAPI/Generated) from
 # server/openapi.json: EPOpenAPINormalize rewrites the nullable schemas the generator
 # cannot read, then swift-openapi-generator writes the Swift code. Run it whenever
-# server/openapi.json changes (EPTests' OpenAPIDocumentTests fails until you do) and
+# server/openapi.json or the generator's inputs change (EPTests' OpenAPIDocumentTests
+# fails until you do) and
 # commit the result. The first run builds the generator (a few minutes); later runs reuse
 # Packages/EPAPIGenerator/.build. Fails on any generator warning.
 #   app/scripts/generate-api.sh
@@ -11,6 +12,13 @@ APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 TOOLS="$APP_DIR/Packages/EPAPIGenerator"
 OUT="$APP_DIR/Packages/EPAPI/Sources/EPAPI/Generated"
 DOCUMENT="$APP_DIR/../server/openapi.json"
+# What else decides the generated code: the normalizer, the generator's configuration and
+# its pinned version. EPTests hashes them in this order, like the document.
+GENERATOR_INPUTS=(
+    "$TOOLS/Sources/EPOpenAPINormalize/main.swift"
+    "$TOOLS/openapi-generator-config.yaml"
+    "$TOOLS/Package.resolved"
+)
 
 swift build --package-path "$TOOLS" --quiet --product swift-openapi-generator
 swift build --package-path "$TOOLS" --quiet --product EPOpenAPINormalize
@@ -40,6 +48,9 @@ cat >"$OUT/OpenAPIDocument.swift" <<EOF
 public enum OpenAPIDocument {
     /// SHA-256 of server/openapi.json at generation; EPTests compares it with the file.
     public static let sha256 = "$(shasum -a 256 "$DOCUMENT" | cut -d' ' -f1)"
+    /// SHA-256 of the generator's inputs at generation (normalizer source, configuration,
+    /// Package.resolved, concatenated in that order); EPTests compares it with the files.
+    public static let generatorSHA256 = "$(cat "${GENERATOR_INPUTS[@]}" | shasum -a 256 | cut -d' ' -f1)"
 }
 EOF
 echo "Generated $(cat "$OUT"/*.swift | wc -l | tr -d ' ') lines in ${OUT#"$APP_DIR"/}"

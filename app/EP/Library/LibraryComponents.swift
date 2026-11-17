@@ -216,3 +216,26 @@ struct RowForeground {
     NSPasteboard.general.clearContents()
     NSPasteboard.general.setString(link, forType: .string)
 }
+
+/// A list's selection as its table shows it (§3.4 "selection colour logic"): solid
+/// `--sel` (the native highlight) while the list has the focus, `--selsoft` (drawn by
+/// the row, `softSelection`) while another column has it. The table is handed no
+/// selection while unfocused; clearing it that way never reaches `set`: only a list with
+/// the focus can clear its selection.
+func shownSelection<ID: Hashable>(
+    _ selection: ID?, focused: @escaping @autoclosure () -> Bool, set: @escaping (ID?) -> Void
+) -> Binding<ID?> {
+    Binding(
+        get: { focused() ? selection : nil },
+        set: { new in
+            if new != nil || focused() { set(new) }
+        })
+}
+
+extension View {
+    /// `--selsoft` behind a selected row of a list that does not have the focus.
+    func softSelection(_ isSoft: Bool, radius: CGFloat = Radius.row) -> some View {
+        listRowBackground(
+            isSoft ? RoundedRectangle(cornerRadius: radius).fill(Palette.selSoft).padding(.horizontal, 2) : nil)
+    }
+}

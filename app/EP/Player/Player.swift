@@ -26,8 +26,12 @@ final class Player {
     /// The current item's file is being opened.
     private(set) var isLoading = false
     private(set) var positionMS = 0
+    /// 0…1; kept across launches in the defaults the player was given.
     var volume: Float = 1 {
-        didSet { engine.volume = volume }
+        didSet {
+            engine.volume = volume
+            defaults?.set(volume, forKey: Self.volumeKey)
+        }
     }
 
     /// What played before the current item (Previous).
@@ -36,6 +40,8 @@ final class Player {
     @ObservationIgnored private let engine: any PlaybackEngine
     @ObservationIgnored private let connection: ServerConnection
     @ObservationIgnored private let tickInterval: Duration
+    @ObservationIgnored private let defaults: UserDefaults?
+    static let volumeKey = "volume"
     @ObservationIgnored private var loadTask: Task<Void, Never>?
     @ObservationIgnored private var requestTask: Task<Void, Never>?
     @ObservationIgnored private var tickTask: Task<Void, Never>?
@@ -44,10 +50,18 @@ final class Player {
     /// Previous goes to the start of what plays unless it began less than this ago.
     static let restartThresholdMS = 3000
 
-    init(connection: ServerConnection, engine: any PlaybackEngine, tickInterval: Duration = .milliseconds(100)) {
+    init(
+        connection: ServerConnection, engine: any PlaybackEngine, tickInterval: Duration = .milliseconds(100),
+        defaults: UserDefaults? = nil
+    ) {
         self.connection = connection
         self.engine = engine
         self.tickInterval = tickInterval
+        self.defaults = defaults
+        if let saved = defaults?.object(forKey: Self.volumeKey) as? Float {
+            volume = min(max(saved, 0), 1)
+            engine.volume = volume
+        }
         engine.onEnd = { [weak self] in self?.advance() }
         engine.onFailure = { [weak self] message in self?.fail(message) }
     }

@@ -379,10 +379,16 @@ private struct AnswerList: View {
     }
 }
 
-/// The log: mono 11 pt, line height 1.5, at most 64 pt high (scrolls, newest at the bottom).
+/// The log: mono 11 pt, line height 1.5, as high as its lines up to `maxHeight` (64 on
+/// the running job's card; more in an expanded row, where a failure's lines are read),
+/// then it scrolls, newest at the bottom.
 private struct LogBox: View {
     let entries: [Components.Schemas.LogEntry]
     let id: String
+    var maxHeight: CGFloat = 64
+
+    /// The lines' height, measured: a ScrollView in a lazy stack has no height of its own.
+    @State private var contentHeight: CGFloat = 0
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -400,8 +406,10 @@ private struct LogBox: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
+                .fixedSize(horizontal: false, vertical: true)
+                .onGeometryChange(for: CGFloat.self, of: \.size.height) { contentHeight = $0 }
             }
-            .frame(maxHeight: 64)
+            .frame(height: min(max(contentHeight, 28), maxHeight))
             .background(Palette.bg, in: RoundedRectangle(cornerRadius: Radius.button))
             .overlay(
                 RoundedRectangle(cornerRadius: Radius.button).strokeBorder(Palette.line, lineWidth: Metrics.hairline)
@@ -473,7 +481,7 @@ private struct JobRow: View {
                     if ImportStore.isActive(job.state), let answered = imports.answered[job.id], !answered.isEmpty {
                         AnswerList(issues: answered, id: "import.job.\(job.id).answers")
                     }
-                    LogBox(entries: imports.logs[job.id] ?? [], id: "import.job.\(job.id).log")
+                    LogBox(entries: imports.logs[job.id] ?? [], id: "import.job.\(job.id).log", maxHeight: 180)
                 }
                 .padding(.leading, 34)
             }

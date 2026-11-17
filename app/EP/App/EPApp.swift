@@ -31,24 +31,29 @@ struct EPApp: App {
     @NSApplicationDelegateAdaptor private var appDelegate: AppDelegate
     @State private var settings: AppSettings
     @State private var connection: ServerConnection
-    @State private var covers = CoverImages()
+    @State private var covers: CoverImages
     /// The one player all windows share (decision 13).
     @State private var player: Player
     /// The import queue all windows share (toolbar button, toasts, sheets).
     @State private var imports: ImportStore
+    /// The server's watched folders (Settings, the empty library).
+    @State private var watchFolders: WatchFolders
 
     init() {
         let settings = AppSettings()
         let connection = ServerConnection(serverURL: settings.serverURL)
-        let player = Player(connection: connection, engine: AudioOutput())
+        let player = Player(connection: connection, engine: AudioOutput(), defaults: .standard)
         _settings = State(initialValue: settings)
         _connection = State(initialValue: connection)
         _player = State(initialValue: player)
         _imports = State(initialValue: ImportStore(connection: connection))
+        _watchFolders = State(initialValue: WatchFolders(connection: connection))
+        let covers = CoverImages()
+        _covers = State(initialValue: covers)
         LaunchOptions.applyAppearance()
         // As the unit tests' host the app stays offline: tests use their own stubs.
         if !Self.isUnitTestHost {
-            player.nowPlaying = NowPlayingCenter(player: player)
+            player.nowPlaying = NowPlayingCenter(player: player, covers: covers, connection: connection)
             PlaybackKeys.install(player)
             Task { await connection.connect() }
         }
@@ -66,6 +71,7 @@ struct EPApp: App {
                 .environment(covers)
                 .environment(player)
                 .environment(imports)
+                .environment(watchFolders)
         }
         .defaultSize(LaunchOptions.windowSize)
         .windowToolbarStyle(.unified(showsTitle: false))
@@ -75,6 +81,7 @@ struct EPApp: App {
             SettingsView()
                 .environment(settings)
                 .environment(connection)
+                .environment(watchFolders)
         }
     }
 }
@@ -89,6 +96,8 @@ struct AppCommands: Commands {
     @FocusedValue(\.editSelection) private var editSelection
     @FocusedValue(\.newEntity) private var newEntity
     @FocusedValue(\.openImports) private var openImports
+    @FocusedValue(\.section) private var section
+    @FocusedValue(\.importClipboardLink) private var importClipboardLink
 
     var body: some Commands {
         CommandMenu("Go") {
@@ -113,6 +122,9 @@ struct AppCommands: Commands {
             Button("Import…") { openImports?() }
                 .keyboardShortcut("i", modifiers: [.command, .shift])
                 .disabled(openImports == nil)
+            // ⌘V outside text fields does this (`PasteLinkMonitor`); Edit ▸ Paste keeps ⌘V.
+            Button("Import Link from Clipboard") { importClipboardLink?() }
+                .disabled(importClipboardLink == nil)
         }
         // Decision 6: ⌘E edits the selection of the focused list.
         CommandGroup(after: .pasteboard) {
@@ -130,6 +142,15 @@ struct AppCommands: Commands {
             Button("Find…") { openSearch?() }
                 .keyboardShortcut("f", modifiers: .command)
                 .disabled(openSearch == nil)
+        }
+        CommandGroup(before: .toolbar) {
+            Button("Library") { section?.wrappedValue = .library }
+                .keyboardShortcut("1", modifiers: .command)
+                .disabled(section == nil || section?.wrappedValue == .library)
+            Button("Radio") { section?.wrappedValue = .radio }
+                .keyboardShortcut("2", modifiers: .command)
+                .disabled(section == nil || section?.wrappedValue == .radio)
+            Divider()
         }
         CommandGroup(after: .toolbar) {
             Button(detailPanelsCollapsed?.wrappedValue == true ? "Show Detail Panels" : "Hide Detail Panels") {
@@ -171,4 +192,8 @@ extension FocusedValues {
     @Entry var newEntity: ((Creator.Kind) -> Void)?
     /// Opens the focused main window's import sheet (⇧⌘I).
     @Entry var openImports: (() -> Void)?
+    /// The focused main window's Library | Radio switch (⌘1, ⌘2).
+    @Entry var section: Binding<AppSection>?
+    /// Starts an import from a link on the pasteboard; nil without one.
+    @Entry var importClipboardLink: (() -> Void)?
 }

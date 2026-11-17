@@ -98,7 +98,11 @@ struct TracksColumn: View {
 
     private var trackList: some View {
         ScrollViewReader { proxy in
-            List(selection: Binding(get: { browser.location.trackID }, set: { browser.select(track: $0) })) {
+            List(
+                selection: shownSelection(browser.location.trackID, focused: focus.wrappedValue == .tracks) {
+                    browser.select(track: $0)
+                }
+            ) {
                 if (browser.releaseGroup?.discCount ?? 1) > 1 {
                     ForEach(discs, id: \.disc) { disc in
                         Section {
@@ -168,6 +172,7 @@ struct TracksColumn: View {
             )
             .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
             .listRowSeparator(.hidden)
+            .softSelection(focus.wrappedValue != .tracks && row.id == browser.location.trackID)
         }
     }
 

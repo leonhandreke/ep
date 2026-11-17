@@ -18,6 +18,9 @@ struct ArtistsColumn: View {
     @State private var typed = ""
     @State private var typedAt = ContinuousClock.Instant.now
     @State private var typeSelection: Task<Void, Never>?
+    /// The artist the list last tried to show, and the one it widened the list for.
+    @State private var revealedArtistID: String?
+    @State private var widenedForArtistID: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -122,7 +125,11 @@ struct ArtistsColumn: View {
 
     private var artistList: some View {
         ScrollViewReader { proxy in
-            List(selection: Binding(get: { browser.location.artistID }, set: { browser.select(artist: $0) })) {
+            List(
+                selection: shownSelection(browser.location.artistID, focused: focus.wrappedValue == .artists) {
+                    browser.select(artist: $0)
+                }
+            ) {
                 ForEach(0..<list.total, id: \.self) { index in
                     Group {
                         if let artist = list.artist(at: index) {
@@ -131,6 +138,8 @@ struct ArtistsColumn: View {
                                 emphasized: focus.wrappedValue == .artists && artist.id == browser.location.artistID
                             )
                             .tag(artist.id)
+                            .softSelection(
+                                focus.wrappedValue != .artists && artist.id == browser.location.artistID)
                         } else {
                             PlaceholderRow(index: index)
                                 .onAppear { list.loadPage(containing: index) }
@@ -159,12 +168,35 @@ struct ArtistsColumn: View {
                 { presentSheet?(WindowSheet(kind: .edit(.artist(id)))) }
             })
             .task(id: RevealKey(artistID: browser.location.artistID, list: list.listVersion)) {
-                guard let id = browser.location.artistID, let index = await list.reveal(id),
-                    !Task.isCancelled
-                else { return }
-                proxy.scrollTo(index)
+                guard let id = browser.location.artistID else { return }
+                let index = await list.reveal(id)
+                guard !Task.isCancelled else { return }
+                if let index {
+                    proxy.scrollTo(index)
+                } else {
+                    widenToShow(id)
+                }
+                revealedArtistID = id
             }
             .accessibilityIdentifier("artists.list")
+        }
+    }
+
+    /// An artist shown by navigation (a link, search, Back) that the list leaves out gets
+    /// a row, as the Finder clears a search to reveal a file: first the filter is cleared,
+    /// then, if the artist is still missing, radio-only artists are shown. An artist the
+    /// user's own typing hides stays selected without a row (nothing is undone under them).
+    private func widenToShow(_ id: String) {
+        let navigated = id != revealedArtistID
+        guard navigated || id == widenedForArtistID else { return }
+        if list.query != nil, navigated {
+            widenedForArtistID = id
+            list.setFilter("")
+        } else if !list.includeRadioOnly {
+            widenedForArtistID = nil
+            list.setIncludeRadioOnly(true)
+        } else {
+            widenedForArtistID = nil
         }
     }
 

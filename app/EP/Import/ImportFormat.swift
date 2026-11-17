@@ -101,19 +101,26 @@ enum ImportFormat {
         return path.hasPrefix(home + "/") || path == home ? "~" + path.dropFirst(home.count) : path
     }
 
-    /// "Today 22:30", "Yesterday", "3 Nov".
-    static func time(_ date: Date, now: Date = .now) -> String {
-        let calendar = Calendar.current
-        if calendar.isDate(date, inSameDayAs: now) {
-            return String(localized: "Today \(date.formatted(date: .omitted, time: .shortened))")
+    /// "Today at 22:30", "Yesterday at 21:02" (the system's relative words, in the user's
+    /// language: "Heute, 22:30"), else "3 Nov".
+    static func time(_ date: Date, now: Date = .now, calendar: Calendar = .autoupdatingCurrent) -> String {
+        guard let yesterday = calendar.date(byAdding: .day, value: -1, to: now),
+            calendar.isDate(date, inSameDayAs: now) || calendar.isDate(date, inSameDayAs: yesterday)
+        else {
+            return date.formatted(.dateTime.day().month(.abbreviated))
         }
-        if let yesterday = calendar.date(byAdding: .day, value: -1, to: now),
-            calendar.isDate(date, inSameDayAs: yesterday)
-        {
-            return String(localized: "Yesterday")
-        }
-        return date.formatted(.dateTime.day().month(.abbreviated))
+        return relativeFormatter.string(from: date)
     }
+
+    /// Relative day words ("Today", "Yesterday") with the time.
+    private static let relativeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = .autoupdatingCurrent
+        formatter.doesRelativeDateFormatting = true
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter
+    }()
 
     /// "22:41:07" (log lines).
     static func clock(_ date: Date) -> String {

@@ -372,9 +372,16 @@ struct LinkedFromSection: View {
             }
             if !details.backlinks.isEmpty {
                 VStack(alignment: .leading, spacing: 2) {
-                    subheading(String(localized: "Notes that link here · \(details.backlinks.count)"))
+                    if isWide {
+                        // The Radio panel (§6): "NOTES THAT LINK HERE", rows on a 200 | snippet grid.
+                        Text("Notes that link here").sectionLabelStyle()
+                            .padding(.vertical, 4)
+                            .accessibilityAddTraits(.isHeader)
+                    } else {
+                        subheading(String(localized: "Notes that link here · \(details.backlinks.count)"))
+                    }
                     ForEach(details.backlinks) { backlink in
-                        BacklinkRow(backlink: backlink, id: "\(id).backlink.\(backlink.source.id)")
+                        BacklinkRow(backlink: backlink, id: "\(id).backlink.\(backlink.source.id)", wide: isWide)
                     }
                 }
             }
@@ -390,6 +397,14 @@ struct LinkedFromSection: View {
         }
     }
 
+    /// The Radio view's one full-width panel has room for the name and the snippet side by side.
+    private var isWide: Bool {
+        switch kind {
+        case .show, .episode: true
+        default: false
+        }
+    }
+
     private func subheading(_ text: String) -> some View {
         Text(text)
             .font(Typography.subheading)
@@ -402,6 +417,8 @@ struct LinkedFromSection: View {
 private struct BacklinkRow: View {
     let backlink: Backlink
     let id: String
+    /// Type and name in a 200 pt column, the snippets beside them (the Radio panel).
+    var wide = false
 
     @Environment(\.openEntity) private var openEntity
 
@@ -409,24 +426,17 @@ private struct BacklinkRow: View {
         Button {
             openEntity?(OpenTarget(entity: backlink.source), newWindow: NSEvent.modifierFlags.contains([.command, .option]))
         } label: {
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(backlink.kind)
-                        .font(Typography.badge)
-                        .tracking(0.4)
-                        .textCase(.uppercase)
-                        .foregroundStyle(Palette.text3)
-                    Text(backlink.title)
-                        .font(Typography.name)
-                        .foregroundStyle(Palette.text)
-                        .lineLimit(1)
-                }
-                ForEach(Array(backlink.snippets.enumerated()), id: \.offset) { _, snippet in
-                    Text(Self.attributed(snippet))
-                        .font(Typography.secondary)
-                        .foregroundStyle(Palette.text2)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+            Group {
+                if wide {
+                    HStack(alignment: .firstTextBaseline, spacing: 12) {
+                        name.frame(width: 200, alignment: .leading)
+                        snippets
+                    }
+                } else {
+                    VStack(alignment: .leading, spacing: 2) {
+                        name
+                        snippets
+                    }
                 }
             }
             .padding(.horizontal, 8)
@@ -438,6 +448,32 @@ private struct BacklinkRow: View {
         .accessibilityLabel("\(backlink.kind) \(backlink.title): \(backlink.snippets.first?.text ?? "")")
         .accessibilityHint("Opens \(backlink.title)")
         .accessibilityIdentifier(id)
+    }
+
+    private var name: some View {
+        HStack(spacing: 6) {
+            Text(backlink.kind)
+                .font(Typography.badge)
+                .tracking(0.4)
+                .textCase(.uppercase)
+                .foregroundStyle(Palette.text3)
+            Text(backlink.title)
+                .font(Typography.name)
+                .foregroundStyle(Palette.text)
+                .lineLimit(1)
+        }
+    }
+
+    private var snippets: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(Array(backlink.snippets.enumerated()), id: \.offset) { _, snippet in
+                Text(Self.attributed(snippet))
+                    .font(Typography.secondary)
+                    .foregroundStyle(Palette.text2)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+        }
     }
 
     /// The snippet with its link text in `--accent`.

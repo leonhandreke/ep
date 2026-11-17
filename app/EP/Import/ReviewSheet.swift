@@ -11,8 +11,10 @@ struct ReviewSheet: View {
     let confirmed: (Components.Schemas.ImportJobRead) -> Void
 
     @Environment(ServerConnection.self) private var connection
+    @Environment(Player.self) private var player
     @Environment(\.dismiss) private var dismiss
     @State private var model: ReviewModel?
+    @State private var preview = ReviewPreview()
     @State private var searching = false
     @FocusState private var keyboardFocus: Bool
 
@@ -33,7 +35,9 @@ struct ReviewSheet: View {
                             .background(Palette.side)
                         HairlineDivider(axis: .vertical)
                         if let row = model.selected {
-                            QuestionDetail(model: model, row: row, searching: $searching, keyboardFocus: $keyboardFocus)
+                            QuestionDetail(
+                                model: model, row: row, searching: $searching, keyboardFocus: $keyboardFocus,
+                                preview: preview, togglePreview: { togglePreview(row) })
                         } else {
                             Text("Nothing to review.").foregroundStyle(Palette.text3)
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -52,6 +56,7 @@ struct ReviewSheet: View {
         // Another question (a click, ↑↓ is the field's own while it is open): the search
         // belongs to the one it was opened for, and the keys come back to the sheet.
         .onChange(of: model?.selectedID) {
+            preview.stop()
             if searching {
                 searching = false
                 keyboardFocus = true
@@ -64,8 +69,19 @@ struct ReviewSheet: View {
             await model.load()
             keyboardFocus = true
         }
+        .onDisappear { preview.stop() }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("review.sheet")
+    }
+
+    /// Space: the selected question's incoming track plays, or stops. The app's player
+    /// pauses meanwhile.
+    private func togglePreview(_ row: ReviewModel.Row) {
+        guard let source = row.preview else { return }
+        if player.isPlaying { player.pause() }
+        preview.toggle(
+            source, rowID: row.id,
+            url: ReviewPreview.url(server: connection.serverURL, jobID: jobID, trackKey: source.trackKey))
     }
 
     private func handle(_ press: KeyPress) -> KeyPress.Result {
@@ -75,6 +91,9 @@ struct ReviewSheet: View {
         case .upArrow: model.move(-1)
         case .downArrow: model.move(1)
         case .return: model.acceptAndNext()
+        case .space:
+            guard let row = model.selected, row.preview != nil else { return .ignored }
+            togglePreview(row)
         default:
             if press.characters == "/", model.searchType != nil {
                 searching = true
@@ -130,9 +149,20 @@ struct ReviewSheet: View {
                 Text("1–9 candidate")
                 Text("↩ accept & next")
                 Text("/ search library")
+                // Only where the job's files are there to preview.
+                if model?.rows.contains(where: { $0.preview != nil }) == true {
+                    Text("space preview audio")
+                }
             }
             .font(Typography.secondary)
             .foregroundStyle(Palette.text2)
+            if let message = preview.message {
+                Text(message)
+                    .font(Typography.secondary)
+                    .foregroundStyle(Palette.danger)
+                    .lineLimit(1)
+                    .accessibilityIdentifier("review.previewError")
+            }
             if let error = model?.error {
                 Text(error)
                     .font(Typography.secondary)
@@ -262,12 +292,29 @@ private struct QuestionDetail: View {
     let row: ReviewModel.Row
     @Binding var searching: Bool
     var keyboardFocus: FocusState<Bool>.Binding
+    let preview: ReviewPreview
+    let togglePreview: () -> Void
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Text(row.eyebrow.uppercased()).sectionLabelStyle()
-                    .accessibilityIdentifier("review.eyebrow")
+                HStack(spacing: 10) {
+                    Text(row.eyebrow.uppercased()).sectionLabelStyle()
+                        .accessibilityIdentifier("review.eyebrow")
+                    if row.preview != nil {
+                        let playing = preview.rowID == row.id
+                        Button(action: togglePreview) {
+                            HStack(spacing: 4) {
+                                Image(systemName: playing ? "stop.fill" : "play.fill").font(.system(size: 9))
+                                Text(playing ? "Stop" : "Preview")
+                                KeyCap("space")
+                            }
+                        }
+                        .buttonStyle(SmallBorderedButtonStyle())
+                        .accessibilityLabel(playing ? "Stop preview" : "Preview audio")
+                        .accessibilityIdentifier("review.preview")
+                    }
+                }
                 if let issue = row.issue {
                     let question = ReviewModel.question(for: issue)
                     Text(question ?? issue.message)

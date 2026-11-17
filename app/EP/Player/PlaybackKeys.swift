@@ -1,7 +1,7 @@
 import AppKit
 
 /// Space plays and pauses (§12), except while typing: a key-down monitor that leaves the
-/// key to text views (SwiftUI's text fields edit through one). A menu key equivalent
+/// key to text views (SwiftUI's text fields edit through one) and to sheets. A menu key equivalent
 /// would take Space from text fields too.
 enum PlaybackKeys {
     /// When the artist list last took a type-to-select key. Space typed within
@@ -25,6 +25,8 @@ enum PlaybackKeys {
         guard event.keyCode == space,
             event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty,
             !(event.window?.firstResponder is NSText),
+            // Sheets keep Space: the review sheet previews with it, buttons press with it.
+            event.window?.sheetParent == nil,
             !isTypeSelecting,
             player.current != nil
         else { return false }

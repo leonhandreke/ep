@@ -8,6 +8,8 @@ import OpenAPIURLSession
 ///
 /// Stores get the client from here (`connection.client`). `connect()` asks the server
 /// for `GET /server`; a failure makes the state `.unreachable` until the next attempt.
+/// While unreachable it tries again by itself (decision 12, §11.2), after 5, 10, 20, then
+/// every 30 seconds; `retryAt` says when, for the banner's countdown.
 @Observable
 final class ServerConnection {
     enum State {
@@ -19,14 +21,27 @@ final class ServerConnection {
     private(set) var state: State = .connecting
     private(set) var serverURL: URL
     private(set) var client: Client
+    /// When the next automatic attempt starts, while unreachable.
+    private(set) var retryAt: Date?
+
+    /// Seconds between automatic attempts: the n-th failure in a row waits `retryDelays[n]`
+    /// (the last one again after that). Empty: no automatic attempts (unit tests).
+    @ObservationIgnored let retryDelays: [Duration]
+    /// Failed attempts in a row (0 once connected).
+    private(set) var failures = 0
+    @ObservationIgnored private var retryTask: Task<Void, Never>?
 
     @ObservationIgnored private let transport: any ClientTransport
     /// Counts attempts, so a slow answer to an earlier one never overwrites a later one.
     @ObservationIgnored private var attempt = 0
 
-    init(serverURL: URL, transport: any ClientTransport = URLSessionTransport()) {
+    init(
+        serverURL: URL, transport: any ClientTransport = URLSessionTransport(),
+        retryDelays: [Duration] = [.seconds(5), .seconds(10), .seconds(20), .seconds(30)]
+    ) {
         self.serverURL = serverURL
         self.transport = transport
+        self.retryDelays = retryDelays
         client = .ep(serverURL: serverURL, transport: transport)
     }
 
@@ -34,11 +49,16 @@ final class ServerConnection {
         if case .connected = state { true } else { false }
     }
 
+    /// Unreachable, or trying again after a failure: the window shows the banner and
+    /// dims what it last loaded.
+    var isOffline: Bool { !isConnected && failures > 0 }
+
     /// Points the client at another server and connects to it.
     func use(serverURL: URL) async {
         guard serverURL != self.serverURL else { return await connect() }
         self.serverURL = serverURL
         client = .ep(serverURL: serverURL, transport: transport)
+        failures = 0
         await connect()
     }
 
@@ -46,6 +66,7 @@ final class ServerConnection {
     func connect() async {
         attempt += 1
         let current = attempt
+        cancelRetry()
         state = .connecting
         let result: State
         do {
@@ -55,7 +76,7 @@ final class ServerConnection {
             result = .unreachable(message: Self.describe(error))
         }
         guard current == attempt else { return }
-        state = result
+        settle(result)
     }
 
     /// Asks the server again without passing through `.connecting` (window activation):
@@ -72,7 +93,7 @@ final class ServerConnection {
             result = .unreachable(message: Self.describe(error))
         }
         guard current == attempt else { return }
-        state = result
+        settle(result)
     }
 
     /// A store's request failed. A transport failure (no answer at all) means the server
@@ -81,7 +102,45 @@ final class ServerConnection {
     func reportFailure(_ error: any Error) {
         guard isConnected, Self.isTransportFailure(error) else { return }
         attempt += 1
-        state = .unreachable(message: Self.describe(error))
+        settle(.unreachable(message: Self.describe(error)))
+    }
+
+    // MARK: - Automatic retry
+
+    /// The delay before the next automatic attempt after `failures` failures in a row.
+    nonisolated static func retryDelay(afterFailures failures: Int, delays: [Duration]) -> Duration? {
+        guard failures > 0, let last = delays.last else { return nil }
+        return failures <= delays.count ? delays[failures - 1] : last
+    }
+
+    private func settle(_ result: State) {
+        state = result
+        if case .unreachable = result {
+            failures += 1
+            scheduleRetry()
+        } else {
+            failures = 0
+            cancelRetry()
+        }
+    }
+
+    private func scheduleRetry() {
+        cancelRetry()
+        guard let delay = Self.retryDelay(afterFailures: failures, delays: retryDelays) else { return }
+        retryAt = .now.addingTimeInterval(TimeInterval(delay.components.seconds))
+        retryTask = Task { [weak self] in
+            do { try await Task.sleep(for: delay) } catch { return }
+            guard let self else { return }
+            // `connect()` cancels a scheduled retry: this one is running, not scheduled.
+            retryTask = nil
+            await connect()
+        }
+    }
+
+    private func cancelRetry() {
+        retryTask?.cancel()
+        retryTask = nil
+        retryAt = nil
     }
 
     nonisolated static func isCancellation(_ error: any Error) -> Bool {

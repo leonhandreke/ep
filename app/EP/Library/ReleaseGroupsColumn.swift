@@ -53,12 +53,21 @@ struct ReleaseGroupsColumn: View {
         focus.wrappedValue == .releaseGroups && browser.location.album == album
     }
 
+    private func soft(_ album: AlbumSelection) -> Bool {
+        focus.wrappedValue != .releaseGroups && browser.location.album == album
+    }
+
     private func list(artist: Components.Schemas.ArtistDetail) -> some View {
         ScrollViewReader { proxy in
-            List(selection: Binding(get: { browser.location.album }, set: { browser.select(album: $0) })) {
+            List(
+                selection: shownSelection(browser.location.album, focused: focus.wrappedValue == .releaseGroups) {
+                    browser.select(album: $0)
+                }
+            ) {
                 ForEach(browser.releaseGroups, id: \.id) { group in
                     ReleaseGroupRow(group: group, emphasized: emphasized(.releaseGroup(group.id)))
                         .tag(AlbumSelection.releaseGroup(group.id))
+                        .softSelection(soft(.releaseGroup(group.id)), radius: Radius.rowLarge)
                         .id(AlbumSelection.releaseGroup(group.id))
                         .listRowInsets(EdgeInsets(top: 0, leading: 6, bottom: 0, trailing: 6))
                         .listRowSeparator(.hidden)
@@ -66,6 +75,7 @@ struct ReleaseGroupsColumn: View {
                 if artist.counts.looseRecordings > 0 {
                     LooseTracksRow(count: artist.counts.looseRecordings, emphasized: emphasized(.looseTracks))
                         .tag(AlbumSelection.looseTracks)
+                        .softSelection(soft(.looseTracks), radius: Radius.rowLarge)
                         .id(AlbumSelection.looseTracks)
                         .listRowInsets(EdgeInsets(top: 0, leading: 6, bottom: 0, trailing: 6))
                         .listRowSeparator(.hidden)

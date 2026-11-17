@@ -213,14 +213,17 @@ private struct AlbumEditBody: View {
                 }
                 .frame(width: 180, height: 180)
                 .clipShape(RoundedRectangle(cornerRadius: 6))
-                Text("Drop image to replace")
-                    .font(Typography.meta)
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(Color.black.opacity(0.55), in: Capsule())
-                    .padding(.bottom, 8)
-                    .opacity(dropTargeted ? 1 : 0.85)
+                // Only while an image is dragged over the cover (board 9 shows that state).
+                if dropTargeted {
+                    Text("Drop image to replace")
+                        .font(Typography.meta)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Color.black.opacity(0.55), in: Capsule())
+                        .padding(.bottom, 8)
+                        .accessibilityHidden(true)
+                }
             }
             .overlay(
                 RoundedRectangle(cornerRadius: 6)
