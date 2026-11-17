@@ -77,7 +77,7 @@ private struct ShowsColumn: View {
     private var list: some View {
         ScrollViewReader { proxy in
             List(
-                selection: shownSelection(radio.location.showID, focused: focus.wrappedValue == .shows) {
+                selection: shownSelection(radio.location.showID) {
                     radio.select(show: $0)
                 }
             ) {
@@ -176,7 +176,7 @@ private struct EpisodesColumn: View {
     private var list: some View {
         ScrollViewReader { proxy in
             List(
-                selection: shownSelection(radio.location.episodeID, focused: focus.wrappedValue == .episodes) {
+                selection: shownSelection(radio.location.episodeID) {
                     radio.select(episode: $0)
                 }
             ) {
@@ -321,7 +321,7 @@ private struct TracklistColumn: View {
         let playing = playingEntryID(episode)
         return ScrollViewReader { proxy in
             List(
-                selection: shownSelection(radio.location.entryID, focused: focus.wrappedValue == .tracklist) {
+                selection: shownSelection(radio.location.entryID) {
                     radio.select(entry: $0)
                 }
             ) {

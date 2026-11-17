@@ -99,7 +99,7 @@ struct TracksColumn: View {
     private var trackList: some View {
         ScrollViewReader { proxy in
             List(
-                selection: shownSelection(browser.location.trackID, focused: focus.wrappedValue == .tracks) {
+                selection: shownSelection(browser.location.trackID) {
                     browser.select(track: $0)
                 }
             ) {

@@ -119,20 +119,13 @@ struct StatesTests {
         #expect(player.volume == 0.4 && engine.volume == 0.4)
     }
 
-    @Test func anUnfocusedListShowsNoNativeSelectionAndCannotClearIt() {
+    @Test func aListSelectionIsReadWhenAsked() {
         var selected: String? = "a"
-        var focused = false
-        let binding = shownSelection(selected, focused: focused) { selected = $0 }
-        #expect(binding.wrappedValue == nil)
-        binding.wrappedValue = nil
-        #expect(selected == "a")
+        let binding = shownSelection(selected) { selected = $0 }
+        #expect(binding.wrappedValue == "a")
         binding.wrappedValue = "b"
         #expect(selected == "b")
-        focused = true
-        let focusedBinding = shownSelection(selected, focused: focused) { selected = $0 }
-        #expect(focusedBinding.wrappedValue == "b")
-        focusedBinding.wrappedValue = nil
-        #expect(selected == nil)
+        #expect(binding.wrappedValue == "b")
     }
 
     @Test func anEmptyServerIsAnEmptyLibrary() throws {

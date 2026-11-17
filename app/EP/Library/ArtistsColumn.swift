@@ -126,7 +126,7 @@ struct ArtistsColumn: View {
     private var artistList: some View {
         ScrollViewReader { proxy in
             List(
-                selection: shownSelection(browser.location.artistID, focused: focus.wrappedValue == .artists) {
+                selection: shownSelection(browser.location.artistID) {
                     browser.select(artist: $0)
                 }
             ) {

@@ -180,12 +180,13 @@ struct SettingsView: View {
                     FolderRow(folder: folder, connected: connection.isConnected)
                         .tag(folder.id)
                         .listRowSeparator(.visible)
+                        .listRowInsets(EdgeInsets(top: 0, leading: 10, bottom: 0, trailing: 10))
                 }
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
             .environment(\.defaultMinListRowHeight, RowHeight.watchedFolder)
-            .frame(height: RowHeight.watchedFolder * CGFloat(min(max(folders.folders.count, 3), 6)) + 8)
+            .frame(height: RowHeight.watchedFolder * CGFloat(min(max(folders.folders.count, 3), 6)))
             .onDeleteCommand(perform: removeSelected)
             .accessibilityLabel("Watched folders")
             .accessibilityIdentifier("settings.folders")

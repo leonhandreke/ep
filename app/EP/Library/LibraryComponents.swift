@@ -217,19 +217,14 @@ struct RowForeground {
     NSPasteboard.general.setString(link, forType: .string)
 }
 
-/// A list's selection as its table shows it (§3.4 "selection colour logic"): solid
-/// `--sel` (the native highlight) while the list has the focus, `--selsoft` (drawn by
-/// the row, `softSelection`) while another column has it. The table is handed no
-/// selection while unfocused; clearing it that way never reaches `set`: only a list with
-/// the focus can clear its selection.
+/// A list's selection binding. The table keeps the true selection at all times (handing it
+/// none while another column has the focus lost clicks: the table and the browser
+/// disagreed for a moment and the stale value won); the unfocused list's selected row
+/// additionally draws `--selsoft` itself (§3.4 "selection colour logic", `softSelection`).
 func shownSelection<ID: Hashable>(
-    _ selection: ID?, focused: @escaping @autoclosure () -> Bool, set: @escaping (ID?) -> Void
+    _ selection: @escaping @autoclosure () -> ID?, set: @escaping (ID?) -> Void
 ) -> Binding<ID?> {
-    Binding(
-        get: { focused() ? selection : nil },
-        set: { new in
-            if new != nil || focused() { set(new) }
-        })
+    Binding(get: { selection() }, set: { set($0) })
 }
 
 extension View {

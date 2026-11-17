@@ -225,9 +225,9 @@ the review sheet `review` (`.sheet`, `.title`, `.headline`, `.filter`, `.questio
   (nothing is cached). A connected server whose counts are all zero shows the empty
   library (§11.1) in place of the Library's columns. Lists show a skeleton only after
   300 ms (`DelayedSkeleton`, the note's own).
-- **Selection**: a list hands its table the selection only while it has the focus
-  (`shownSelection`, solid accent); the other columns' selected rows draw `--selsoft`
-  themselves (`softSelection`). An artist shown by navigation that the filter hides
+- **Selection**: every list's table always holds the true selection (`shownSelection`; handing
+  it none while unfocused lost clicks); the unfocused list's selected row also draws
+  `--selsoft` itself (`softSelection`). An artist shown by navigation that the filter hides
   clears the filter, then shows radio-only artists.
 - **Menus**: Go (Back ⌘[, Forward ⌘]), File (New Artist/Album/Recording…, Import… ⇧⌘I,
   Import Link from Clipboard — ⌘V outside text fields), Edit (Edit… ⌘E, Search… ⌘K,

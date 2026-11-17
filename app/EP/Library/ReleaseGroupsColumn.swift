@@ -60,7 +60,7 @@ struct ReleaseGroupsColumn: View {
     private func list(artist: Components.Schemas.ArtistDetail) -> some View {
         ScrollViewReader { proxy in
             List(
-                selection: shownSelection(browser.location.album, focused: focus.wrappedValue == .releaseGroups) {
+                selection: shownSelection(browser.location.album) {
                     browser.select(album: $0)
                 }
             ) {
