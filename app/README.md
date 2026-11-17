@@ -13,9 +13,11 @@ in the app and unit-test targets.
 EP.xcodeproj          hand-written; buildable folders, so new files need no project edits
 EP/                   the app target
   App/                EPApp (scenes, menu commands, focused values)
-  Connection/         ServerConnection (app-wide API client + connected/unreachable), banner
+  Connection/         ServerConnection (app-wide API client + connected/unreachable, retries
+                      by itself while unreachable: 5, 10, 20, then 30 s), the banner
   Design/             Tokens.swift (all colours, fonts, sizes), ColumnGrid layout
-  Settings/           AppSettings (UserDefaults + launch overrides), Settings window
+  Settings/           AppSettings (UserDefaults + launch overrides), Settings window,
+                      WatchFolders (/watch-dirs) and the "Watch a folder…" panel
   Shell/              main window frame: toolbar, list columns, detail panels, player bar
   Library/            artists / albums / tracks columns: ArtistList and LibraryBrowser
                       (per window: selection, history, navigate(to:)), CoverImages, the
@@ -100,7 +102,9 @@ names).
   `Packages/EPAPI/Sources/EPAPI/Generated/` and checked in, so the app build never builds
   or runs the generator. When the server's document changes, run
   `app/scripts/generate-api.sh` and commit the result together with the Swift changes
-  it needs; `OpenAPIDocumentTests` (EPTests) fails while the client is stale. Never edit
+  it needs; `OpenAPIDocumentTests` (EPTests) fails while the client is stale: when the
+  document or the generator's inputs (normalizer, configuration, Package.resolved)
+  changed. Never edit
   the generated files.
 - swift-openapi-generator 1.x supports nullability only as `type: [X, "null"]` and leaves
   out every property or parameter written `anyOf: [X, {"type": "null"}]` (how the server
@@ -139,8 +143,12 @@ names).
   `artists.column`, `detail.artist.collapse`, `connection.retry`, `settings.serverURL`.
   Rows: `area.row.<id>` with the entity ID (`artists.row.<artist>`,
   `releaseGroups.row.<release group>` and `releaseGroups.row.looseTracks`,
-  `tracks.row.<track>`, or `<recording>` among loose tracks). Areas so far: `toolbar`, `connection`,
-  `settings`, `player` (`player.bar`, `.title`, `.playPause`, `.scrubber`, `.queue`,
+  `tracks.row.<track>`, or `<recording>` among loose tracks). Areas so far: `toolbar`,
+  `settings` (`.serverURL`, `.retry`, `.connectionStatus`, `.serverInfo`,
+  `.libraryLocation`, `.folders` with `.add`, `.remove`, `.error`, and
+  `settings.folder.<id>` with `.enabled`, `.status`), `empty` (`empty.library`,
+  `.import`, `.watchFolder`), `connection` (`.banner`, `.countdown`, `.retry`,
+  `.settings`), `player` (`player.bar`, `.title`, `.playPause`, `.scrubber`, `.queue`,
   `.notice`, …), `detail` (`detail.<artist|album|track|episode>` with `.title`,
   `.collapse`, `.note`, `.note.editor`, `.note.status`, `.note.conflict` (`.keepMine`,
   `.useTheirs`), `.tags`, `.tag.<tag>` (`.remove`), `.addTag` (`.suggestions.row.<n>`),
@@ -211,5 +219,20 @@ the review sheet `review` (`.sheet`, `.title`, `.headline`, `.filter`, `.questio
   anything: AVPlayer for what AVFoundation plays, `DecodingEngine` for Ogg
   (Opus, Vorbis; AudioToolbox reads Ogg since macOS 15) and WebM/Opus. No third-party
   audio code. Unit tests generate Ogg/WebM fixtures with `ffmpeg` (skipped without it).
+- **States**: while the server does not answer, the window shows the banner with a
+  countdown to the next attempt (`ServerConnection.retryAt`) and keeps what it loaded
+  at 55 % opacity; notes are read-only. A cold start without a server has no data
+  (nothing is cached). A connected server whose counts are all zero shows the empty
+  library (§11.1) in place of the Library's columns. Lists show a skeleton only after
+  300 ms (`DelayedSkeleton`, the note's own).
+- **Selection**: a list hands its table the selection only while it has the focus
+  (`shownSelection`, solid accent); the other columns' selected rows draw `--selsoft`
+  themselves (`softSelection`). An artist shown by navigation that the filter hides
+  clears the filter, then shows radio-only artists.
+- **Menus**: Go (Back ⌘[, Forward ⌘]), File (New Artist/Album/Recording…, Import… ⇧⌘I,
+  Import Link from Clipboard — ⌘V outside text fields), Edit (Edit… ⌘E, Search… ⌘K,
+  Find… ⌘F), View (Library ⌘1, Radio ⌘2, Hide/Show Detail Panels ⌥⌘D), Controls
+  (Play/Pause — Space outside text fields and sheets, Next, Previous, Show Playing ⌘L),
+  Settings… ⌘,. Space in the review sheet previews the incoming track.
 - **Tests**: Swift Testing; happy path and the most important failures only.
 - Formatting: `swift format` (toolchain) with `.swift-format` in this directory.

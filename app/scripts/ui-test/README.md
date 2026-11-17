@@ -44,7 +44,9 @@ this Mac (16 GB) with a warm build.
   seeded once by `ep.seed` into the template database `ep_seed`; the API (`uvicorn`, no
   worker) serves a copy, `ep`, on `http://127.0.0.1:18439`. `reset` recreates `ep` from the
   template and restores the library folder from a clone. Ports: `EP_UITEST_DB_PORT`,
-  `EP_UITEST_API_PORT`. Never the dev database, never `~/Music`. The seeded audio covers
+  `EP_UITEST_API_PORT`. A second API on the next port serves an empty library (database
+  `ep_empty`, the schema only) for the first-launch state: `launch(server: .empty)`.
+  Never the dev database, never `~/Music`. The seeded audio covers
   every engine path: FLAC, MP3, M4A (AVPlayer); Sigur Rós's Svefn-g-englar (Ogg Vorbis),
   Björk's loose "Loose Tone" (WebM/Opus) and the episode "Homage to the night shift" (Ogg
   Opus) (`DecodingEngine`); the episode "Strings only" (Cocoon's excerpt) is M4A.
@@ -85,7 +87,8 @@ Support code is in `app/EPUITests/Support/` (`EPUITestCase`, `Harness`).
 - Find controls by accessibility identifier only (`app.element("area.element")`,
   `app.window(containing: "settings.serverURL")`); add identifiers in the app if missing
   (conventions in `app/README.md`). No coordinates, no sleeps: wait for an element or text.
-- `launch(server:)`: `.harness` (default), `.unreachable`, or `.saved` (only to test the
+- `launch(server:)`: `.harness` (default), `.unreachable`, `.empty` (nothing in the
+  library), or `.saved` (only to test the
   address setting itself; an overridden address cannot be edited).
 - Tests in one run share the backend (reset happens between runs, not between tests). A
   test that changes data must not break the others: change something only it looks at, or

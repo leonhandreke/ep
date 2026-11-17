@@ -115,6 +115,7 @@ private struct CreateFields: View {
                         }
                         .labelsHidden()
                         .fixedSize()
+                        .accessibilityIdentifier("create.type")
                         Text("Date").font(Typography.body).foregroundStyle(Palette.text2)
                         TextField("YYYY-MM-DD", text: $creator.date)
                             .textFieldStyle(.roundedBorder)

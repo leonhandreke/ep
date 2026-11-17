@@ -40,6 +40,9 @@ class EPUITestCase: XCTestCase {
         switch server {
         case .harness: app.launchEnvironment["EP_SERVER_URL"] = try Harness.requireAPI().absoluteString
         case .unreachable: app.launchEnvironment["EP_SERVER_URL"] = Harness.unreachableURL.absoluteString
+        case .empty:
+            guard let url = Harness.emptyAPIURL else { throw XCTSkip("Run through app/scripts/ui-test/uitest") }
+            app.launchEnvironment["EP_SERVER_URL"] = url.absoluteString
         case .saved: break
         }
         app.launchArguments += [

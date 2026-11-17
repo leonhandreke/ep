@@ -412,12 +412,13 @@ private struct TracklistRow: View {
                 link(
                     recording?.artistCredit.name ?? entry.artistText,
                     to: recording?.artistCredit.names.first.map { EntityRef(type: .artist, id: $0.artistId) },
-                    colors: colors
+                    colors: colors, id: "tracklist.row.\(entry.id).artist"
                 )
                 .frame(maxWidth: .infinity, alignment: .leading)
                 link(
                     recording?.title ?? entry.titleText,
-                    to: recording.map { EntityRef(type: .recording, id: $0.id) }, colors: colors
+                    to: recording.map { EntityRef(type: .recording, id: $0.id) }, colors: colors,
+                    id: "tracklist.row.\(entry.id).title"
                 )
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -454,7 +455,9 @@ private struct TracklistRow: View {
 
     /// A matched entry's artist or title: an `--accent` link into the Library; unmatched
     /// text is plain `--text2`.
-    @ViewBuilder private func link(_ text: String, to ref: EntityRef?, colors: RowForeground) -> some View {
+    @ViewBuilder private func link(_ text: String, to ref: EntityRef?, colors: RowForeground, id: String)
+        -> some View
+    {
         if let ref {
             Button {
                 openEntity?(OpenTarget(entity: ref), newWindow: NSEvent.modifierFlags.contains([.command, .option]))
@@ -467,6 +470,7 @@ private struct TracklistRow: View {
             }
             .buttonStyle(.plain)
             .pointerStyle(.link)
+            .accessibilityIdentifier(id)
         } else {
             Text(text)
                 .font(Typography.body)

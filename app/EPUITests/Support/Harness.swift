@@ -7,6 +7,8 @@ enum Harness {
 
     /// The private seeded backend (`uitest up`), e.g. http://127.0.0.1:18439.
     static let apiURL = environment["EP_UITEST_API"].flatMap(URL.init(string:))
+    /// A second API on an empty library (the first-launch state).
+    static let emptyAPIURL = environment["EP_UITEST_EMPTY_API"].flatMap(URL.init(string:))
     /// The harness's copy of EP.app: bundle id `de.ndreke.ep.uitest`, so its settings,
     /// window frames and saved state never touch `de.ndreke.ep(.debug)`.
     static let appURL = environment["EP_UITEST_APP"].map { URL(fileURLWithPath: $0) }
@@ -77,6 +79,8 @@ enum Server {
     case harness
     /// An address where nothing listens.
     case unreachable
+    /// The second private backend, with nothing in its library.
+    case empty
     /// Whatever the app's settings say; `uitest` saves the private backend there before
     /// every run. Only for tests of the setting itself: an overridden address cannot be
     /// edited in Settings.

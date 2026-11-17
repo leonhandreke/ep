@@ -18,7 +18,7 @@
 # shot and test start the backend if needed, build for testing (incremental), reset the
 # backend if an earlier run may have changed it, then run without building.
 # Environment: EP_UITEST_DIR (state, default app/build/ui-test), EP_UITEST_DB_PORT
-# (55439), EP_UITEST_API_PORT (18439).
+# (55439), EP_UITEST_API_PORT (18439; the empty library is served on the next port).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -29,6 +29,9 @@ STATE="${EP_UITEST_DIR:-$APP_DIR/build/ui-test}"
 DB_PORT="${EP_UITEST_DB_PORT:-55439}"
 API_PORT="${EP_UITEST_API_PORT:-18439}"
 API_URL="http://127.0.0.1:$API_PORT"
+# A second API on an empty library (the first-launch state), next to the seeded one.
+EMPTY_API_PORT=$((API_PORT + 1))
+EMPTY_API_URL="http://127.0.0.1:$EMPTY_API_PORT"
 CONTAINER=ep-uitest-db
 DB_URL="postgresql+psycopg://ep:ep@127.0.0.1:$DB_PORT"
 BUNDLE_ID=de.ndreke.ep.uitest # the harness copy of EP.app; Debug builds are de.ndreke.ep.debug
@@ -45,28 +48,32 @@ elapsed() { perl -e "printf '%.1f', $(now) - $1"; }
 psql_() { docker exec "$CONTAINER" psql -q -v ON_ERROR_STOP=1 -U ep -d postgres -c "$1" >/dev/null; }
 api_ok() { curl -fsS -m 2 -o /dev/null "$API_URL/server" 2>/dev/null; }
 api_pid() { cat "$STATE/api.pid" 2>/dev/null || true; }
+empty_api_pid() { cat "$STATE/empty-api.pid" 2>/dev/null || true; }
 
 # --- backend --------------------------------------------------------------------------
 
 is_up() {
     [[ -f "$STATE/backend.ready" ]] &&
         [[ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null)" == true ]] &&
-        kill -0 "$(api_pid)" 2>/dev/null && api_ok
+        kill -0 "$(api_pid)" 2>/dev/null && api_ok && kill -0 "$(empty_api_pid)" 2>/dev/null
 }
 
 stop_api() {
-    local pid
-    pid="$(api_pid)"
-    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
-        kill "$pid" 2>/dev/null || true
-        for _ in {1..50}; do kill -0 "$pid" 2>/dev/null || break; sleep 0.1; done
-        kill -9 "$pid" 2>/dev/null || true
-    fi
-    # A server left by a crashed run (pid file gone): only ours, by its command line.
-    for pid in $(lsof -nP -t -iTCP:"$API_PORT" -sTCP:LISTEN 2>/dev/null); do
-        if ps -o command= -p "$pid" | grep -q 'ep.main:app'; then kill -9 "$pid" 2>/dev/null || true; fi
+    local pid port
+    for pid in "$(api_pid)" "$(empty_api_pid)"; do
+        if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+            kill "$pid" 2>/dev/null || true
+            for _ in {1..50}; do kill -0 "$pid" 2>/dev/null || break; sleep 0.1; done
+            kill -9 "$pid" 2>/dev/null || true
+        fi
     done
-    rm -f "$STATE/api.pid"
+    # A server left by a crashed run (pid file gone): only ours, by its command line.
+    for port in "$API_PORT" "$EMPTY_API_PORT"; do
+        for pid in $(lsof -nP -t -iTCP:"$port" -sTCP:LISTEN 2>/dev/null); do
+            if ps -o command= -p "$pid" | grep -q 'ep.main:app'; then kill -9 "$pid" 2>/dev/null || true; fi
+        done
+    done
+    rm -f "$STATE/api.pid" "$STATE/empty-api.pid"
 }
 
 quit_apps() {
@@ -78,7 +85,7 @@ cmd_down() {
     quit_apps
     stop_api
     docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
-    rm -rf "$STATE/data" "$STATE/seed" "$STATE/backend.ready" "$STATE/dirty"
+    rm -rf "$STATE/data" "$STATE/seed" "$STATE/empty" "$STATE/backend.ready" "$STATE/dirty"
     defaults delete "$BUNDLE_ID" >/dev/null 2>&1 || true
     rm -rf "$HOME/Library/HTTPStorages/$BUNDLE_ID" "$HOME/Library/Caches/$BUNDLE_ID" \
         "$HOME/Library/Saved Application State/$BUNDLE_ID.savedState" \
@@ -86,23 +93,26 @@ cmd_down() {
     say "uitest: down"
 }
 
+# start_api DATABASE DATA_DIR PORT PIDFILE: an API (no worker) on DATABASE, its library
+# and watched folder under DATA_DIR.
 start_api() {
-    local py
+    local py database="$1" data="$2" port="$3" pidfile="$4"
     py="$(cd "$SERVER" && uv run --frozen --quiet python -c 'import sys; print(sys.executable)')"
+    mkdir -p "$data/library" "$data/watch"
     (
         cd "$SERVER"
-        EP_DATABASE_URL="$DB_URL/ep" EP_LIBRARY_DIR="$STATE/data/library" \
-            EP_MEDIA_ROOTS="[\"$STATE/data/library\", \"$STATE/data/watch\"]" \
-            nohup "$py" -m uvicorn ep.main:app --host 127.0.0.1 --port "$API_PORT" >>"$STATE/api.log" 2>&1 &
-        echo $! >"$STATE/api.pid"
+        EP_DATABASE_URL="$DB_URL/$database" EP_LIBRARY_DIR="$data/library" \
+            EP_MEDIA_ROOTS="[\"$data/library\", \"$data/watch\"]" \
+            nohup "$py" -m uvicorn ep.main:app --host 127.0.0.1 --port "$port" >>"$STATE/api.log" 2>&1 &
+        echo $! >"$pidfile"
     )
     for _ in {1..150}; do
-        api_ok && return 0
-        kill -0 "$(api_pid)" 2>/dev/null || break
+        curl -fsS -m 2 -o /dev/null "http://127.0.0.1:$port/server" 2>/dev/null && return 0
+        kill -0 "$(cat "$pidfile")" 2>/dev/null || break
         sleep 0.1
     done
     tail -20 "$STATE/api.log" >&2
-    die "the API did not start (log: $STATE/api.log)"
+    die "the API on port $port did not start (log: $STATE/api.log)"
 }
 
 cmd_up() {
@@ -134,7 +144,16 @@ cmd_up() {
     fi
     cp -Rc "$STATE/data" "$STATE/seed"
     psql_ "CREATE DATABASE ep TEMPLATE ep_seed"
-    start_api
+    # The empty library: the schema only (template ep_empty_seed, served as ep_empty).
+    psql_ "CREATE DATABASE ep_empty_seed"
+    if ! (cd "$SERVER" && EP_DATABASE_URL="$DB_URL/ep_empty_seed" uv run --frozen --quiet alembic upgrade head) \
+        >>"$STATE/seed.log" 2>&1; then
+        cat "$STATE/seed.log" >&2
+        die "creating the empty database failed"
+    fi
+    psql_ "CREATE DATABASE ep_empty TEMPLATE ep_empty_seed"
+    start_api ep "$STATE/data" "$API_PORT" "$STATE/api.pid"
+    start_api ep_empty "$STATE/empty" "$EMPTY_API_PORT" "$STATE/empty-api.pid"
     touch "$STATE/backend.ready"
     say "uitest: up at $API_URL ($(elapsed "$t0") s)"
 }
@@ -147,7 +166,10 @@ cmd_reset() {
     # The API's pool pings connections before use, so it survives the database swap.
     psql_ "DROP DATABASE IF EXISTS ep WITH (FORCE)"
     psql_ "CREATE DATABASE ep TEMPLATE ep_seed"
-    rm -rf "$STATE/data"
+    psql_ "DROP DATABASE IF EXISTS ep_empty WITH (FORCE)"
+    psql_ "CREATE DATABASE ep_empty TEMPLATE ep_empty_seed"
+    rm -rf "$STATE/data" "$STATE/empty"
+    mkdir -p "$STATE/empty/library" "$STATE/empty/watch"
     cp -Rc "$STATE/seed" "$STATE/data"
     rm -f "$STATE/dirty"
     say "uitest: reset ($(elapsed "$t0") s)"
@@ -220,7 +242,8 @@ run_tests() {
     # The .xctestrun that build-for-testing wrote: no project or package resolution (~2 s faster).
     local xctestrun
     xctestrun="$(ls -t "$DERIVED_DATA"/Build/Products/EP_EP_*.xctestrun | head -1)"
-    env TEST_RUNNER_EP_UITEST_API="$API_URL" TEST_RUNNER_EP_UITEST_APP="$HARNESS_APP" ${env[@]+"${env[@]}"} \
+    env TEST_RUNNER_EP_UITEST_API="$API_URL" TEST_RUNNER_EP_UITEST_EMPTY_API="$EMPTY_API_URL" \
+        TEST_RUNNER_EP_UITEST_APP="$HARNESS_APP" ${env[@]+"${env[@]}"} \
         xcodebuild test-without-building -xctestrun "$xctestrun" -destination "platform=macOS,arch=$(uname -m)" \
         -only-testing:EPUITests ${only[@]+"${only[@]}"} ${SKIP[@]+"${SKIP[@]}"} \
         -resultBundlePath "$RESULT" -test-timeouts-enabled YES -default-test-execution-time-allowance 120 \

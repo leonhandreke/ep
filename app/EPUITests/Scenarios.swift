@@ -260,21 +260,33 @@ final class Scenarios: EPUITestCase {
         screenshot("artistEditSheet")
     }
 
-    /// The server cannot be reached: banner with Retry and Settings….
+    /// A cold start without a server: the banner counts down to the next attempt, with
+    /// Retry and Settings…; no data.
     func testUnreachable() throws {
         let app = try launch(server: .unreachable)
-        waitFor(app.element("connection.banner"))
+        waitForText("Retrying in", in: app.element("connection.countdown"), timeout: 15)
         screenshot("unreachable")
     }
 
-    /// The Settings window, connected (server version and counts).
+    /// The Settings window, connected: server version and counts, library location, the
+    /// seeded watched folder.
     func testSettings() throws {
         let app = try launchConnected()
         app.typeKey(",", modifierFlags: .command)
         let settings = app.window(containing: "settings.serverURL")
         waitForText("Connected", in: settings.element("settings.connectionStatus"))
         waitFor(settings.element("settings.serverInfo"))
+        waitFor(settings.element("settings.libraryLocation"))
+        waitFor(settings.element("settings.folders"))
         screenshot("settings", of: settings)
+    }
+
+    /// First launch against an empty library: "Nothing here yet" with Import… and Watch a
+    /// folder….
+    func testEmptyLibrary() throws {
+        let app = try launch(server: .empty)
+        waitFor(app.element("empty.library"), timeout: 15)
+        screenshot("emptyLibrary")
     }
 
     // MARK: - Import
