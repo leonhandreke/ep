@@ -54,6 +54,9 @@ struct SheetChrome<Content: View>: View {
             }
             .padding(.horizontal, 24)
             .padding(.vertical, 18)
+            // The form sits under the heading and the footer at the bottom, whatever the
+            // sheet's height.
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             footer
         }
         .background(Palette.bg)

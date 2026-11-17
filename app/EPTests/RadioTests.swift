@@ -79,6 +79,7 @@ struct RadioBrowserTests {
 
         radio.select(episode: "e1")
         await radio.settle()
+        try #require(radio.entries.count == 2)
         #expect(radio.entries.map(\.id) == ["t1", "t2"])
         #expect(RadioFormat.tracklistMeta(try #require(radio.episode)) == "2 entries · 1:00 · 1 matched")
         #expect(RadioFormat.time(radio.entries[1]) == "~0:15")

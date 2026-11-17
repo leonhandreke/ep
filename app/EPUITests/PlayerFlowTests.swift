@@ -22,7 +22,7 @@ final class PlayerFlowTests: EPUITestCase {
         // Jóga, the album's other track that plays, is up next.
         waitForText("Björk — Homogenic", in: player.element("player.subtitle"))
         waitForText("1 up next", in: player.element("player.queue"))
-        waitFor(app.element("tracks.nowPlaying"))
+        waitForText("Now playing", in: app.row("tracks", id: Seed.hunterTrack))
 
         // Elsewhere in the Library, ⌘L comes back to what plays.
         app.typeKey("[", modifierFlags: .command)

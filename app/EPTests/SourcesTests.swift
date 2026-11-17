@@ -61,7 +61,7 @@ struct SourcesStoreTests {
         let (store, _) = await store()
         store.load()
         await store.settle()
-        #expect(store.sources.count == 3)
+        try #require(store.sources.count == 3)
         #expect(store.chosenID == "f1" && !store.hasPreference)
         let file = store.sources[0]
         #expect(file.codecChip == "FLAC 16/44.1")

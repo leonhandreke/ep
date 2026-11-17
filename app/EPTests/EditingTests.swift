@@ -160,6 +160,7 @@ struct AlbumEditorTests {
             "PATCH /release-groups/g1", "PATCH /recordings/r-t2", "PUT /release-groups/g1/track-order",
         ])
         let bodies = try sent.map { try JSONSerialization.jsonObject(with: #require($0.body)) as? NSDictionary }
+        try #require(bodies.count == 3)
         #expect(bodies[0] == ["title": "Medúlla!"])
         #expect(
             bodies[1] == [

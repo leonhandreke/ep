@@ -157,7 +157,7 @@ struct PlayerTests {
         #expect(player.queue.map(\.title) == ["Cocoon"])
 
         // Queue: remove and clear.
-        player.removeFromQueue(player.queue[0].id)
+        player.removeFromQueue(try #require(player.queue.first).id)
         #expect(player.queue.isEmpty)
 
         // At the end of the queue the last item stays, paused at its start.
@@ -198,7 +198,7 @@ struct PlayerTests {
 
         player.play(.track(album[1], in: album, album: nil))
         await settle()
-        #expect(engine.loads.count == 1)
+        try #require(engine.loads.count == 1)
         #expect(engine.loads[0].seconds == 4)
         #expect(player.queue.isEmpty)
         #expect(player.scrubberRange == 0...12000)

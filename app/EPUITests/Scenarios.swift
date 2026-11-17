@@ -174,7 +174,8 @@ final class Scenarios: EPUITestCase {
         app.row("artists", id: Seed.bjork).click()
         waitFor(app.row("releaseGroups", id: Seed.homogenic)).click()
         waitFor(app.element("detail.album.tags"))
-        app.typeKey("d", modifierFlags: [.command, .option])
+        // The menu item (⌥⌘D): XCUITest's synthetic ⌥⌘D does not reach its key equivalent.
+        app.menuBars.menuItems["Hide Detail Panels"].click()
         waitForAbsence(app.element("detail.album.tags"))
         screenshot("detailCollapsed")
     }
@@ -192,7 +193,9 @@ final class Scenarios: EPUITestCase {
     func testRadioEpisode() throws {
         let app = try launchConnected()
         openNightShift(in: app)
-        waitFor(app.row("tracklist", id: Seed.nightShiftEntry2)).click()
+        // On the time: the artist and title of a matched entry are links into the Library.
+        waitFor(app.row("tracklist", id: Seed.nightShiftEntry2))
+            .coordinate(withNormalizedOffset: CGVector(dx: 0.04, dy: 0.5)).click()
         screenshot("radioEpisode")
     }
 
@@ -210,9 +213,9 @@ final class Scenarios: EPUITestCase {
         let app = try launchConnected()
         app.typeKey("k", modifierFlags: .command)
         let field = waitFor(app.element("search.field"))
-        field.typeText("bjork")
+        field.typeText("bjork vesp")
         waitFor(app.element("search.group.topHit"))
-        waitFor(app.element("search.row.1"))
+        waitFor(app.element("search.row.0"))
         screenshot("searchResults")
     }
 

@@ -51,6 +51,7 @@ struct APIClientTests {
         let bodies = try transport.requests.map {
             try JSONSerialization.jsonObject(with: #require($0.body)) as? NSDictionary
         }
+        try #require(bodies.count == 2)
         #expect(bodies[0] == ["title": "Jóga", "length_ms": NSNull()])
         #expect(bodies[1] == ["title": "Jóga"])
         #expect(transport.requests[0].request.headerFields[.contentLength] == String(transport.requests[0].body!.count))

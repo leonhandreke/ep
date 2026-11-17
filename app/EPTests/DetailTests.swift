@@ -96,8 +96,8 @@ struct EntityDetailsTests {
         let backlink = try #require(details.backlinks.first)
         #expect(backlink.kind == "Album" && backlink.title == "Homogenic")
         // The highlight is in UTF-16 units: the violin counts 2.
-        let snippet = backlink.snippets[0]
-        #expect((snippet.text as NSString).substring(with: snippet.highlights[0]) == "Björk")
+        let snippet = try #require(backlink.snippets.first)
+        #expect((snippet.text as NSString).substring(with: try #require(snippet.highlights.first)) == "Björk")
         let radio = try #require(details.radioAppearances.first)
         #expect(radio.position == "~1:12:40" && radio.isEstimated && radio.canPlay)
         #expect(radio.heading.hasPrefix("Late Night Tapes — "))
@@ -136,7 +136,7 @@ struct EntityDetailsTests {
         let sent = try JSONSerialization.jsonObject(with: post.body ?? Data()) as? [String: String]
         #expect(sent == ["name": "strings"])
 
-        details.removeTag(details.tags[0])
+        details.removeTag(try #require(details.tags.first))
         await details.settle()
         #expect(details.tags.isEmpty)
         #expect(details.tagError == nil)

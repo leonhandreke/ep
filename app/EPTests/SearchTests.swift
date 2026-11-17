@@ -56,6 +56,7 @@ struct SearchStoreTests {
         store.update("bjork vesp")
         await store.settle()
 
+        try #require(store.groups.count == 4)  // a failed search must not crash the host below
         #expect(store.groups.map(\.kind) == [.topHit, .tracks, .artists, .radio])
         #expect(store.groups[1].hits.map(\.title) == ["Hidden Place", "Pagan Poetry"])
         #expect(store.hits.map(\.title) == ["Vespertine", "Hidden Place", "Pagan Poetry", "Björk", "Strings only"])

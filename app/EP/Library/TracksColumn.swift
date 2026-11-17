@@ -233,6 +233,7 @@ private struct TrackRowView: View {
         .contentShape(Rectangle())
         .help(row.playState.label)
         .accessibilityElement(children: .combine)
+        .accessibilityValue(isPlaying ? String(localized: "Now playing") : "")
         .accessibilityIdentifier("tracks.row.\(row.id)")
     }
 
