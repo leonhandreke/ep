@@ -3739,6 +3739,23 @@
         "operationId": "search_library",
         "parameters": [
           {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
             "name": "types",
             "in": "query",
             "required": false,
@@ -3805,23 +3822,6 @@
               "type": "boolean",
               "default": false,
               "title": "Include Radio Only"
-            }
-          },
-          {
-            "name": "q",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string",
-                  "minLength": 1
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Q"
             }
           }
         ],

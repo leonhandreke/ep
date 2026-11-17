@@ -40,12 +40,13 @@ RADIO_MATCH_FACTOR = 0.9
 @router.get("/search")
 def search_library(
     session: SessionDep,
+    *,
+    q: Annotated[str | None, Query(min_length=1)] = None,
     types: Annotated[list[EntityType], Query(default_factory=list)],
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     per_type: Annotated[int | None, Query(ge=1, le=100)] = None,
     tag_id: uuid.UUID | None = None,
     include_radio_only: bool = False,
-    q: Annotated[str | None, Query(min_length=1)] = None,
 ) -> list[SearchHitRead]:
     """Artists, release groups, recordings, radio shows and radio episodes matching
     ``q``, best first.
