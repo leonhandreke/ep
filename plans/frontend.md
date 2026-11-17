@@ -200,8 +200,8 @@ How the remaining work is run (user's instructions, to limit usage):
   - 4 Player (done; AVPlayer plus an in-app engine for Ogg and WebM)
   - 5+6 Detail panels and note editor (done)
   - 7+8 Radio view, search, sources, editing (done)
-  - 9 Import
-  - 10 Settings, states, polish
+  - 9 Import (done)
+  - 10 Settings, states, polish (done; final pass 5394f4c)
 - Every agent reads all of `plans/frontend-design.md` and this plan, so it understands
   the whole app; its brief names the sections its stage implements, to read closely.
 - Commits are authorised; co-author line names the model that did the work.
@@ -234,8 +234,8 @@ Waiting on the user:
   No circumvention is to be added without the user's decision.
 
 Environment notes: `/Applications/EP.app` is the user's symlink to the app build. The
-user wants it to point at a Release build (bundle id `de.ndreke.ep`), made by the
-orchestrator after the last stage; until then it points at the Debug build in
-`app/build/DerivedData`. Keep that derived-data path; Xcode 26.3 is active; UI-automation mode is enabled; harness runs
+user wants it to point at the Release build (bundle id `de.ndreke.ep`, ad-hoc signed)
+at `app/build/DerivedData/Build/Products/Release/EP.app`; rebuild Release after
+changes the user should get. Keep that derived-data path; Xcode 26.3 is active; UI-automation mode is enabled; harness runs
 take focus; AeroSpace (window manager) was quit by the user — if it runs again, the
 harness window needs a floating rule for `de.ndreke.ep.uitest`.
