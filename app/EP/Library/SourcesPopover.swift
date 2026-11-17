@@ -206,14 +206,14 @@ private struct SourceOption: View {
         .background(chosen ? Palette.selSoft : .clear, in: RoundedRectangle(cornerRadius: Radius.largeButton))
         .contentShape(Rectangle())
         .onTapGesture {
-            if source.plays, !isLink, !chosen { store.choose(source.source.id) }
+            if source.playable, !chosen { store.choose(source.source.id) }
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("\(source.title), \(source.provenance), \(source.location)")
         .accessibilityAddTraits(chosen ? [.isButton, .isSelected] : .isButton)
         .accessibilityHint(isLink ? String(localized: "Links cannot play here") : String(localized: "Plays this source"))
         .accessibilityAction(named: "Choose") {
-            if source.plays, !isLink { store.choose(source.source.id) }
+            if source.playable { store.choose(source.source.id) }
         }
         .accessibilityIdentifier("sources.option.\(source.source.id)")
     }

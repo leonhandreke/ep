@@ -41,7 +41,7 @@ struct APIClientTests {
         let client = Client.ep(serverURL: URL(string: "http://ep.test")!, transport: transport)
         typealias Keys = Components.Schemas.RecordingUpdate.CodingKeys
 
-        _ = try? await withExplicitNulls(Keys.preferredSourceId) {
+        _ = try? await withExplicitNulls(Keys.lengthMs) {
             try await client.updateRecording(path: .init(id: "r1"), body: .json(.init(title: "Jóga")))
         }
         // Outside the closure, nil is left out as usual.
@@ -50,7 +50,7 @@ struct APIClientTests {
         let bodies = try transport.requests.map {
             try JSONSerialization.jsonObject(with: #require($0.body)) as? NSDictionary
         }
-        #expect(bodies[0] == ["title": "Jóga", "preferred_source_id": NSNull()])
+        #expect(bodies[0] == ["title": "Jóga", "length_ms": NSNull()])
         #expect(bodies[1] == ["title": "Jóga"])
         #expect(transport.requests[0].request.headerFields[.contentLength] == String(transport.requests[0].body!.count))
     }

@@ -5402,6 +5402,7 @@ public enum Operations {
     /// Remove Entity Tag
     ///
     /// Remove a tag from an entity (the tag stays, even if nothing has it any more).
+    /// Returns the entity's tags, as adding one does.
     ///
     /// - Remark: HTTP `DELETE /entity-tags/{type}/{id}/{tag_id}`.
     /// - Remark: Generated from `#/paths//entity-tags/{type}/{id}/{tag_id}/delete(remove_entity_tag)`.
@@ -5459,36 +5460,52 @@ public enum Operations {
             }
         }
         @frozen public enum Output: Sendable, Hashable {
-            public struct NoContent: Sendable, Hashable {
-                /// Creates a new `NoContent`.
-                public init() {}
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/entity-tags/{type}/{id}/{tag_id}/DELETE/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/entity-tags/{type}/{id}/{tag_id}/DELETE/responses/200/content/application\/json`.
+                    case json([Components.Schemas.TagRead])
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: [Components.Schemas.TagRead] {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.RemoveEntityTag.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.RemoveEntityTag.Output.Ok.Body) {
+                    self.body = body
+                }
             }
             /// Successful Response
             ///
-            /// - Remark: Generated from `#/paths//entity-tags/{type}/{id}/{tag_id}/delete(remove_entity_tag)/responses/204`.
+            /// - Remark: Generated from `#/paths//entity-tags/{type}/{id}/{tag_id}/delete(remove_entity_tag)/responses/200`.
             ///
-            /// HTTP response code: `204 noContent`.
-            case noContent(Operations.RemoveEntityTag.Output.NoContent)
-            /// Successful Response
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.RemoveEntityTag.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
             ///
-            /// - Remark: Generated from `#/paths//entity-tags/{type}/{id}/{tag_id}/delete(remove_entity_tag)/responses/204`.
-            ///
-            /// HTTP response code: `204 noContent`.
-            public static var noContent: Self {
-                .noContent(.init())
-            }
-            /// The associated value of the enum case if `self` is `.noContent`.
-            ///
-            /// - Throws: An error if `self` is not `.noContent`.
-            /// - SeeAlso: `.noContent`.
-            public var noContent: Operations.RemoveEntityTag.Output.NoContent {
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.RemoveEntityTag.Output.Ok {
                 get throws {
                     switch self {
-                    case let .noContent(response):
+                    case let .ok(response):
                         return response
                     default:
                         try throwUnexpectedResponseStatus(
-                            expectedStatus: "noContent",
+                            expectedStatus: "ok",
                             response: self
                         )
                     }
@@ -12221,8 +12238,7 @@ public enum Operations {
     }
     /// Update Recording
     ///
-    /// Change a recording. ``preferred_source_id`` must be one of its sources that plays
-    /// (a file, or a slice of one).
+    /// Change a recording (its preferred source: ``PUT /recordings/{id}/preferred-source``).
     ///
     /// - Remark: HTTP `PATCH /recordings/{id}`.
     /// - Remark: Generated from `#/paths//recordings/{id}/patch(update_recording)`.
@@ -13520,6 +13536,249 @@ public enum Operations {
             }
         }
     }
+    /// Set Preferred Source
+    ///
+    /// Choose which source plays (one of the recording's ``playable`` sources), or the
+    /// default choice (``source_id`` null): the oldest library source whose file is there,
+    /// else the oldest radio excerpt. Returns the recording's sources.
+    ///
+    /// - Remark: HTTP `PUT /recordings/{id}/preferred-source`.
+    /// - Remark: Generated from `#/paths//recordings/{id}/preferred-source/put(set_preferred_source)`.
+    public enum SetPreferredSource {
+        public static let id: Swift.String = "set_preferred_source"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/recordings/{id}/preferred-source/PUT/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/recordings/{id}/preferred-source/PUT/path/id`.
+                public var id: Swift.String
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Swift.String) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.SetPreferredSource.Input.Path
+            /// - Remark: Generated from `#/paths/recordings/{id}/preferred-source/PUT/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.SetPreferredSource.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.SetPreferredSource.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.SetPreferredSource.Input.Headers
+            /// - Remark: Generated from `#/paths/recordings/{id}/preferred-source/PUT/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/recordings/{id}/preferred-source/PUT/requestBody/content/application\/json`.
+                case json(Components.Schemas.PreferredSourceWrite)
+            }
+            public var body: Operations.SetPreferredSource.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            ///   - body:
+            public init(
+                path: Operations.SetPreferredSource.Input.Path,
+                headers: Operations.SetPreferredSource.Input.Headers = .init(),
+                body: Operations.SetPreferredSource.Input.Body
+            ) {
+                self.path = path
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/recordings/{id}/preferred-source/PUT/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/recordings/{id}/preferred-source/PUT/responses/200/content/application\/json`.
+                    case json([Components.Schemas.RecordingSourceRead])
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: [Components.Schemas.RecordingSourceRead] {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.SetPreferredSource.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.SetPreferredSource.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Successful Response
+            ///
+            /// - Remark: Generated from `#/paths//recordings/{id}/preferred-source/put(set_preferred_source)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.SetPreferredSource.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.SetPreferredSource.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct NotFound: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/recordings/{id}/preferred-source/PUT/responses/404/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/recordings/{id}/preferred-source/PUT/responses/404/content/application\/json`.
+                    case json(Components.Schemas.ErrorRead)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorRead {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.SetPreferredSource.Output.NotFound.Body
+                /// Creates a new `NotFound`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.SetPreferredSource.Output.NotFound.Body) {
+                    self.body = body
+                }
+            }
+            /// Not found
+            ///
+            /// - Remark: Generated from `#/paths//recordings/{id}/preferred-source/put(set_preferred_source)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Operations.SetPreferredSource.Output.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Operations.SetPreferredSource.Output.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct UnprocessableContent: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/recordings/{id}/preferred-source/PUT/responses/422/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/recordings/{id}/preferred-source/PUT/responses/422/content/application\/json`.
+                    case json(Components.Schemas.HTTPValidationError)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.HTTPValidationError {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.SetPreferredSource.Output.UnprocessableContent.Body
+                /// Creates a new `UnprocessableContent`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.SetPreferredSource.Output.UnprocessableContent.Body) {
+                    self.body = body
+                }
+            }
+            /// Validation Error
+            ///
+            /// - Remark: Generated from `#/paths//recordings/{id}/preferred-source/put(set_preferred_source)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Operations.SetPreferredSource.Output.UnprocessableContent)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Operations.SetPreferredSource.Output.UnprocessableContent {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
     /// List Recording Radio Appearances
     ///
     /// The radio episodes that played this recording, newest first, with the time.
@@ -13757,7 +14016,12 @@ public enum Operations {
     /// The sources of this recording, oldest first: what each is (its own file, a range
     /// of a shared file, a radio excerpt, a link), where it came from (its parent sources),
     /// the file it plays from (with its host path and whether it is there), the radio
-    /// entry of an excerpt, and which one the user chose and which one plays.
+    /// entry of an excerpt, whether it can be chosen to play, whether the user chose it and
+    /// which one will play.
+    ///
+    /// The changes made from this list (``POST /recordings/{id}/sources``,
+    /// ``PATCH /recordings/{id}/sources/{source_id}``,
+    /// ``PUT /recordings/{id}/preferred-source``) answer with it.
     ///
     /// - Remark: HTTP `GET /recordings/{id}/sources`.
     /// - Remark: Generated from `#/paths//recordings/{id}/sources/get(list_recording_sources)`.
@@ -13944,6 +14208,600 @@ public enum Operations {
             /// - Throws: An error if `self` is not `.unprocessableContent`.
             /// - SeeAlso: `.unprocessableContent`.
             public var unprocessableContent: Operations.ListRecordingSources.Output.UnprocessableContent {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Add Recording Source
+    ///
+    /// Add a source to this recording (as ``POST /sources``: a file, a slice, a link).
+    /// Returns the recording's sources.
+    ///
+    /// - Remark: HTTP `POST /recordings/{id}/sources`.
+    /// - Remark: Generated from `#/paths//recordings/{id}/sources/post(add_recording_source)`.
+    public enum AddRecordingSource {
+        public static let id: Swift.String = "add_recording_source"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/recordings/{id}/sources/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/recordings/{id}/sources/POST/path/id`.
+                public var id: Swift.String
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Swift.String) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.AddRecordingSource.Input.Path
+            /// - Remark: Generated from `#/paths/recordings/{id}/sources/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.AddRecordingSource.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.AddRecordingSource.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.AddRecordingSource.Input.Headers
+            /// - Remark: Generated from `#/paths/recordings/{id}/sources/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/recordings/{id}/sources/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.RecordingSourceCreate)
+            }
+            public var body: Operations.AddRecordingSource.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            ///   - body:
+            public init(
+                path: Operations.AddRecordingSource.Input.Path,
+                headers: Operations.AddRecordingSource.Input.Headers = .init(),
+                body: Operations.AddRecordingSource.Input.Body
+            ) {
+                self.path = path
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Created: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/recordings/{id}/sources/POST/responses/201/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/recordings/{id}/sources/POST/responses/201/content/application\/json`.
+                    case json([Components.Schemas.RecordingSourceRead])
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: [Components.Schemas.RecordingSourceRead] {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.AddRecordingSource.Output.Created.Body
+                /// Creates a new `Created`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.AddRecordingSource.Output.Created.Body) {
+                    self.body = body
+                }
+            }
+            /// Successful Response
+            ///
+            /// - Remark: Generated from `#/paths//recordings/{id}/sources/post(add_recording_source)/responses/201`.
+            ///
+            /// HTTP response code: `201 created`.
+            case created(Operations.AddRecordingSource.Output.Created)
+            /// The associated value of the enum case if `self` is `.created`.
+            ///
+            /// - Throws: An error if `self` is not `.created`.
+            /// - SeeAlso: `.created`.
+            public var created: Operations.AddRecordingSource.Output.Created {
+                get throws {
+                    switch self {
+                    case let .created(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "created",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct NotFound: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/recordings/{id}/sources/POST/responses/404/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/recordings/{id}/sources/POST/responses/404/content/application\/json`.
+                    case json(Components.Schemas.ErrorRead)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorRead {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.AddRecordingSource.Output.NotFound.Body
+                /// Creates a new `NotFound`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.AddRecordingSource.Output.NotFound.Body) {
+                    self.body = body
+                }
+            }
+            /// Not found
+            ///
+            /// - Remark: Generated from `#/paths//recordings/{id}/sources/post(add_recording_source)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Operations.AddRecordingSource.Output.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Operations.AddRecordingSource.Output.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Conflict: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/recordings/{id}/sources/POST/responses/409/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/recordings/{id}/sources/POST/responses/409/content/application\/json`.
+                    case json(Components.Schemas.ErrorRead)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorRead {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.AddRecordingSource.Output.Conflict.Body
+                /// Creates a new `Conflict`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.AddRecordingSource.Output.Conflict.Body) {
+                    self.body = body
+                }
+            }
+            /// Conflicts with existing data
+            ///
+            /// - Remark: Generated from `#/paths//recordings/{id}/sources/post(add_recording_source)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Operations.AddRecordingSource.Output.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Operations.AddRecordingSource.Output.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct UnprocessableContent: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/recordings/{id}/sources/POST/responses/422/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/recordings/{id}/sources/POST/responses/422/content/application\/json`.
+                    case json(Components.Schemas.HTTPValidationError)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.HTTPValidationError {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.AddRecordingSource.Output.UnprocessableContent.Body
+                /// Creates a new `UnprocessableContent`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.AddRecordingSource.Output.UnprocessableContent.Body) {
+                    self.body = body
+                }
+            }
+            /// Validation Error
+            ///
+            /// - Remark: Generated from `#/paths//recordings/{id}/sources/post(add_recording_source)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Operations.AddRecordingSource.Output.UnprocessableContent)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Operations.AddRecordingSource.Output.UnprocessableContent {
+                get throws {
+                    switch self {
+                    case let .unprocessableContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unprocessableContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// Update Recording Source
+    ///
+    /// Change a source the recording plays from, as ``PATCH /sources/{id}`` does: one of
+    /// its sources, or a source one derives from (locating a moved album or episode file
+    /// shared with other recordings). Returns the recording's sources.
+    ///
+    /// - Remark: HTTP `PATCH /recordings/{id}/sources/{source_id}`.
+    /// - Remark: Generated from `#/paths//recordings/{id}/sources/{source_id}/patch(update_recording_source)`.
+    public enum UpdateRecordingSource {
+        public static let id: Swift.String = "update_recording_source"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/recordings/{id}/sources/{source_id}/PATCH/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/recordings/{id}/sources/{source_id}/PATCH/path/id`.
+                public var id: Swift.String
+                /// - Remark: Generated from `#/paths/recordings/{id}/sources/{source_id}/PATCH/path/source_id`.
+                public var sourceId: Swift.String
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                ///   - sourceId:
+                public init(
+                    id: Swift.String,
+                    sourceId: Swift.String
+                ) {
+                    self.id = id
+                    self.sourceId = sourceId
+                }
+            }
+            public var path: Operations.UpdateRecordingSource.Input.Path
+            /// - Remark: Generated from `#/paths/recordings/{id}/sources/{source_id}/PATCH/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.UpdateRecordingSource.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.UpdateRecordingSource.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.UpdateRecordingSource.Input.Headers
+            /// - Remark: Generated from `#/paths/recordings/{id}/sources/{source_id}/PATCH/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/recordings/{id}/sources/{source_id}/PATCH/requestBody/content/application\/json`.
+                case json(Components.Schemas.SourceUpdate)
+            }
+            public var body: Operations.UpdateRecordingSource.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            ///   - body:
+            public init(
+                path: Operations.UpdateRecordingSource.Input.Path,
+                headers: Operations.UpdateRecordingSource.Input.Headers = .init(),
+                body: Operations.UpdateRecordingSource.Input.Body
+            ) {
+                self.path = path
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/recordings/{id}/sources/{source_id}/PATCH/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/recordings/{id}/sources/{source_id}/PATCH/responses/200/content/application\/json`.
+                    case json([Components.Schemas.RecordingSourceRead])
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: [Components.Schemas.RecordingSourceRead] {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.UpdateRecordingSource.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.UpdateRecordingSource.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// Successful Response
+            ///
+            /// - Remark: Generated from `#/paths//recordings/{id}/sources/{source_id}/patch(update_recording_source)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.UpdateRecordingSource.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.UpdateRecordingSource.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct NotFound: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/recordings/{id}/sources/{source_id}/PATCH/responses/404/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/recordings/{id}/sources/{source_id}/PATCH/responses/404/content/application\/json`.
+                    case json(Components.Schemas.ErrorRead)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorRead {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.UpdateRecordingSource.Output.NotFound.Body
+                /// Creates a new `NotFound`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.UpdateRecordingSource.Output.NotFound.Body) {
+                    self.body = body
+                }
+            }
+            /// Not found
+            ///
+            /// - Remark: Generated from `#/paths//recordings/{id}/sources/{source_id}/patch(update_recording_source)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Operations.UpdateRecordingSource.Output.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Operations.UpdateRecordingSource.Output.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Conflict: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/recordings/{id}/sources/{source_id}/PATCH/responses/409/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/recordings/{id}/sources/{source_id}/PATCH/responses/409/content/application\/json`.
+                    case json(Components.Schemas.ErrorRead)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ErrorRead {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.UpdateRecordingSource.Output.Conflict.Body
+                /// Creates a new `Conflict`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.UpdateRecordingSource.Output.Conflict.Body) {
+                    self.body = body
+                }
+            }
+            /// Conflicts with existing data
+            ///
+            /// - Remark: Generated from `#/paths//recordings/{id}/sources/{source_id}/patch(update_recording_source)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Operations.UpdateRecordingSource.Output.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Operations.UpdateRecordingSource.Output.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct UnprocessableContent: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/recordings/{id}/sources/{source_id}/PATCH/responses/422/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/recordings/{id}/sources/{source_id}/PATCH/responses/422/content/application\/json`.
+                    case json(Components.Schemas.HTTPValidationError)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.HTTPValidationError {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.UpdateRecordingSource.Output.UnprocessableContent.Body
+                /// Creates a new `UnprocessableContent`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.UpdateRecordingSource.Output.UnprocessableContent.Body) {
+                    self.body = body
+                }
+            }
+            /// Validation Error
+            ///
+            /// - Remark: Generated from `#/paths//recordings/{id}/sources/{source_id}/patch(update_recording_source)/responses/422`.
+            ///
+            /// HTTP response code: `422 unprocessableContent`.
+            case unprocessableContent(Operations.UpdateRecordingSource.Output.UnprocessableContent)
+            /// The associated value of the enum case if `self` is `.unprocessableContent`.
+            ///
+            /// - Throws: An error if `self` is not `.unprocessableContent`.
+            /// - SeeAlso: `.unprocessableContent`.
+            public var unprocessableContent: Operations.UpdateRecordingSource.Output.UnprocessableContent {
                 get throws {
                     switch self {
                     case let .unprocessableContent(response):
@@ -16563,9 +17421,10 @@ public enum Operations {
     /// typos, and matches artist and title together ("nina simone sinnerman"). ``types``
     /// (repeatable) limits the entity types; default all. ``per_type`` caps the hits of
     /// each type (for results grouped by type), ``limit`` all of them. ``tag_id``: only
-    /// entities with that tag (everything with a tag: ``GET /tags/{id}/entities``).
-    /// Artists and recordings only known from radio tracklists are left out unless
-    /// ``include_radio_only``.
+    /// entities with that tag. Give ``q``, ``tag_id`` or both: without ``q``, everything
+    /// with the tag, by type (artists, release groups, recordings, radio shows, radio
+    /// episodes) and then by name, with ``score`` null. Artists and recordings only known
+    /// from radio tracklists are left out unless ``include_radio_only``.
     ///
     /// Radio episodes are also found by what they played: an episode that played a
     /// matching recording, or a track of a matching release group, is a hit with
@@ -16582,7 +17441,7 @@ public enum Operations {
             /// - Remark: Generated from `#/paths/search/GET/query`.
             public struct Query: Sendable, Hashable {
                 /// - Remark: Generated from `#/paths/search/GET/query/q`.
-                public var q: Swift.String
+                public var q: Swift.String?
                 /// - Remark: Generated from `#/paths/search/GET/query/types`.
                 public var types: [Components.Schemas.EntityType]?
                 /// - Remark: Generated from `#/paths/search/GET/query/limit`.
@@ -16603,7 +17462,7 @@ public enum Operations {
                 ///   - tagId:
                 ///   - includeRadioOnly:
                 public init(
-                    q: Swift.String,
+                    q: Swift.String? = nil,
                     types: [Components.Schemas.EntityType]? = nil,
                     limit: Swift.Int? = nil,
                     perType: Swift.Int? = nil,
@@ -16637,7 +17496,7 @@ public enum Operations {
             ///   - query:
             ///   - headers:
             public init(
-                query: Operations.SearchLibrary.Input.Query,
+                query: Operations.SearchLibrary.Input.Query = .init(),
                 headers: Operations.SearchLibrary.Input.Headers = .init()
             ) {
                 self.query = query
@@ -16895,6 +17754,8 @@ public enum Operations {
     /// Create Source
     ///
     /// Create a source of any kind: a file (must exist), a slice of a source, a remote link.
+    /// (``POST /recordings/{id}/sources`` adds one to a recording and answers with its
+    /// sources.)
     ///
     /// A file must lie under one of the media roots (``EP_MEDIA_ROOTS``); a host path in a
     /// directory of ``EP_HOST_PATHS`` is taken as the server path it maps to. Its codec,
@@ -17355,7 +18216,8 @@ public enum Operations {
     ///
     /// Change a source; a file's new ``uri`` (to locate a moved file) may be a host path
     /// (``EP_HOST_PATHS``). A file found at its new ``uri`` is read again (media type,
-    /// codec, ...: it may have been re-encoded).
+    /// codec, ...: it may have been re-encoded). (``PATCH /recordings/{id}/sources/{id}``
+    /// does the same and answers with the recording's sources.)
     ///
     /// - Remark: HTTP `PATCH /sources/{id}`.
     /// - Remark: Generated from `#/paths//sources/{id}/patch(update_source)`.
@@ -18309,8 +19171,8 @@ public enum Operations {
     }
     /// List Tags
     ///
-    /// Tags by name, with how many entities have each. ``prefix`` (ignoring case)
-    /// narrows them, for autocomplete.
+    /// Tags with how many entities have each, by name or (``sort=count``) most used
+    /// first. ``prefix`` (ignoring case) narrows them, for autocomplete.
     ///
     /// - Remark: HTTP `GET /tags`.
     /// - Remark: Generated from `#/paths//tags/get(list_tags)`.
@@ -18321,6 +19183,8 @@ public enum Operations {
             public struct Query: Sendable, Hashable {
                 /// - Remark: Generated from `#/paths/tags/GET/query/prefix`.
                 public var prefix: Swift.String?
+                /// - Remark: Generated from `#/paths/tags/GET/query/sort`.
+                public var sort: Components.Schemas.TagSort?
                 /// - Remark: Generated from `#/paths/tags/GET/query/limit`.
                 public var limit: Swift.Int?
                 /// - Remark: Generated from `#/paths/tags/GET/query/offset`.
@@ -18329,14 +19193,17 @@ public enum Operations {
                 ///
                 /// - Parameters:
                 ///   - prefix:
+                ///   - sort:
                 ///   - limit:
                 ///   - offset:
                 public init(
                     prefix: Swift.String? = nil,
+                    sort: Components.Schemas.TagSort? = nil,
                     limit: Swift.Int? = nil,
                     offset: Swift.Int? = nil
                 ) {
                     self.prefix = prefix
+                    self.sort = sort
                     self.limit = limit
                     self.offset = offset
                 }
@@ -19219,289 +20086,6 @@ public enum Operations {
             /// - Throws: An error if `self` is not `.unprocessableContent`.
             /// - SeeAlso: `.unprocessableContent`.
             public var unprocessableContent: Operations.DeleteTag.Output.UnprocessableContent {
-                get throws {
-                    switch self {
-                    case let .unprocessableContent(response):
-                        return response
-                    default:
-                        try throwUnexpectedResponseStatus(
-                            expectedStatus: "unprocessableContent",
-                            response: self
-                        )
-                    }
-                }
-            }
-            /// Undocumented response.
-            ///
-            /// A response with a code that is not documented in the OpenAPI document.
-            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
-        }
-        @frozen public enum AcceptableContentType: AcceptableProtocol {
-            case json
-            case other(Swift.String)
-            public init?(rawValue: Swift.String) {
-                switch rawValue.lowercased() {
-                case "application/json":
-                    self = .json
-                default:
-                    self = .other(rawValue)
-                }
-            }
-            public var rawValue: Swift.String {
-                switch self {
-                case let .other(string):
-                    return string
-                case .json:
-                    return "application/json"
-                }
-            }
-            public static var allCases: [Self] {
-                [
-                    .json
-                ]
-            }
-        }
-    }
-    /// List Tag Entities
-    ///
-    /// Everything with this tag, grouped by entity type (artists, radio episodes, radio
-    /// shows, recordings, release groups), most recently tagged first within a type.
-    /// ``types`` (repeatable) limits the entity types.
-    ///
-    /// - Remark: HTTP `GET /tags/{id}/entities`.
-    /// - Remark: Generated from `#/paths//tags/{id}/entities/get(list_tag_entities)`.
-    public enum ListTagEntities {
-        public static let id: Swift.String = "list_tag_entities"
-        public struct Input: Sendable, Hashable {
-            /// - Remark: Generated from `#/paths/tags/{id}/entities/GET/path`.
-            public struct Path: Sendable, Hashable {
-                /// - Remark: Generated from `#/paths/tags/{id}/entities/GET/path/id`.
-                public var id: Swift.String
-                /// Creates a new `Path`.
-                ///
-                /// - Parameters:
-                ///   - id:
-                public init(id: Swift.String) {
-                    self.id = id
-                }
-            }
-            public var path: Operations.ListTagEntities.Input.Path
-            /// - Remark: Generated from `#/paths/tags/{id}/entities/GET/query`.
-            public struct Query: Sendable, Hashable {
-                /// - Remark: Generated from `#/paths/tags/{id}/entities/GET/query/types`.
-                public var types: [Components.Schemas.EntityType]?
-                /// - Remark: Generated from `#/paths/tags/{id}/entities/GET/query/limit`.
-                public var limit: Swift.Int?
-                /// - Remark: Generated from `#/paths/tags/{id}/entities/GET/query/offset`.
-                public var offset: Swift.Int?
-                /// Creates a new `Query`.
-                ///
-                /// - Parameters:
-                ///   - types:
-                ///   - limit:
-                ///   - offset:
-                public init(
-                    types: [Components.Schemas.EntityType]? = nil,
-                    limit: Swift.Int? = nil,
-                    offset: Swift.Int? = nil
-                ) {
-                    self.types = types
-                    self.limit = limit
-                    self.offset = offset
-                }
-            }
-            public var query: Operations.ListTagEntities.Input.Query
-            /// - Remark: Generated from `#/paths/tags/{id}/entities/GET/header`.
-            public struct Headers: Sendable, Hashable {
-                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListTagEntities.AcceptableContentType>]
-                /// Creates a new `Headers`.
-                ///
-                /// - Parameters:
-                ///   - accept:
-                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.ListTagEntities.AcceptableContentType>] = .defaultValues()) {
-                    self.accept = accept
-                }
-            }
-            public var headers: Operations.ListTagEntities.Input.Headers
-            /// Creates a new `Input`.
-            ///
-            /// - Parameters:
-            ///   - path:
-            ///   - query:
-            ///   - headers:
-            public init(
-                path: Operations.ListTagEntities.Input.Path,
-                query: Operations.ListTagEntities.Input.Query = .init(),
-                headers: Operations.ListTagEntities.Input.Headers = .init()
-            ) {
-                self.path = path
-                self.query = query
-                self.headers = headers
-            }
-        }
-        @frozen public enum Output: Sendable, Hashable {
-            public struct Ok: Sendable, Hashable {
-                /// - Remark: Generated from `#/paths/tags/{id}/entities/GET/responses/200/headers`.
-                public struct Headers: Sendable, Hashable {
-                    /// Number of items in the whole list (all pages).
-                    ///
-                    /// - Remark: Generated from `#/paths/tags/{id}/entities/GET/responses/200/headers/X-Total-Count`.
-                    public var xTotalCount: Swift.Int
-                    /// Creates a new `Headers`.
-                    ///
-                    /// - Parameters:
-                    ///   - xTotalCount: Number of items in the whole list (all pages).
-                    public init(xTotalCount: Swift.Int) {
-                        self.xTotalCount = xTotalCount
-                    }
-                }
-                /// Received HTTP response headers
-                public var headers: Operations.ListTagEntities.Output.Ok.Headers
-                /// - Remark: Generated from `#/paths/tags/{id}/entities/GET/responses/200/content`.
-                @frozen public enum Body: Sendable, Hashable {
-                    /// - Remark: Generated from `#/paths/tags/{id}/entities/GET/responses/200/content/application\/json`.
-                    case json([Components.Schemas.EntityRead])
-                    /// The associated value of the enum case if `self` is `.json`.
-                    ///
-                    /// - Throws: An error if `self` is not `.json`.
-                    /// - SeeAlso: `.json`.
-                    public var json: [Components.Schemas.EntityRead] {
-                        get throws {
-                            switch self {
-                            case let .json(body):
-                                return body
-                            }
-                        }
-                    }
-                }
-                /// Received HTTP response body
-                public var body: Operations.ListTagEntities.Output.Ok.Body
-                /// Creates a new `Ok`.
-                ///
-                /// - Parameters:
-                ///   - headers: Received HTTP response headers
-                ///   - body: Received HTTP response body
-                public init(
-                    headers: Operations.ListTagEntities.Output.Ok.Headers,
-                    body: Operations.ListTagEntities.Output.Ok.Body
-                ) {
-                    self.headers = headers
-                    self.body = body
-                }
-            }
-            /// Successful Response
-            ///
-            /// - Remark: Generated from `#/paths//tags/{id}/entities/get(list_tag_entities)/responses/200`.
-            ///
-            /// HTTP response code: `200 ok`.
-            case ok(Operations.ListTagEntities.Output.Ok)
-            /// The associated value of the enum case if `self` is `.ok`.
-            ///
-            /// - Throws: An error if `self` is not `.ok`.
-            /// - SeeAlso: `.ok`.
-            public var ok: Operations.ListTagEntities.Output.Ok {
-                get throws {
-                    switch self {
-                    case let .ok(response):
-                        return response
-                    default:
-                        try throwUnexpectedResponseStatus(
-                            expectedStatus: "ok",
-                            response: self
-                        )
-                    }
-                }
-            }
-            public struct NotFound: Sendable, Hashable {
-                /// - Remark: Generated from `#/paths/tags/{id}/entities/GET/responses/404/content`.
-                @frozen public enum Body: Sendable, Hashable {
-                    /// - Remark: Generated from `#/paths/tags/{id}/entities/GET/responses/404/content/application\/json`.
-                    case json(Components.Schemas.ErrorRead)
-                    /// The associated value of the enum case if `self` is `.json`.
-                    ///
-                    /// - Throws: An error if `self` is not `.json`.
-                    /// - SeeAlso: `.json`.
-                    public var json: Components.Schemas.ErrorRead {
-                        get throws {
-                            switch self {
-                            case let .json(body):
-                                return body
-                            }
-                        }
-                    }
-                }
-                /// Received HTTP response body
-                public var body: Operations.ListTagEntities.Output.NotFound.Body
-                /// Creates a new `NotFound`.
-                ///
-                /// - Parameters:
-                ///   - body: Received HTTP response body
-                public init(body: Operations.ListTagEntities.Output.NotFound.Body) {
-                    self.body = body
-                }
-            }
-            /// Not found
-            ///
-            /// - Remark: Generated from `#/paths//tags/{id}/entities/get(list_tag_entities)/responses/404`.
-            ///
-            /// HTTP response code: `404 notFound`.
-            case notFound(Operations.ListTagEntities.Output.NotFound)
-            /// The associated value of the enum case if `self` is `.notFound`.
-            ///
-            /// - Throws: An error if `self` is not `.notFound`.
-            /// - SeeAlso: `.notFound`.
-            public var notFound: Operations.ListTagEntities.Output.NotFound {
-                get throws {
-                    switch self {
-                    case let .notFound(response):
-                        return response
-                    default:
-                        try throwUnexpectedResponseStatus(
-                            expectedStatus: "notFound",
-                            response: self
-                        )
-                    }
-                }
-            }
-            public struct UnprocessableContent: Sendable, Hashable {
-                /// - Remark: Generated from `#/paths/tags/{id}/entities/GET/responses/422/content`.
-                @frozen public enum Body: Sendable, Hashable {
-                    /// - Remark: Generated from `#/paths/tags/{id}/entities/GET/responses/422/content/application\/json`.
-                    case json(Components.Schemas.HTTPValidationError)
-                    /// The associated value of the enum case if `self` is `.json`.
-                    ///
-                    /// - Throws: An error if `self` is not `.json`.
-                    /// - SeeAlso: `.json`.
-                    public var json: Components.Schemas.HTTPValidationError {
-                        get throws {
-                            switch self {
-                            case let .json(body):
-                                return body
-                            }
-                        }
-                    }
-                }
-                /// Received HTTP response body
-                public var body: Operations.ListTagEntities.Output.UnprocessableContent.Body
-                /// Creates a new `UnprocessableContent`.
-                ///
-                /// - Parameters:
-                ///   - body: Received HTTP response body
-                public init(body: Operations.ListTagEntities.Output.UnprocessableContent.Body) {
-                    self.body = body
-                }
-            }
-            /// Validation Error
-            ///
-            /// - Remark: Generated from `#/paths//tags/{id}/entities/get(list_tag_entities)/responses/422`.
-            ///
-            /// HTTP response code: `422 unprocessableContent`.
-            case unprocessableContent(Operations.ListTagEntities.Output.UnprocessableContent)
-            /// The associated value of the enum case if `self` is `.unprocessableContent`.
-            ///
-            /// - Throws: An error if `self` is not `.unprocessableContent`.
-            /// - SeeAlso: `.unprocessableContent`.
-            public var unprocessableContent: Operations.ListTagEntities.Output.UnprocessableContent {
                 get throws {
                     switch self {
                     case let .unprocessableContent(response):

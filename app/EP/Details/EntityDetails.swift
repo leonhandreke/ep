@@ -132,9 +132,8 @@ final class EntityDetails {
         guard let ref else { return }
         let client = connection.client
         runTagChange {
-            _ = try await client.removeEntityTag(path: .init(_type: ref.type, id: ref.id, tagId: tag.id)).noContent
-            // The removal answers with no content: the tags are read again.
-            let tags = try await client.listEntityTags(path: .init(_type: ref.type, id: ref.id)).ok.body.json
+            let tags = try await client.removeEntityTag(path: .init(_type: ref.type, id: ref.id, tagId: tag.id)).ok
+                .body.json
             guard ref == self.ref else { return }
             self.tags = tags
         }

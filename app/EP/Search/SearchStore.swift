@@ -5,7 +5,7 @@ import Observation
 /// What the search palette (§8) shows for what is typed: library hits from `GET /search`
 /// (typo-tolerant on the server), grouped as TOP HIT, TRACKS, ALBUMS, ARTISTS, RADIO,
 /// optionally only entities with one tag (decision 7: a tag click). With a tag and
-/// nothing typed, everything with the tag (`GET /tags/{id}/entities`). Answers to an
+/// nothing typed, everything with the tag (the same call without `q`). Answers to an
 /// older query are dropped. The re-point sheet uses it ungrouped, for recordings only.
 @Observable
 final class SearchStore {
@@ -117,18 +117,11 @@ final class SearchStore {
         searchTask = Task {
             do {
                 if debounce > .zero { try await Task.sleep(for: debounce) }
-                let found: [EntitySummary]
-                if text.isEmpty, let tag {
-                    found = try await client.listTagEntities(
-                        path: .init(id: tag.id), query: .init(types: types, limit: Self.limit)
-                    ).ok.body.json.map(EntitySummary.init)
-                } else {
-                    found = try await client.searchLibrary(
-                        query: .init(
-                            q: text, types: types, limit: Self.limit, perType: grouped ? Self.perType : nil,
-                            tagId: tag?.id, includeRadioOnly: true)
-                    ).ok.body.json.map(EntitySummary.init)
-                }
+                let found = try await client.searchLibrary(
+                    query: .init(
+                        q: text.isEmpty ? nil : text, types: types, limit: Self.limit,
+                        perType: grouped ? Self.perType : nil, tagId: tag?.id, includeRadioOnly: true)
+                ).ok.body.json.map(EntitySummary.init)
                 guard !Task.isCancelled, current == generation else { return }
                 show(found, query: !text.isEmpty)
                 isSearching = false

@@ -5,8 +5,9 @@ import Observation
 /// A recording's sources (board 5, decision 6): every file, range and link it can be
 /// played or fetched from, which one is preferred, and the changes the popover makes:
 /// choosing the preferred source (or back to the default), locating a missing file, and
-/// adding a file or a link. Afterwards the sources are read again and `onChange` lets the
-/// window reload what shows play states.
+/// adding a file or a link. Each change answers with the recording's sources (which one
+/// can be chosen, is preferred, will play); `onChange` lets the window reload what shows
+/// play states.
 @Observable
 final class SourcesStore {
     typealias Phase = LibraryBrowser.Phase
@@ -16,29 +17,28 @@ final class SourcesStore {
     private(set) var phase = Phase.idle
     /// The last change failed (shown in the popover until the next one).
     private(set) var error: String?
-    /// The source that plays when no preference is set (from the track's playability).
-    private(set) var playingSourceID: String?
 
     @ObservationIgnored var onChange: (() -> Void)?
     @ObservationIgnored private let connection: ServerConnection
     @ObservationIgnored private var task: Task<Void, Never>?
 
-    init(recordingID: String, playingSourceID: String?, connection: ServerConnection) {
+    init(recordingID: String, connection: ServerConnection) {
         self.recordingID = recordingID
-        self.playingSourceID = playingSourceID
         self.connection = connection
     }
 
-    /// The option shown as chosen: the preferred source, else the one that plays.
+    /// The option shown as chosen: the preferred source, else the one that will play.
     var chosenID: String? {
-        sources.first(where: \.preferred)?.source.id ?? playingSourceID
+        (sources.first(where: \.preferred) ?? sources.first(where: \.willPlay))?.source.id
     }
 
     var hasPreference: Bool { sources.contains(where: \.preferred) }
 
     func load() {
         if sources.isEmpty { phase = .loading }
-        run(reload: false) {}
+        let client = connection.client
+        let id = recordingID
+        run(changes: false) { try await client.listRecordingSources(path: .init(id: id)).ok.body.json }
     }
 
     /// Makes `sourceID` the one that plays; nil goes back to the default.
@@ -46,15 +46,8 @@ final class SourcesStore {
         let client = connection.client
         let id = recordingID
         run {
-            if let sourceID {
-                _ = try await client.updateRecording(path: .init(id: id), body: .json(.init(preferredSourceId: sourceID)))
-                    .ok
-            } else {
-                typealias Keys = Components.Schemas.RecordingUpdate.CodingKeys
-                _ = try await withExplicitNulls(Keys.preferredSourceId) {
-                    try await client.updateRecording(path: .init(id: id), body: .json(.init())).ok
-                }
-            }
+            try await client.setPreferredSource(path: .init(id: id), body: .json(.init(sourceId: sourceID))).ok.body
+                .json
         }
     }
 
@@ -62,8 +55,11 @@ final class SourcesStore {
     /// server maps it to its own).
     func locate(_ fileSourceID: String, at path: String) {
         let client = connection.client
+        let id = recordingID
         run {
-            _ = try await client.updateSource(path: .init(id: fileSourceID), body: .json(.init(uri: path))).ok
+            try await client.updateRecordingSource(
+                path: .init(id: id, sourceId: fileSourceID), body: .json(.init(uri: path))
+            ).ok.body.json
         }
     }
 
@@ -72,7 +68,8 @@ final class SourcesStore {
         let client = connection.client
         let id = recordingID
         run {
-            _ = try await client.createSource(body: .json(.init(kind: .file, recordingId: id, uri: path))).created
+            try await client.addRecordingSource(path: .init(id: id), body: .json(.init(kind: .file, uri: path)))
+                .created.body.json
         }
     }
 
@@ -87,32 +84,28 @@ final class SourcesStore {
             guard let kind = info.sourceKind, kind != .file, kind != .slice else {
                 throw SourcesError.unknownLink
             }
-            _ = try await client.createSource(body: .json(.init(kind: kind, recordingId: id, uri: info.url ?? text)))
-                .created
+            return try await client.addRecordingSource(
+                path: .init(id: id), body: .json(.init(kind: kind, uri: info.url ?? text))
+            ).created.body.json
         }
     }
 
     /// Waits for the change in flight (tests).
     func settle() async { await task?.value }
 
-    private func run(reload: Bool = true, _ change: @escaping () async throws -> Void) {
+    /// Runs a request that answers with the sources (after the one in flight); a change
+    /// (not a load) then tells the window.
+    private func run(
+        changes: Bool = true, _ request: @escaping () async throws -> [Components.Schemas.RecordingSourceRead]
+    ) {
         error = nil
         let previous = task
-        let client = connection.client
-        let id = recordingID
         task = Task {
             await previous?.value
             do {
-                try await change()
-                let sources = try await client.listRecordingSources(path: .init(id: id)).ok.body.json
-                self.sources = sources
+                sources = try await request()
                 phase = .loaded
-                if reload {
-                    // What plays may have changed: the track's playability says which.
-                    let recording = try? await client.getRecording(path: .init(id: id)).ok.body.json
-                    playingSourceID = recording?.playability.playback?.sourceId
-                    onChange?()
-                }
+                if changes { onChange?() }
             } catch {
                 guard !ServerConnection.isCancellation(error) else { return }
                 if case SourcesError.unknownLink = error {

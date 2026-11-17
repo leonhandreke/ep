@@ -237,8 +237,7 @@ private struct TrackRowView: View {
     }
 
     private func makeSources() -> SourcesStore {
-        let store = SourcesStore(
-            recordingID: row.recordingID, playingSourceID: row.playability.playback?.sourceId, connection: connection)
+        let store = SourcesStore(recordingID: row.recordingID, connection: connection)
         store.onChange = { [weak browser] in browser?.reload() }
         return store
     }

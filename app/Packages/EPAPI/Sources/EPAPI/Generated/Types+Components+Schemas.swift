@@ -3040,6 +3040,24 @@ extension Components {
                 case slice
             }
         }
+        /// The source to play instead of the default choice: one of the recording's
+        /// ``playable`` sources; null (or omitted): the default.
+        ///
+        /// - Remark: Generated from `#/components/schemas/PreferredSourceWrite`.
+        public struct PreferredSourceWrite: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PreferredSourceWrite/source_id`.
+            public var sourceId: Swift.String?
+            /// Creates a new `PreferredSourceWrite`.
+            ///
+            /// - Parameters:
+            ///   - sourceId:
+            public init(sourceId: Swift.String? = nil) {
+                self.sourceId = sourceId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case sourceId = "source_id"
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/ProgressRead`.
         public struct ProgressRead: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/ProgressRead/done`.
@@ -4050,6 +4068,79 @@ extension Components {
                 case updatedAt = "updated_at"
             }
         }
+        /// A source of the recording named in the path.
+        ///
+        /// - Remark: Generated from `#/components/schemas/RecordingSourceCreate`.
+        public struct RecordingSourceCreate: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/RecordingSourceCreate/codec`.
+            public var codec: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/RecordingSourceCreate/duration_ms`.
+            public var durationMs: Swift.Int?
+            /// - Remark: Generated from `#/components/schemas/RecordingSourceCreate/end_ms`.
+            public var endMs: Swift.Int?
+            /// - Remark: Generated from `#/components/schemas/RecordingSourceCreate/kind`.
+            public var kind: Components.Schemas.SourceKind
+            /// - Remark: Generated from `#/components/schemas/RecordingSourceCreate/managed`.
+            public var managed: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/RecordingSourceCreate/parent_id`.
+            public var parentId: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/RecordingSourceCreate/sha256`.
+            public var sha256: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/RecordingSourceCreate/size`.
+            public var size: Swift.Int?
+            /// - Remark: Generated from `#/components/schemas/RecordingSourceCreate/start_ms`.
+            public var startMs: Swift.Int?
+            /// - Remark: Generated from `#/components/schemas/RecordingSourceCreate/uri`.
+            public var uri: Swift.String?
+            /// Creates a new `RecordingSourceCreate`.
+            ///
+            /// - Parameters:
+            ///   - codec:
+            ///   - durationMs:
+            ///   - endMs:
+            ///   - kind:
+            ///   - managed:
+            ///   - parentId:
+            ///   - sha256:
+            ///   - size:
+            ///   - startMs:
+            ///   - uri:
+            public init(
+                codec: Swift.String? = nil,
+                durationMs: Swift.Int? = nil,
+                endMs: Swift.Int? = nil,
+                kind: Components.Schemas.SourceKind,
+                managed: Swift.Bool? = nil,
+                parentId: Swift.String? = nil,
+                sha256: Swift.String? = nil,
+                size: Swift.Int? = nil,
+                startMs: Swift.Int? = nil,
+                uri: Swift.String? = nil
+            ) {
+                self.codec = codec
+                self.durationMs = durationMs
+                self.endMs = endMs
+                self.kind = kind
+                self.managed = managed
+                self.parentId = parentId
+                self.sha256 = sha256
+                self.size = size
+                self.startMs = startMs
+                self.uri = uri
+            }
+            public enum CodingKeys: String, CodingKey {
+                case codec
+                case durationMs = "duration_ms"
+                case endMs = "end_ms"
+                case kind
+                case managed
+                case parentId = "parent_id"
+                case sha256
+                case size
+                case startMs = "start_ms"
+                case uri
+            }
+        }
         /// A source of a recording, as the sources list shows it.
         ///
         /// - Remark: Generated from `#/components/schemas/RecordingSourceRead`.
@@ -4058,8 +4149,8 @@ extension Components {
             public var ancestors: [Components.Schemas.SourceRead]
             /// - Remark: Generated from `#/components/schemas/RecordingSourceRead/file`.
             public var file: Components.Schemas.FileRead?
-            /// - Remark: Generated from `#/components/schemas/RecordingSourceRead/plays`.
-            public var plays: Swift.Bool
+            /// - Remark: Generated from `#/components/schemas/RecordingSourceRead/playable`.
+            public var playable: Swift.Bool
             /// - Remark: Generated from `#/components/schemas/RecordingSourceRead/preferred`.
             public var preferred: Swift.Bool
             /// - Remark: Generated from `#/components/schemas/RecordingSourceRead/radio`.
@@ -4068,41 +4159,47 @@ extension Components {
             public var role: Components.Schemas.SourceRole
             /// - Remark: Generated from `#/components/schemas/RecordingSourceRead/source`.
             public var source: Components.Schemas.SourceRead
+            /// - Remark: Generated from `#/components/schemas/RecordingSourceRead/will_play`.
+            public var willPlay: Swift.Bool
             /// Creates a new `RecordingSourceRead`.
             ///
             /// - Parameters:
             ///   - ancestors:
             ///   - file:
-            ///   - plays:
+            ///   - playable:
             ///   - preferred:
             ///   - radio:
             ///   - role:
             ///   - source:
+            ///   - willPlay:
             public init(
                 ancestors: [Components.Schemas.SourceRead],
                 file: Components.Schemas.FileRead? = nil,
-                plays: Swift.Bool,
+                playable: Swift.Bool,
                 preferred: Swift.Bool,
                 radio: Components.Schemas.RadioSliceRead? = nil,
                 role: Components.Schemas.SourceRole,
-                source: Components.Schemas.SourceRead
+                source: Components.Schemas.SourceRead,
+                willPlay: Swift.Bool
             ) {
                 self.ancestors = ancestors
                 self.file = file
-                self.plays = plays
+                self.playable = playable
                 self.preferred = preferred
                 self.radio = radio
                 self.role = role
                 self.source = source
+                self.willPlay = willPlay
             }
             public enum CodingKeys: String, CodingKey {
                 case ancestors
                 case file
-                case plays
+                case playable
                 case preferred
                 case radio
                 case role
                 case source
+                case willPlay = "will_play"
             }
         }
         /// A track of a recording, seen from the recording: with its release group.
@@ -4170,8 +4267,6 @@ extension Components {
             public var lengthMs: Swift.Int?
             /// - Remark: Generated from `#/components/schemas/RecordingUpdate/mbid`.
             public var mbid: Swift.String?
-            /// - Remark: Generated from `#/components/schemas/RecordingUpdate/preferred_source_id`.
-            public var preferredSourceId: Swift.String?
             /// - Remark: Generated from `#/components/schemas/RecordingUpdate/title`.
             public var title: Swift.String?
             /// Creates a new `RecordingUpdate`.
@@ -4180,26 +4275,22 @@ extension Components {
             ///   - artistCredit:
             ///   - lengthMs:
             ///   - mbid:
-            ///   - preferredSourceId:
             ///   - title:
             public init(
                 artistCredit: [Components.Schemas.ArtistCreditNameIn]? = nil,
                 lengthMs: Swift.Int? = nil,
                 mbid: Swift.String? = nil,
-                preferredSourceId: Swift.String? = nil,
                 title: Swift.String? = nil
             ) {
                 self.artistCredit = artistCredit
                 self.lengthMs = lengthMs
                 self.mbid = mbid
-                self.preferredSourceId = preferredSourceId
                 self.title = title
             }
             public enum CodingKeys: String, CodingKey {
                 case artistCredit = "artist_credit"
                 case lengthMs = "length_ms"
                 case mbid
-                case preferredSourceId = "preferred_source_id"
                 case title
             }
         }
@@ -4592,7 +4683,7 @@ extension Components {
             /// - Remark: Generated from `#/components/schemas/SearchHitRead/release_group_type`.
             public var releaseGroupType: Components.Schemas.ReleaseGroupType?
             /// - Remark: Generated from `#/components/schemas/SearchHitRead/score`.
-            public var score: Swift.Double
+            public var score: Swift.Double?
             /// - Remark: Generated from `#/components/schemas/SearchHitRead/subtitle`.
             public var subtitle: Swift.String?
             /// - Remark: Generated from `#/components/schemas/SearchHitRead/title`.
@@ -4634,7 +4725,7 @@ extension Components {
                 releaseGroupCount: Swift.Int? = nil,
                 releaseGroupTitle: Swift.String? = nil,
                 releaseGroupType: Components.Schemas.ReleaseGroupType? = nil,
-                score: Swift.Double,
+                score: Swift.Double? = nil,
                 subtitle: Swift.String? = nil,
                 title: Swift.String,
                 trackCount: Swift.Int? = nil,
@@ -4785,6 +4876,8 @@ extension Components {
                 case text
             }
         }
+        /// A source of any recording, or of none (a container: an album or episode file).
+        ///
         /// - Remark: Generated from `#/components/schemas/SourceCreate`.
         public struct SourceCreate: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/SourceCreate/codec`.
@@ -5182,6 +5275,13 @@ extension Components {
                 case id
                 case name
             }
+        }
+        /// The order of a tag list.
+        ///
+        /// - Remark: Generated from `#/components/schemas/TagSort`.
+        @frozen public enum TagSort: String, Codable, Hashable, Sendable, CaseIterable {
+            case name = "name"
+            case count = "count"
         }
         /// - Remark: Generated from `#/components/schemas/TagUpdate`.
         public struct TagUpdate: Codable, Hashable, Sendable {

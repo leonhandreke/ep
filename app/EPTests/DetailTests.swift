@@ -113,7 +113,7 @@ struct EntityDetailsTests {
         #expect(details.phase == .idle && details.note == nil)
     }
 
-    @Test func addingATagShowsTheServersListAndRemovingReadsItAgain() async throws {
+    @Test func addingAndRemovingATagShowTheServersList() async throws {
         let strings = D.tag("t2", "strings", count: 43)
         let transport = methodRouted([
             "/server": (.ok, Fixtures.server),
@@ -122,8 +122,7 @@ struct EntityDetailsTests {
                 #"{"entity": \#(D.entity("release_group", "g1", "Homogenic")), "note": \#(D.note("release_group", "g1")), "tags": [], "backlinks": [], "radio_appearances": []}"#
             ),
             "POST /entity-tags/release_group/g1": (.ok, "[\(strings)]"),
-            "DELETE /entity-tags/release_group/g1/t2": (.noContent, ""),
-            "GET /entity-tags/release_group/g1": (.ok, "[]"),
+            "DELETE /entity-tags/release_group/g1/t2": (.ok, "[]"),
         ])
         let details = EntityDetails(connection: await stubConnection(transport))
         details.show(EntityRef(type: .releaseGroup, id: "g1"))
@@ -140,6 +139,9 @@ struct EntityDetailsTests {
         await details.settle()
         #expect(details.tags.isEmpty)
         #expect(details.tagError == nil)
+        // The removal's answer is the list: nothing is read again.
+        let reads = transport.requests.filter { $0.request.path?.hasPrefix("/entity-tags") == true }
+        #expect(reads.allSatisfy { $0.request.method != .get })
     }
 }
 
@@ -161,7 +163,8 @@ struct TagSuggestionsTests {
         #expect(model.chosenName == "str")
         model.move(5)
         #expect(model.selection == 1)
-        #expect(transport.requests.last?.request.path?.contains("prefix=str") == true)
+        let path = try #require(transport.requests.last?.request.path)
+        #expect(path.contains("prefix=str") && path.contains("sort=count"))
 
         model.update("Strings", existing: [])
         await model.settle()

@@ -2,8 +2,8 @@ import EPAPI
 import Foundation
 import Observation
 
-/// The "+ Add tag" field's suggestions (§3.7): existing tags starting with what is typed
-/// (`GET /tags?prefix=`, with their counts), without the ones the entity has, then
+/// The "+ Add tag" field's suggestions (§3.7): existing tags starting with what is typed,
+/// most used first (`GET /tags?prefix=&sort=count`, with their counts), without the ones the entity has, then
 /// "Create “#…”" unless a tag has that name. ↑↓ move, Return adds the highlighted row.
 @Observable
 final class TagSuggestions {
@@ -100,7 +100,8 @@ final class TagSuggestions {
         task = Task {
             do {
                 if debounce > .zero { try await Task.sleep(for: debounce) }
-                let found = try await client.listTags(query: .init(prefix: prefix, limit: Self.limit)).ok.body.json
+                let query = Operations.ListTags.Input.Query(prefix: prefix, sort: .count, limit: Self.limit)
+                let found = try await client.listTags(query: query).ok.body.json
                 guard !Task.isCancelled, text == self.text else { return }
                 tags = found
                 resultsText = text

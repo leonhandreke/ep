@@ -25,7 +25,7 @@ nonisolated enum SearchFixtures {
 
 private typealias S = SearchFixtures
 
-/// A transport for `/search` answering per query text, `/tags/{id}/entities` from `tagged`.
+/// A transport for `/search` answering per query text, and with `tagged` without one.
 nonisolated func searchTransport(
     delay: [String: Double] = [:], tagged: String = "[]", results: @escaping @Sendable (String) -> String
 ) -> StubTransport {
@@ -34,11 +34,9 @@ nonisolated func searchTransport(
         if url.path == "/server" {
             return (jsonResponse(), Data(Fixtures.server.utf8))
         }
-        if url.path.hasPrefix("/tags/") {
-            let count = (try? JSONSerialization.jsonObject(with: Data(tagged.utf8)) as? [Any])?.count
-            return (jsonResponse(total: count), Data(tagged.utf8))
+        guard let q = url.queryItems?.first(where: { $0.name == "q" })?.value else {
+            return (jsonResponse(), Data(tagged.utf8))
         }
-        let q = url.queryItems?.first { $0.name == "q" }?.value ?? ""
         if let seconds = delay[q] { Thread.sleep(forTimeInterval: seconds) }
         return (jsonResponse(), Data(results(q).utf8))
     }
@@ -90,7 +88,7 @@ struct SearchStoreTests {
     }
 
     @Test func aTagFilterListsEverythingTaggedThenSearchesWithin() async throws {
-        let tagged = "[\(DetailFixtures.entity("release_group", "g1", "Homogenic")), \(DetailFixtures.entity("artist", "a1", "Björk"))]"
+        let tagged = "[\(S.hit("artist", "a1", "Björk")), \(S.hit("release_group", "g1", "Homogenic"))]"
         let transport = searchTransport(tagged: tagged) { _ in "[\(S.hit("release_group", "g1", "Homogenic"))]" }
         let store = SearchStore(connection: await stubConnection(transport), debounce: .zero)
         let tag = try JSONDecoder().decode(
@@ -100,7 +98,8 @@ struct SearchStoreTests {
         await store.settle()
         // Nothing typed: everything with the tag, grouped, no top hit.
         #expect(store.groups.map(\.kind) == [.albums, .artists])
-        #expect(transport.requests.last?.request.path?.hasPrefix("/tags/t1/entities") == true)
+        let path = try #require(transport.requests.last?.request.path)
+        #expect(path.hasPrefix("/search?") && path.contains("tag_id=t1") && !path.contains("q="))
 
         store.update("homo")
         await store.settle()
