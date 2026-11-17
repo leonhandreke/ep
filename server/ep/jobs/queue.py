@@ -50,13 +50,15 @@ def create_import(session: Session, kind: ImportKind, input: str) -> ImportJob:
 def enqueue_import(session: Session, job_id: uuid.UUID) -> bool:
     """Queue "run import job ``job_id``" in the session's transaction (committed with
     it). False if it is queued already (a queueing lock per job: one waiting entry)."""
-    connection = session.connection().connection.driver_connection
-    deferrer = defer_app.configure_task(
-        RUN_IMPORT, queue=IMPORT_QUEUE, queueing_lock=str(job_id), connection=connection
-    )
     try:
         # A savepoint: a duplicate (unique violation) must not abort the transaction.
+        # SQLAlchemy emits SAVEPOINT only when the session's connection is taken inside
+        # the nested block, so it is taken here, not before.
         with session.begin_nested():
+            connection = session.connection().connection.driver_connection
+            deferrer = defer_app.configure_task(
+                RUN_IMPORT, queue=IMPORT_QUEUE, queueing_lock=str(job_id), connection=connection
+            )
             deferrer.defer(job_id=str(job_id))
     except AlreadyEnqueued:
         return False

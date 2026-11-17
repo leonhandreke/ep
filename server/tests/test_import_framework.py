@@ -11,7 +11,9 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from procrastinate import SyncPsycopgConnector
 from procrastinate.testing import InMemoryConnector
+from sqlalchemy import text
 from sqlmodel import Session, SQLModel, col, func, select
 
 from ep.importers.framework import (
@@ -35,7 +37,7 @@ from ep.importers.proposal import (
     Proposal,
     Target,
 )
-from ep.jobs.queue import create_import
+from ep.jobs.queue import create_import, defer_app
 from ep.jobs.tasks import recover_interrupted_jobs
 from ep.models import (
     Artist,
@@ -486,3 +488,21 @@ def test_worker_start_removes_work_dirs_of_finished_jobs(
     assert set(discard_stale_work(session, library_dir)) == {job.id, gone}
     assert not job_work_dir(library_dir, job.id).exists()
     assert (job_work_dir(library_dir, failed.id) / "medium").is_dir()
+
+
+def test_worker_start_with_queued_jobs_on_postgres(session: Session) -> None:
+    """On the real queue (not ``InMemoryConnector``): a job that has its queue entry
+    already is skipped in a savepoint, and the jobs after it are still checked (a
+    duplicate once aborted the transaction, and the worker never started)."""
+    with defer_app.replace_connector(SyncPsycopgConnector()):
+        jobs = [
+            create_import(session, ImportKind.youtube, f"https://example.com/{i}") for i in range(3)
+        ]
+        session.commit()
+        assert recover_interrupted_jobs(session) == []
+        lost = jobs[1]
+        session.connection().execute(
+            text("DELETE FROM procrastinate_jobs WHERE queueing_lock = :lock"),
+            {"lock": str(lost.id)},
+        )
+        assert recover_interrupted_jobs(session) == [lost.id]
