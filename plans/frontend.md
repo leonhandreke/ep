@@ -229,6 +229,8 @@ Waiting on the user:
   `curl-cffi` impersonation extra, run the worker on the host, or leave it failing.
   No circumvention is to be added without the user's decision.
 
-Environment notes: Xcode 26.3 is active; UI-automation mode is enabled; harness runs
+Environment notes: `/Applications/EP.app` is the user's symlink to the Debug build in
+`app/build/DerivedData` — keep that path (don't move derived data or delete it without
+rebuilding); Xcode 26.3 is active; UI-automation mode is enabled; harness runs
 take focus; AeroSpace (window manager) was quit by the user — if it runs again, the
 harness window needs a floating rule for `de.ndreke.ep.uitest`.
