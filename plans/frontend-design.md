@@ -242,6 +242,9 @@ Minimum total ≈ 1100 pt; the design does not show narrower behaviour (13-inch 
   Selected (Homogenic) in `--selsoft`.
 - Last row: **"Loose tracks"** pseudo-entry, cover slot is a dashed 1 pt `--text3` 32 pt square
   with a music-note icon; second line "4 recordings on no release".
+- Then **"Appears on"** (section label like DISC 2): albums by others with a track
+  crediting the artist (a featured credit), rows as above with the album's artist leading
+  the meta: "Björk · 2001 · Album". An artist with only these does not get the empty state.
 
 ### 3.4 Tracks column
 

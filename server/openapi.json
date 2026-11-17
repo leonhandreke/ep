@@ -305,7 +305,7 @@
           "artists"
         ],
         "summary": "Get Artist",
-        "description": "An artist with counts: release groups, loose recordings (not radio-only), radio\nepisodes that played them; and whether the artist is known only from radio.",
+        "description": "An artist with counts: release groups, loose recordings (not radio-only), release\ngroups they appear on (``/appearances``), radio episodes that played them; and\nwhether the artist is known only from radio.",
         "operationId": "get_artist",
         "parameters": [
           {
@@ -533,6 +533,96 @@
                     "$ref": "#/components/schemas/ReleaseGroupRead"
                   },
                   "title": "Response List Artist Release Groups"
+                }
+              }
+            },
+            "headers": {
+              "X-Total-Count": {
+                "description": "Number of items in the whole list (all pages).",
+                "required": true,
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/artists/{id}/appearances": {
+      "get": {
+        "tags": [
+          "artists"
+        ],
+        "summary": "List Artist Appearances",
+        "description": "Release groups the artist appears on without being credited on them: a track's\nrecording credits the artist (\"Bonobo feat. Rhye\" on Bonobo's album), oldest first.",
+        "operationId": "list_artist_appearances",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ReleaseGroupRead"
+                  },
+                  "title": "Response List Artist Appearances"
                 }
               }
             },
@@ -5878,6 +5968,10 @@
             "type": "integer",
             "title": "Loose Recordings"
           },
+          "appearances": {
+            "type": "integer",
+            "title": "Appearances"
+          },
           "radio_episodes": {
             "type": "integer",
             "title": "Radio Episodes"
@@ -5887,6 +5981,7 @@
         "required": [
           "release_groups",
           "loose_recordings",
+          "appearances",
           "radio_episodes"
         ],
         "title": "ArtistCountsRead"

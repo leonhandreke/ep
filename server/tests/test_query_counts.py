@@ -39,7 +39,8 @@ def count_selects(session: Session) -> Generator[list[str]]:
 def build_library(client: TestClient, audio_file: Path, size: int) -> dict[str, str]:
     """An artist with an album of ``size`` tracks and ``size`` singles, each with its own
     artist credit (a duo, joined differently). Each recording is playable as a slice of a
-    file downloaded from a link (two levels of parents) and has a second slice; the last
+    file downloaded from a link (two levels of parents) and has a second slice, and is
+    also on a compilation by an artist of its own (where the artist appears); the last
     recording is also on every single."""
     nina, other = make_artist(client), make_artist(client, "Other")
 
@@ -57,6 +58,8 @@ def build_library(client: TestClient, audio_file: Path, size: int) -> dict[str, 
             client, "/recordings", {"title": f"Song {position}", "artist_credit": duo(position)}
         )
         make_track(client, album, recording, position)
+        host = make_artist(client, f"Host {position}")
+        make_track(client, make_release_group(client, host, f"Compilation {position}"), recording)
         for _ in range(2):
             post(
                 client,
@@ -84,6 +87,7 @@ CASES: list[tuple[str, Callable[[dict[str, str]], str], int]] = [
     ("release_group_tracks", lambda ids: f"/release-groups/{ids['release_group']}/tracks", 5),
     # artist, total, release groups + credits, credit names
     ("artist_release_groups", lambda ids: f"/artists/{ids['artist']}/release-groups", 4),
+    ("artist_appearances", lambda ids: f"/artists/{ids['artist']}/appearances", 4),
     # ... and sources + ancestors (playability)
     ("artist_recordings", lambda ids: f"/artists/{ids['artist']}/recordings", 5),
     # artist, its counts (one statement)

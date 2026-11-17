@@ -18,7 +18,7 @@ nonisolated enum EditFixtures {
     }
 
     static let artist =
-        #"{"id": "a1", \#(F.stamp), "mbid": "11111111-0000-0000-0000-000000000001", "name": "Björk", "sort_name": "Björk", "disambiguation": "", "type": "person", "counts": {"release_groups": 1, "loose_recordings": 0, "radio_episodes": 0}, "radio_only": false, "link": "l"}"#
+        #"{"id": "a1", \#(F.stamp), "mbid": "11111111-0000-0000-0000-000000000001", "name": "Björk", "sort_name": "Björk", "disambiguation": "", "type": "person", "counts": {"release_groups": 1, "loose_recordings": 0, "appearances": 0, "radio_episodes": 0}, "radio_only": false, "link": "l"}"#
 
     static func decode<T: Decodable>(_ type: T.Type, _ json: String) throws -> T {
         try JSONDecoder.iso8601Fractional.decode(type, from: Data(json.utf8))

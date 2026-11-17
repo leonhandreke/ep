@@ -2,7 +2,14 @@ import uuid
 
 from fastapi.testclient import TestClient
 
-from tests.helpers import credit, make_artist, make_recording, make_release_group, post
+from tests.helpers import (
+    credit,
+    make_artist,
+    make_recording,
+    make_release_group,
+    make_track,
+    post,
+)
 
 
 def test_create_and_get_artist(client: TestClient) -> None:
@@ -18,7 +25,12 @@ def test_create_and_get_artist(client: TestClient) -> None:
     assert response.status_code == 200
     assert response.json() == {
         **artist,
-        "counts": {"release_groups": 0, "loose_recordings": 0, "radio_episodes": 0},
+        "counts": {
+            "release_groups": 0,
+            "loose_recordings": 0,
+            "appearances": 0,
+            "radio_episodes": 0,
+        },
         "radio_only": False,
     }
     assert artist["link"] == f"[[artist:{mbid}|Nina Simone]]"
@@ -165,3 +177,35 @@ def test_list_artist_recordings(client: TestClient) -> None:
     assert titles(standalone=False) == ["Sinnerman"]
     assert titles(standalone=True, limit=1, offset=1) == ["Loose Track"]
     assert client.get(f"/artists/{uuid.uuid4()}/recordings").status_code == 404
+
+
+def test_list_artist_appearances(client: TestClient) -> None:
+    bonobo = make_artist(client, "Bonobo")
+    rhye = make_artist(client, "Rhye")
+    migration = make_release_group(client, bonobo, "Migration", date="2017")
+    black_sands = make_release_group(client, bonobo, "Black Sands", date="2010")
+    woman = make_release_group(client, rhye, "Woman", date="2013")
+    featured = post(
+        client, "/recordings", {"title": "Break Apart", "artist_credit": credit(bonobo, rhye)}
+    )
+    make_track(client, migration, featured, 1)
+    make_track(
+        client,
+        migration,
+        post(client, "/recordings", {"title": "Second", "artist_credit": credit(bonobo, rhye)}),
+        2,
+    )
+    make_track(client, black_sands, make_recording(client, bonobo, "Kiara"))
+    make_track(client, woman, featured)  # Rhye's own album: not an appearance
+
+    def titles(artist: dict) -> list[str]:
+        response = client.get(f"/artists/{artist['id']}/appearances")
+        assert response.status_code == 200, response.text
+        return [rg["title"] for rg in response.json()]
+
+    assert titles(rhye) == ["Migration"]
+    assert titles(bonobo) == ["Woman"]
+    rhye_counts = client.get(f"/artists/{rhye['id']}").json()["counts"]
+    assert rhye_counts["appearances"] == 1
+    assert rhye_counts["release_groups"] == 1
+    assert client.get(f"/artists/{uuid.uuid4()}/appearances").status_code == 404

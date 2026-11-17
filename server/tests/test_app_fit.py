@@ -222,7 +222,12 @@ def test_artist_detail_filter_and_server_counts(
         session, source(client, "file", uri=str(audio_dir / "song.m4a")), heard["id"], 0
     )
     detail = client.get(f"/artists/{bjork['id']}").json()
-    assert detail["counts"] == {"release_groups": 1, "loose_recordings": 1, "radio_episodes": 0}
+    assert detail["counts"] == {
+        "release_groups": 1,
+        "loose_recordings": 1,
+        "appearances": 0,
+        "radio_episodes": 0,
+    }
     radio_detail = client.get(f"/artists/{radio['id']}").json()
     assert radio_detail["radio_only"] is True
     assert radio_detail["counts"]["radio_episodes"] == 1

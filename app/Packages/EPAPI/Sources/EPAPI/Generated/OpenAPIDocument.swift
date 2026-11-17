@@ -4,7 +4,7 @@
 /// The document this client was generated from.
 public enum OpenAPIDocument {
     /// SHA-256 of server/openapi.json at generation; EPTests compares it with the file.
-    public static let sha256 = "e325855ecc8ea4321c3b908002248d2914662252ae41e124d60c218f68c4734e"
+    public static let sha256 = "12f0a87052485e72b91953b79100a7509c12b88c29df8df031f017b7e92f26aa"
     /// SHA-256 of the generator's inputs at generation (normalizer source, configuration,
     /// Package.resolved, concatenated in that order); EPTests compares it with the files.
     public static let generatorSHA256 = "897610b3d83b8b16be343dea86936a19b58d71f45166659ef5b693ce5e8d5588"

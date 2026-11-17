@@ -175,6 +175,9 @@ class ArtistCountsRead(BaseModel):
     # Recordings credited to the artist that are on no release group (loose tracks),
     # radio-only ones left out.
     loose_recordings: int
+    # Release groups not credited to the artist with a track whose recording is
+    # (featured appearances, "Appears on").
+    appearances: int
     # Radio episodes that played something credited to the artist.
     radio_episodes: int
 

@@ -36,6 +36,8 @@ extension Components {
         }
         /// - Remark: Generated from `#/components/schemas/ArtistCountsRead`.
         public struct ArtistCountsRead: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ArtistCountsRead/appearances`.
+            public var appearances: Swift.Int
             /// - Remark: Generated from `#/components/schemas/ArtistCountsRead/loose_recordings`.
             public var looseRecordings: Swift.Int
             /// - Remark: Generated from `#/components/schemas/ArtistCountsRead/radio_episodes`.
@@ -45,19 +47,23 @@ extension Components {
             /// Creates a new `ArtistCountsRead`.
             ///
             /// - Parameters:
+            ///   - appearances:
             ///   - looseRecordings:
             ///   - radioEpisodes:
             ///   - releaseGroups:
             public init(
+                appearances: Swift.Int,
                 looseRecordings: Swift.Int,
                 radioEpisodes: Swift.Int,
                 releaseGroups: Swift.Int
             ) {
+                self.appearances = appearances
                 self.looseRecordings = looseRecordings
                 self.radioEpisodes = radioEpisodes
                 self.releaseGroups = releaseGroups
             }
             public enum CodingKeys: String, CodingKey {
+                case appearances
                 case looseRecordings = "loose_recordings"
                 case radioEpisodes = "radio_episodes"
                 case releaseGroups = "release_groups"

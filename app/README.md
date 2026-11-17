@@ -142,7 +142,8 @@ names).
   `area.element[.detail]` in lowerCamelCase segments: `toolbar.back`, `toolbar.section`,
   `artists.column`, `detail.artist.collapse`, `connection.retry`, `settings.serverURL`.
   Rows: `area.row.<id>` with the entity ID (`artists.row.<artist>`,
-  `releaseGroups.row.<release group>` and `releaseGroups.row.looseTracks`,
+  `releaseGroups.row.<release group>` (also under `releaseGroups.appearsOn`) and
+  `releaseGroups.row.looseTracks`,
   `tracks.row.<track>`, or `<recording>` among loose tracks). Areas so far: `toolbar`,
   `settings` (`.serverURL`, `.retry`, `.connectionStatus`, `.serverInfo`,
   `.libraryLocation`, `.folders` with `.add`, `.remove`, `.error`, and

@@ -3,8 +3,9 @@ import SwiftUI
 
 /// The release-groups column (§3.3): "Artist · N releases · by date" (a radio-only artist:
 /// "Artist · known from radio only", §11.4), the artist's albums oldest first with cover,
-/// title and "1997 · Album", then the "Loose tracks" entry. An artist with neither gets
-/// the "no releases" state (§11.4).
+/// title and "1997 · Album", then the "Loose tracks" entry, then "Appears on": albums by
+/// others with a track crediting the artist, with their artist ("Bonobo · 2017 · Album").
+/// An artist with none of these gets the "no releases" state (§11.4).
 struct ReleaseGroupsColumn: View {
     var focus: FocusState<LibraryColumn?>.Binding
     let moveLeft: () -> Void
@@ -36,7 +37,7 @@ struct ReleaseGroupsColumn: View {
         if browser.location.artistID == nil {
             Color.clear
         } else if let artist = browser.artist {
-            if browser.releaseGroups.isEmpty && artist.counts.looseRecordings == 0 {
+            if browser.releaseGroups.isEmpty && artist.counts.looseRecordings == 0 && browser.appearances.isEmpty {
                 NoReleasesView(artist: artist)
             } else {
                 list(artist: artist)
@@ -80,6 +81,25 @@ struct ReleaseGroupsColumn: View {
                         .listRowInsets(EdgeInsets(top: 0, leading: 6, bottom: 0, trailing: 6))
                         .listRowSeparator(.hidden)
                 }
+                if !browser.appearances.isEmpty {
+                    Section {
+                        ForEach(browser.appearances, id: \.id) { group in
+                            ReleaseGroupRow(group: group, emphasized: emphasized(.releaseGroup(group.id)), showsCredit: true)
+                                .tag(AlbumSelection.releaseGroup(group.id))
+                                .softSelection(soft(.releaseGroup(group.id)), radius: Radius.rowLarge)
+                                .id(AlbumSelection.releaseGroup(group.id))
+                                .listRowInsets(EdgeInsets(top: 0, leading: 6, bottom: 0, trailing: 6))
+                                .listRowSeparator(.hidden)
+                        }
+                    } header: {
+                        Text("Appears on")
+                            .sectionLabelStyle()
+                            .padding(.top, 6)
+                            .padding(.bottom, 4)
+                            .padding(.leading, 2)
+                            .accessibilityIdentifier("releaseGroups.appearsOn")
+                    }
+                }
             }
             .listStyle(.inset)
             .scrollContentBackground(.hidden)
@@ -95,7 +115,7 @@ struct ReleaseGroupsColumn: View {
             }
             .contextMenu(forSelectionType: AlbumSelection.self) { selection in
                 if let id = selection.first?.releaseGroupID,
-                    let group = browser.releaseGroups.first(where: { $0.id == id })
+                    let group = (browser.releaseGroups + browser.appearances).first(where: { $0.id == id })
                 {
                     Button("Edit…") { presentSheet?(WindowSheet(kind: .edit(.releaseGroup(group.id)))) }
                     Button("Copy Link") { copyNoteLink(group.link) }
@@ -118,6 +138,8 @@ struct ReleaseGroupsColumn: View {
 private struct ReleaseGroupRow: View {
     let group: Components.Schemas.ReleaseGroupRead
     let emphasized: Bool
+    /// Leads the meta line with the album's artist (an "Appears on" album).
+    var showsCredit = false
 
     var body: some View {
         let colors = RowForeground(emphasized: emphasized)
@@ -129,7 +151,8 @@ private struct ReleaseGroupRow: View {
                     .foregroundStyle(colors.primary)
                     .lineLimit(1)
                 Text(
-                    [LibraryFormat.year(group.date), group._type.displayName].compactMap(\.self)
+                    [showsCredit ? group.artistCredit.name : nil, LibraryFormat.year(group.date), group._type.displayName]
+                        .compactMap(\.self)
                         .joined(separator: " · ")
                 )
                 .font(Typography.meta)

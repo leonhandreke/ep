@@ -29,8 +29,9 @@ public protocol APIProtocol: Sendable {
     func createArtist(_ input: Operations.CreateArtist.Input) async throws -> Operations.CreateArtist.Output
     /// Get Artist
     ///
-    /// An artist with counts: release groups, loose recordings (not radio-only), radio
-    /// episodes that played them; and whether the artist is known only from radio.
+    /// An artist with counts: release groups, loose recordings (not radio-only), release
+    /// groups they appear on (``/appearances``), radio episodes that played them; and
+    /// whether the artist is known only from radio.
     ///
     /// - Remark: HTTP `GET /artists/{id}`.
     /// - Remark: Generated from `#/paths//artists/{id}/get(get_artist)`.
@@ -47,6 +48,14 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `DELETE /artists/{id}`.
     /// - Remark: Generated from `#/paths//artists/{id}/delete(delete_artist)`.
     func deleteArtist(_ input: Operations.DeleteArtist.Input) async throws -> Operations.DeleteArtist.Output
+    /// List Artist Appearances
+    ///
+    /// Release groups the artist appears on without being credited on them: a track's
+    /// recording credits the artist ("Bonobo feat. Rhye" on Bonobo's album), oldest first.
+    ///
+    /// - Remark: HTTP `GET /artists/{id}/appearances`.
+    /// - Remark: Generated from `#/paths//artists/{id}/appearances/get(list_artist_appearances)`.
+    func listArtistAppearances(_ input: Operations.ListArtistAppearances.Input) async throws -> Operations.ListArtistAppearances.Output
     /// List Artist External Ids
     ///
     /// - Remark: HTTP `GET /artists/{id}/external-ids`.
@@ -774,8 +783,9 @@ extension APIProtocol {
     }
     /// Get Artist
     ///
-    /// An artist with counts: release groups, loose recordings (not radio-only), radio
-    /// episodes that played them; and whether the artist is known only from radio.
+    /// An artist with counts: release groups, loose recordings (not radio-only), release
+    /// groups they appear on (``/appearances``), radio episodes that played them; and
+    /// whether the artist is known only from radio.
     ///
     /// - Remark: HTTP `GET /artists/{id}`.
     /// - Remark: Generated from `#/paths//artists/{id}/get(get_artist)`.
@@ -815,6 +825,24 @@ extension APIProtocol {
     ) async throws -> Operations.DeleteArtist.Output {
         try await deleteArtist(Operations.DeleteArtist.Input(
             path: path,
+            headers: headers
+        ))
+    }
+    /// List Artist Appearances
+    ///
+    /// Release groups the artist appears on without being credited on them: a track's
+    /// recording credits the artist ("Bonobo feat. Rhye" on Bonobo's album), oldest first.
+    ///
+    /// - Remark: HTTP `GET /artists/{id}/appearances`.
+    /// - Remark: Generated from `#/paths//artists/{id}/appearances/get(list_artist_appearances)`.
+    public func listArtistAppearances(
+        path: Operations.ListArtistAppearances.Input.Path,
+        query: Operations.ListArtistAppearances.Input.Query = .init(),
+        headers: Operations.ListArtistAppearances.Input.Headers = .init()
+    ) async throws -> Operations.ListArtistAppearances.Output {
+        try await listArtistAppearances(Operations.ListArtistAppearances.Input(
+            path: path,
+            query: query,
             headers: headers
         ))
     }

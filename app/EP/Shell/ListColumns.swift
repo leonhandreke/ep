@@ -45,6 +45,8 @@ private struct LibraryColumns: View {
                     browser.select(album: .releaseGroup(first.id))
                 } else if (browser.artist?.counts.looseRecordings ?? 0) > 0 {
                     browser.select(album: .looseTracks)
+                } else if let first = browser.appearances.first {
+                    browser.select(album: .releaseGroup(first.id))
                 } else {
                     return
                 }

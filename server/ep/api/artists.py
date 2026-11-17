@@ -4,6 +4,7 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query, status
 from fastapi.exceptions import RequestValidationError
 from sqlalchemy import ColumnElement, exists, literal, tuple_
+from sqlalchemy import select as sa_select
 from sqlmodel import col, func, select
 
 from ep.api.deps import PAGED, PageDep, SessionDep, get_or_404
@@ -48,6 +49,22 @@ router = APIRouter(prefix="/artists", tags=["artists"])
 def _credit_ids(artist_id: uuid.UUID):
     """Subquery: the artist credits that include this artist."""
     return select(ArtistCreditName.artist_credit_id).where(ArtistCreditName.artist_id == artist_id)
+
+
+def _appearances(artist_id: uuid.UUID) -> list[ColumnElement[bool]]:
+    """Conditions on ``ReleaseGroup``: not credited to this artist, but with a track
+    whose recording is (a featured appearance)."""
+    credits = _credit_ids(artist_id)
+    credited_track = (
+        select(Track.id)
+        .join(Recording, col(Track.recording_id) == col(Recording.id))
+        .where(
+            col(Track.release_group_id) == col(ReleaseGroup.id),
+            col(Recording.artist_credit_id).in_(credits),
+        )
+        .exists()
+    )
+    return [~col(ReleaseGroup.artist_credit_id).in_(credits), credited_track]
 
 
 # The order of ``GET /artists``.
@@ -138,8 +155,9 @@ def create_artist(body: ArtistCreate, session: SessionDep) -> ArtistRead:
 
 @router.get("/{id}", responses=NOT_FOUND)
 def get_artist(id: uuid.UUID, session: SessionDep) -> ArtistDetail:
-    """An artist with counts: release groups, loose recordings (not radio-only), radio
-    episodes that played them; and whether the artist is known only from radio."""
+    """An artist with counts: release groups, loose recordings (not radio-only), release
+    groups they appear on (``/appearances``), radio episodes that played them; and
+    whether the artist is known only from radio."""
     credits = _credit_ids(id)
     loose = select(func.count(col(Recording.id))).where(
         col(Recording.artist_credit_id).in_(credits),
@@ -154,21 +172,30 @@ def get_artist(id: uuid.UUID, session: SessionDep) -> ArtistDetail:
     release_groups = select(func.count(col(ReleaseGroup.id))).where(
         col(ReleaseGroup.artist_credit_id).in_(credits)
     )
+    appearances = select(func.count(col(ReleaseGroup.id))).where(*_appearances(id))
     artist = get_or_404(session, Artist, id)
-    n_release_groups, n_loose, n_episodes, radio_only = session.exec(
-        select(
-            release_groups.scalar_subquery(),
-            loose.scalar_subquery(),
-            episodes.scalar_subquery(),
-            radio_only_artist(literal(id)),
+    # sqlmodel's ``select`` (and ``session.exec``) are typed for at most four columns.
+    row = (
+        session.connection()
+        .execute(
+            sa_select(
+                release_groups.scalar_subquery(),
+                loose.scalar_subquery(),
+                appearances.scalar_subquery(),
+                episodes.scalar_subquery(),
+                radio_only_artist(literal(id)),
+            )
         )
-    ).one()
+        .one()
+    )
+    n_release_groups, n_loose, n_appearances, n_episodes, radio_only = row
     return ArtistDetail.model_validate(
         {
             **ArtistRead.model_validate(artist).model_dump(),
             "counts": ArtistCountsRead(
                 release_groups=n_release_groups,
                 loose_recordings=n_loose,
+                appearances=n_appearances,
                 radio_episodes=n_episodes,
             ),
             "radio_only": radio_only,
@@ -203,6 +230,22 @@ def list_artist_release_groups(
     """Release groups whose artist credit includes this artist, oldest first."""
     get_or_404(session, Artist, id)
     query = select(ReleaseGroup).where(col(ReleaseGroup.artist_credit_id).in_(_credit_ids(id)))
+    release_groups = session.exec(
+        page.apply(session, query)
+        .order_by(*release_group_order)
+        .options(with_credit(ReleaseGroup.artist_credit))
+    )
+    return [ReleaseGroupRead.model_validate(rg) for rg in release_groups]
+
+
+@router.get("/{id}/appearances", responses=NOT_FOUND | PAGED)
+def list_artist_appearances(
+    id: uuid.UUID, session: SessionDep, page: PageDep
+) -> list[ReleaseGroupRead]:
+    """Release groups the artist appears on without being credited on them: a track's
+    recording credits the artist ("Bonobo feat. Rhye" on Bonobo's album), oldest first."""
+    get_or_404(session, Artist, id)
+    query = select(ReleaseGroup).where(*_appearances(id))
     release_groups = session.exec(
         page.apply(session, query)
         .order_by(*release_group_order)

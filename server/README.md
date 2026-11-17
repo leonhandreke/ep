@@ -149,9 +149,11 @@ uv run alembic revision --autogenerate -m "add catalogue"
   from (also an ancestor: "Locate…" on a shared album or episode file). The generic
   `/sources` endpoints answer with the one source. `SourceRead` has typed stream facts;
   the extractor leftovers (`source.meta`) are not in the API.
-- Details with counts: `GET /artists/{id}` (release groups, loose recordings, radio
-  episodes, radio-only), `GET /release-groups/{id}` (tracks, discs, length, tracks per
+- Details with counts: `GET /artists/{id}` (release groups, loose recordings, release
+  groups they appear on, radio episodes, radio-only), `GET /release-groups/{id}` (tracks, discs, length, tracks per
   play state, kinds of link of link-only tracks), `GET /radio/shows/{id}` (episodes).
+  `GET /artists/{id}/appearances`: release groups not credited to the artist with a
+  track whose recording is ("Bonobo feat. Rhye" on Bonobo's album lists it for Rhye).
   `GET /artists?q=` filters by name (index-backed `LIKE` on the normalised columns, in
   sort order; `/search` ranks). `GET /artists/position` (same `include_radio_only` and
   `q`) gives the offset of a row in that list, for loading the page that has it: of an

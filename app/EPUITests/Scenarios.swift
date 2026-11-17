@@ -39,6 +39,17 @@ final class Scenarios: EPUITestCase {
         screenshot("libraryNoReleases")
     }
 
+    /// Library: Mark Bell, credited only as "Björk feat. Mark Bell" on Vespertine's Aurora:
+    /// no albums of his own, Vespertine under "Appears on", selected.
+    func testLibraryAppearsOn() throws {
+        let app = try launchConnected()
+        app.row("artists", id: Seed.markBell).click()
+        waitFor(app.element("releaseGroups.appearsOn"))
+        app.row("releaseGroups", id: Seed.vespertine).click()
+        waitFor(app.element("tracks.list"))
+        screenshot("libraryAppearsOn")
+    }
+
     /// Library: Fennesz → Agora, an album with nothing that plays (banner).
     func testLibraryNoPlayable() throws {
         let app = try launchConnected()

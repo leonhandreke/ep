@@ -3,7 +3,7 @@ import Foundation
 import Observation
 
 /// One window's Library selection and what it shows (§3.3–3.4): the selected artist with
-/// its release groups, the selected album (or loose tracks) with its tracks, and the
+/// its release groups (and those it appears on), the selected album (or loose tracks) with its tracks, and the
 /// window's navigation history (decision 13: each window has its own).
 ///
 /// Selection flows left to right: choosing an artist clears the album and track,
@@ -29,6 +29,8 @@ final class LibraryBrowser: HistoryNavigating {
 
     private(set) var artist: Components.Schemas.ArtistDetail?
     private(set) var releaseGroups: [Components.Schemas.ReleaseGroupRead] = []
+    /// Albums by others with a track crediting the artist ("Appears on").
+    private(set) var appearances: [Components.Schemas.ReleaseGroupRead] = []
     private(set) var releaseGroupsPhase = Phase.idle
 
     private(set) var releaseGroup: Components.Schemas.ReleaseGroupDetail?
@@ -184,6 +186,7 @@ final class LibraryBrowser: HistoryNavigating {
         if location.artistID != before.artistID {
             artist = nil
             releaseGroups = []
+            appearances = []
             loadArtist()
         }
         if location.album != before.album || location.artistID != before.artistID {
@@ -211,9 +214,19 @@ final class LibraryBrowser: HistoryNavigating {
                     return (try ok.body.json, ok.headers.xTotalCount)
                 }
                 let artist = try await detail
+                var appearances: [Components.Schemas.ReleaseGroupRead] = []
+                if artist.counts.appearances > 0 {
+                    appearances = try await allPages { limit, offset in
+                        let ok = try await client.listArtistAppearances(
+                            path: .init(id: id), query: .init(limit: limit, offset: offset)
+                        ).ok
+                        return (try ok.body.json, ok.headers.xTotalCount)
+                    }
+                }
                 guard !Task.isCancelled, id == location.artistID else { return }
                 self.artist = artist
                 self.releaseGroups = releaseGroups
+                self.appearances = appearances
                 releaseGroupsPhase = .loaded
             } catch {
                 guard !Task.isCancelled, !ServerConnection.isCancellation(error) else { return }

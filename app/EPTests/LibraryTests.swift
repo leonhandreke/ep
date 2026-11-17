@@ -57,8 +57,10 @@ nonisolated enum LibraryFixtures {
         #"{"id": "\#(id)", \#(stamp), "mbid": null, "name": "\#(name)", "sort_name": "\#(name)", "disambiguation": "", "type": null, "link": "[[artist:\#(id)|\#(name)]]"}"#
     }
 
-    static func artistDetail(_ id: String, _ name: String, releaseGroups: Int = 1, loose: Int = 0) -> String {
-        #"{"id": "\#(id)", \#(stamp), "mbid": null, "name": "\#(name)", "sort_name": "\#(name)", "disambiguation": "", "type": null, "counts": {"release_groups": \#(releaseGroups), "loose_recordings": \#(loose), "radio_episodes": 0}, "radio_only": false, "link": "l"}"#
+    static func artistDetail(
+        _ id: String, _ name: String, releaseGroups: Int = 1, loose: Int = 0, appearances: Int = 0
+    ) -> String {
+        #"{"id": "\#(id)", \#(stamp), "mbid": null, "name": "\#(name)", "sort_name": "\#(name)", "disambiguation": "", "type": null, "counts": {"release_groups": \#(releaseGroups), "loose_recordings": \#(loose), "appearances": \#(appearances), "radio_episodes": 0}, "radio_only": false, "link": "l"}"#
     }
 
     static func releaseGroup(_ id: String, _ title: String, artist: String) -> String {
@@ -225,6 +227,31 @@ struct LibraryBrowserTests {
         browser.select(artist: "a2")
         #expect(browser.location == LibraryLocation(artistID: "a2"))
         #expect(browser.tracks.isEmpty)
+    }
+
+    @Test func aFeaturedArtistListsTheAlbumsItAppearsOn() async throws {
+        let transport = routed(
+            Self.routes.merging([
+                "/artists/a2": F.artistDetail("a2", "Rhye", releaseGroups: 0, appearances: 1),
+                "/artists/a2/release-groups": "[]",
+                "/artists/a2/appearances": "[\(F.releaseGroup("g1", "Homogenic", artist: "a1"))]",
+            ]) { $1 }
+        )
+        let browser = LibraryBrowser(connection: connection(transport))
+
+        browser.select(artist: "a2")
+        await browser.settle()
+        #expect(browser.releaseGroups.isEmpty)
+        #expect(browser.appearances.map(\.title) == ["Homogenic"])
+        browser.select(album: .releaseGroup("g1"))
+        await browser.settle()
+        #expect(browser.tracks.map(\.title) == ["Jóga"])
+
+        // An artist that appears on nothing does not ask.
+        browser.select(artist: "a1")
+        await browser.settle()
+        #expect(browser.appearances.isEmpty)
+        #expect(queries(transport, path: "/artists/a1/appearances").isEmpty)
     }
 
     @Test func historyGoesBackAndForwardAndForgetsForwardOnANewPath() async throws {
