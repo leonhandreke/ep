@@ -34,6 +34,7 @@ files; `server/`: ruff, ty, `uv lock --check`).
 | `EP_LIBRARY_DIR` | `/library` | managed library directory |
 | `EP_MEDIA_ROOTS` | `["<EP_LIBRARY_DIR>", "/watch"]` | JSON list: the only directories file sources may point into |
 | `EP_TEST_DATABASE_URL` | `EP_DATABASE_URL` with database `ep_test` | used by tests only |
+| `EP_RUN_WORKER` | `false` | run the import worker and the watcher inside the API process (development: one `uvicorn --reload`) |
 | `EP_WATCH_POLL_SECONDS` | `30` | watcher: seconds between polls of the watched dirs |
 | `EP_WATCH_SETTLE_SECONDS` | `60` | watcher: quiet time before a changed folder is imported |
 | `EP_WATCH_RESCAN_SECONDS` | `900` | watcher: seconds between full rescans |
@@ -47,6 +48,18 @@ docker compose up -d --build
 docker compose run --rm api alembic upgrade head
 curl localhost:8000/health        # {"status":"ok","database":"ok"}
 docker compose down               # stop (data stays in the db-data volume)
+```
+
+On the host instead, with only Postgres in Docker (one process: API, import worker and
+watcher; a reload waits for a running import to finish):
+
+```sh
+cd server
+docker compose up -d db
+uv run alembic upgrade head
+EP_RUN_WORKER=1 EP_LIBRARY_DIR="$HOME/Music/ep-Library" \
+EP_MEDIA_ROOTS="[\"$HOME/Music/ep-Library\", \"$HOME/Music/Library\"]" \
+    uv run uvicorn ep.main:app --port 8000 --reload
 ```
 
 New migration after changing models (models must be imported in `ep/models/__init__.py`):

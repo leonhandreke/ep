@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     # Watcher (``ep.jobs.watcher``): seconds between polls of the watched directories
     # (watchfiles in polling mode), quiet time before a changed folder is imported, and
     # seconds between full rescans.
+    # Run the import worker and the watcher (``ep.jobs.worker``) inside the API process,
+    # for development: one ``uvicorn --reload`` restarts everything.
+    run_worker: bool = False
     watch_poll_seconds: float = 30.0
     watch_settle_seconds: float = 60.0
     watch_rescan_seconds: float = 900.0
