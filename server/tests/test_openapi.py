@@ -14,6 +14,9 @@ def test_operation_ids_are_endpoint_names(client: TestClient) -> None:
         "list_release_group_tracks",
         "add_recording_external_id",
         "list_recording_sources",
+        "add_recording_source",
+        "update_recording_source",
+        "set_preferred_source",
         "stream_source",
         "set_release_group_cover",
         "search_library",
@@ -42,7 +45,6 @@ def test_operation_ids_are_endpoint_names(client: TestClient) -> None:
         "get_entity_details",
         "list_tags",
         "update_tag",
-        "list_tag_entities",
         "list_entity_tags",
         "add_entity_tag",
         "remove_entity_tag",
@@ -199,5 +201,5 @@ def test_timestamps_and_clearing_are_described(client: TestClient) -> None:
     created_at = schemas["ArtistRead"]["properties"]["created_at"]
     assert (created_at["type"], created_at["format"]) == ("string", "date-time")
     assert "null" in schemas["RecordingUpdate"]["description"]
-    preferred = schemas["RecordingUpdate"]["properties"]["preferred_source_id"]
-    assert {"type": "null"} in preferred["anyOf"]
+    length = schemas["RecordingUpdate"]["properties"]["length_ms"]
+    assert {"type": "null"} in length["anyOf"]

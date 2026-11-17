@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, status
+from fastapi.exceptions import RequestValidationError
 from sqlalchemy import exists
 from sqlalchemy.orm import joinedload
 from sqlmodel import Session, col, func, select
@@ -16,7 +17,7 @@ from ep.api.errors import NOT_FOUND
 from ep.api.schemas import RadioMatchRead, ResolvedRead, SearchHitRead
 from ep.credits import with_credit
 from ep.entities import resolve_ref
-from ep.matching.search import SEARCH_TYPES, SearchHit, search
+from ep.matching.search import SEARCH_TYPES, SearchHit, search, tagged
 from ep.models import (
     ArtistCreditName,
     EntityTag,
@@ -39,12 +40,12 @@ RADIO_MATCH_FACTOR = 0.9
 @router.get("/search")
 def search_library(
     session: SessionDep,
-    q: Annotated[str, Query(min_length=1)],
     types: Annotated[list[EntityType], Query(default_factory=list)],
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     per_type: Annotated[int | None, Query(ge=1, le=100)] = None,
     tag_id: uuid.UUID | None = None,
     include_radio_only: bool = False,
+    q: Annotated[str | None, Query(min_length=1)] = None,
 ) -> list[SearchHitRead]:
     """Artists, release groups, recordings, radio shows and radio episodes matching
     ``q``, best first.
@@ -53,9 +54,10 @@ def search_library(
     typos, and matches artist and title together ("nina simone sinnerman"). ``types``
     (repeatable) limits the entity types; default all. ``per_type`` caps the hits of
     each type (for results grouped by type), ``limit`` all of them. ``tag_id``: only
-    entities with that tag (everything with a tag: ``GET /tags/{id}/entities``).
-    Artists and recordings only known from radio tracklists are left out unless
-    ``include_radio_only``.
+    entities with that tag. Give ``q``, ``tag_id`` or both: without ``q``, everything
+    with the tag, by type (artists, release groups, recordings, radio shows, radio
+    episodes) and then by name, with ``score`` null. Artists and recordings only known
+    from radio tracklists are left out unless ``include_radio_only``.
 
     Radio episodes are also found by what they played: an episode that played a
     matching recording, or a track of a matching release group, is a hit with
@@ -65,9 +67,15 @@ def search_library(
     the MBID if there is one, else the id).
     """
     wanted = types or list(SEARCH_TYPES)
-    hits = search(session, q, wanted, limit, include_radio_only, per_type, tag_id)
     radio: dict[uuid.UUID, tuple[SearchHit, RadioEpisodeTrack]] = {}
-    if EntityType.radio_episode in wanted:
+    if q is None:
+        if tag_id is None:
+            error = {"type": "missing", "loc": ("query", "q"), "input": None}
+            raise RequestValidationError([{**error, "msg": "give q, tag_id or both"}])
+        hits = tagged(session, tag_id, wanted, limit, include_radio_only, per_type)
+    else:
+        hits = search(session, q, wanted, limit, include_radio_only, per_type, tag_id)
+    if q is not None and EntityType.radio_episode in wanted:
         radio = _radio_matches(session, hits, tag_id)
         direct = {hit.entity.id for hit in hits if hit.type is EntityType.radio_episode}
         radio = {id: match for id, match in radio.items() if id not in direct}
@@ -102,7 +110,7 @@ def search_library(
         reads.append(
             SearchHitRead(
                 **read.model_dump(),
-                score=hit.score,
+                score=hit.score if q is not None else None,
                 track_count=(
                     track_counts.get(hit.entity.id, 0)
                     if hit.type is EntityType.release_group

@@ -279,9 +279,13 @@ class RecordingUpdate(BaseModel):
     title: NonEmptyStr | MISSING = MISSING
     artist_credit: ArtistCreditIn | MISSING = MISSING
     length_ms: NonNegativeInt | MISSING | None = MISSING
-    # One of the recording's playable sources, to play instead of the default choice;
-    # null: the default (``PlayabilityRead.playback``).
-    preferred_source_id: uuid.UUID | MISSING | None = MISSING
+
+
+class PreferredSourceWrite(BaseModel):
+    """The source to play instead of the default choice: one of the recording's
+    ``playable`` sources; null (or omitted): the default."""
+
+    source_id: uuid.UUID | None = None
 
 
 class RecordingRead(Read):
@@ -289,7 +293,8 @@ class RecordingRead(Read):
     title: str
     artist_credit: ArtistCreditRead
     length_ms: int | None
-    # The source chosen to play; null: the default choice.
+    # The source chosen to play (``PUT /recordings/{id}/preferred-source``); null: the
+    # default choice.
     preferred_source_id: uuid.UUID | None
 
     @computed_field
@@ -358,7 +363,8 @@ class PlayabilityRead(BaseModel):
     # The recording's oldest link (in any state; for ``link_only`` the one to open).
     link: LinkRead | None
     # ``file_missing``: the file source not found on disk (give it a new ``uri`` with
-    # ``PATCH /sources/{id}`` to locate it).
+    # ``PATCH /recordings/{id}/sources/{source_id}`` or ``PATCH /sources/{id}`` to
+    # locate it).
     missing_file_source_id: uuid.UUID | None
 
 
@@ -596,7 +602,9 @@ class ExternalIdRead(Read):
 Sha256 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 
 
-class SourceCreate(BaseModel):
+class RecordingSourceCreate(BaseModel):
+    """A source of the recording named in the path."""
+
     kind: SourceKind
     # Absolute path for file (must exist; a host path under ``EP_HOST_PATHS`` is mapped
     # to the server's), URL/URI for remote kinds, omitted for slice.
@@ -605,7 +613,6 @@ class SourceCreate(BaseModel):
     # Slice only: range within the parent. No end: to the end of the parent.
     start_ms: NonNegativeInt | None = None
     end_ms: PositiveInt | None = None
-    recording_id: uuid.UUID | None = None
     managed: bool = False
     # For file sources, codec/duration_ms/size are read from the file when omitted (and
     # always its media type).
@@ -613,6 +620,12 @@ class SourceCreate(BaseModel):
     duration_ms: NonNegativeInt | None = None
     size: NonNegativeInt | None = None
     sha256: Sha256 | None = None
+
+
+class SourceCreate(RecordingSourceCreate):
+    """A source of any recording, or of none (a container: an album or episode file)."""
+
+    recording_id: uuid.UUID | None = None
 
 
 class SourceUpdate(BaseModel):
@@ -705,10 +718,14 @@ class RecordingSourceRead(BaseModel):
     # The file it plays from; null for links (and broken chains).
     file: FileRead | None
     radio: RadioSliceRead | None
-    # The user chose it (``RecordingUpdate.preferred_source_id``).
+    # It resolves to a file, so it can be chosen to play (links cannot).
+    playable: bool
+    # The user chose it (``PUT /recordings/{id}/preferred-source``).
     preferred: bool
-    # It is what plays (``PlayabilityRead.playback``).
-    plays: bool
+    # It is what plays when the recording is played: the preferred source if its file
+    # is there, else the server's default choice (``PlayabilityRead.playback``). At most
+    # one source of the list.
+    will_play: bool
 
 
 # Search and resolve
@@ -754,8 +771,9 @@ class RadioMatchRead(BaseModel):
 class SearchHitRead(EntityRead):
     """A search hit."""
 
-    # Higher is better; only comparable within one response.
-    score: float
+    # Higher is better; only comparable within one response. Null without a query
+    # (everything with a tag).
+    score: float | None
     # Release groups: their track count. Artists: their release groups and loose
     # recordings (``ArtistCountsRead``). Null for other types.
     track_count: int | None

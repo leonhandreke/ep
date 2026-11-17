@@ -192,7 +192,7 @@ def test_recording_sources_and_track_playback(client: TestClient, audio_dir: Pat
     sources = client.get(f"/recordings/{first['id']}/sources").json()
     assert [s["source"]["id"] for s in sources] == [link["id"], piece["id"]]
     assert [s["role"] for s in sources] == ["link", "slice"]
-    assert [s["plays"] for s in sources] == [False, True]
+    assert [(s["playable"], s["will_play"]) for s in sources] == [(False, False), (True, True)]
     assert sources[0]["file"] is None
     assert sources[1]["file"]["source_id"] == album["id"]
     assert sources[1]["file"]["exists"] is True

@@ -1,7 +1,9 @@
-"""Tags: list (with usage counts), rename/merge, delete; the tags of an entity; the
-entities with a tag. Entities are named in paths by MBID or internal ID."""
+"""Tags: list (with usage counts), rename/merge, delete; the tags of an entity.
+Entities are named in paths by MBID or internal ID. Everything with a tag:
+``GET /search?tag_id=``."""
 
 import uuid
+from enum import StrEnum
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, status
@@ -9,27 +11,41 @@ from sqlalchemy import ColumnElement
 from sqlmodel import Session, col, func, select
 
 from ep.api.deps import PAGED, PageDep, Paging, SessionDep, get_or_404
-from ep.api.entities import entity_reads, get_entity_or_404
+from ep.api.entities import get_entity_or_404
 from ep.api.errors import CONFLICT, NOT_FOUND
-from ep.api.schemas import EntityRead, TagAdd, TagRead, TagUpdate
-from ep.entities import load_entities
+from ep.api.schemas import TagAdd, TagRead, TagUpdate
 from ep.models import EntityTag, EntityType, Tag
 from ep.notes.tags import rename_tag, tag_entity
 
 router = APIRouter(tags=["tags"])
 
 
+class TagSort(StrEnum):
+    """The order of a tag list."""
+
+    # By name, ignoring case.
+    name = "name"
+    # Most used first (then by name).
+    count = "count"
+
+
 def _tag_reads(
-    session: Session, *where: ColumnElement[bool], page: Paging | None = None
+    session: Session,
+    *where: ColumnElement[bool],
+    page: Paging | None = None,
+    sort: TagSort = TagSort.name,
 ) -> list[TagRead]:
-    """Tags with their usage counts, by name (one query)."""
+    """Tags with their usage counts (one query)."""
     count = func.count(col(EntityTag.id))
+    order = [func.lower(Tag.name), col(Tag.id)]
+    if sort is TagSort.count:
+        order.insert(0, count.desc())
     query = (
         select(Tag, count)
         .outerjoin(EntityTag, col(EntityTag.tag_id) == Tag.id)
         .where(*where)
         .group_by(col(Tag.id))
-        .order_by(func.lower(Tag.name), col(Tag.id))
+        .order_by(*order)
     )
     if page is not None:
         query = page.apply(session, query)
@@ -46,13 +62,14 @@ def list_tags(
     session: SessionDep,
     page: PageDep,
     prefix: Annotated[str | None, Query(min_length=1)] = None,
+    sort: TagSort = TagSort.name,
 ) -> list[TagRead]:
-    """Tags by name, with how many entities have each. ``prefix`` (ignoring case)
-    narrows them, for autocomplete."""
+    """Tags with how many entities have each, by name or (``sort=count``) most used
+    first. ``prefix`` (ignoring case) narrows them, for autocomplete."""
     where = []
     if prefix is not None:
         where.append(func.starts_with(func.lower(Tag.name), func.lower(prefix)))
-    return _tag_reads(session, *where, page=page)
+    return _tag_reads(session, *where, page=page, sort=sort)
 
 
 @router.get("/tags/{id}", responses=NOT_FOUND)
@@ -76,31 +93,6 @@ def delete_tag(id: uuid.UUID, session: SessionDep) -> None:
     """Delete a tag and remove it from every entity."""
     session.delete(get_or_404(session, Tag, id))
     session.commit()
-
-
-@router.get("/tags/{id}/entities", responses=NOT_FOUND | PAGED)
-def list_tag_entities(
-    id: uuid.UUID,
-    session: SessionDep,
-    page: PageDep,
-    types: Annotated[list[EntityType], Query(default_factory=list)],
-) -> list[EntityRead]:
-    """Everything with this tag, grouped by entity type (artists, radio episodes, radio
-    shows, recordings, release groups), most recently tagged first within a type.
-    ``types`` (repeatable) limits the entity types."""
-    get_or_404(session, Tag, id)
-    query = select(EntityTag.entity_type, EntityTag.entity_id).where(EntityTag.tag_id == id)
-    if types:
-        query = query.where(col(EntityTag.entity_type).in_(types))
-    rows = session.exec(
-        page.apply(session, query).order_by(
-            col(EntityTag.entity_type), col(EntityTag.created_at).desc(), col(EntityTag.id)
-        )
-    ).all()
-    keys = [(EntityType(entity_type), entity_id) for entity_type, entity_id in rows]
-    entities = load_entities(session, keys)
-    reads = entity_reads(session, entities.values())
-    return [reads[entity_id] for entity_type, entity_id in keys if entity_id in reads]
 
 
 # The tags of an entity
@@ -136,15 +128,12 @@ def add_entity_tag(
     return entity_tag_reads(session, type, entity.id)
 
 
-@router.delete(
-    "/entity-tags/{type}/{id}/{tag_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-    responses=NOT_FOUND,
-)
+@router.delete("/entity-tags/{type}/{id}/{tag_id}", responses=NOT_FOUND)
 def remove_entity_tag(
     type: EntityType, id: uuid.UUID, tag_id: uuid.UUID, session: SessionDep
-) -> None:
-    """Remove a tag from an entity (the tag stays, even if nothing has it any more)."""
+) -> list[TagRead]:
+    """Remove a tag from an entity (the tag stays, even if nothing has it any more).
+    Returns the entity's tags, as adding one does."""
     entity = get_entity_or_404(session, type, id)
     row = session.exec(
         select(EntityTag).where(
@@ -157,3 +146,4 @@ def remove_entity_tag(
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"{type} {id} has no tag {tag_id}")
     session.delete(row)
     session.commit()
+    return entity_tag_reads(session, type, entity.id)

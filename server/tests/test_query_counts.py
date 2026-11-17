@@ -187,8 +187,9 @@ NOTE_CASES: list[tuple[str, Callable[[dict[str, str]], str], int]] = [
     # total; notes; owners per type (3); covers (paged lists: one more for the total)
     ("note_search", lambda ids: f"/notes/search?q={ids['word']}", 6),
     ("tags", lambda ids: "/tags", 2),
-    # tag; total; tagged rows; entities per type (3); covers
-    ("tag_entities", lambda ids: f"/tags/{ids['tag']}/entities", 7),
+    # everything with the tag: per type (5); albums of recordings; track counts;
+    # artist counts (2)
+    ("tag_search", lambda ids: f"/search?tag_id={ids['tag']}&include_radio_only=true", 9),
     # entity; tags with counts
     ("entity_tags", lambda ids: f"/entity-tags/artist/{ids['target']}", 2),
     # entity; note (none: no links); tags; backlinks (as above, less the entity);

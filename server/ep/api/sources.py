@@ -9,7 +9,13 @@ from sqlmodel import Session
 
 from ep.api.deps import SessionDep, SettingsDep, get_or_404, get_or_422
 from ep.api.errors import CONFLICT, NOT_FOUND, ErrorRead, unprocessable
-from ep.api.schemas import PlaybackRead, SourceCreate, SourceRead, SourceUpdate
+from ep.api.schemas import (
+    PlaybackRead,
+    RecordingSourceCreate,
+    SourceCreate,
+    SourceRead,
+    SourceUpdate,
+)
 from ep.host_paths import from_host, to_host
 from ep.media_roots import is_within_media_roots
 from ep.models import Recording, Source, SourceKind
@@ -91,21 +97,55 @@ def _fill_file_facts(source: Source, given: Collection[str] = ()) -> None:
             setattr(source, name, value)
 
 
-@router.post("", status_code=status.HTTP_201_CREATED, responses=CONFLICT)
-def create_source(body: SourceCreate, session: SessionDep, settings: SettingsDep) -> SourceRead:
-    """Create a source of any kind: a file (must exist), a slice of a source, a remote link.
-
-    A file must lie under one of the media roots (``EP_MEDIA_ROOTS``); a host path in a
-    directory of ``EP_HOST_PATHS`` is taken as the server path it maps to. Its codec,
-    duration, size and stream facts are read from the file.
-    """
+def add_source(
+    session: Session,
+    body: RecordingSourceCreate,
+    settings: Settings,
+    recording_id: uuid.UUID | None = None,
+) -> Source:
+    """A new source (validated, a file's facts read from it), flushed."""
     source = Source.model_validate(body)
+    if recording_id is not None:
+        source.recording_id = recording_id
     if source.kind is SourceKind.file and source.uri:
         source.uri = from_host(source.uri, settings)
     _check_source(session, source, settings.media_roots)
     if source.kind == SourceKind.file:
         _fill_file_facts(source, body.model_dump(exclude_none=True))
     session.add(source)
+    session.flush()
+    return source
+
+
+def change_source(session: Session, source: Source, body: SourceUpdate, settings: Settings) -> None:
+    """Apply a ``PATCH`` to a source (validated; a moved file read again), flushed."""
+    old_uri = source.uri
+    with session.no_autoflush:
+        changes = body.model_dump()
+        source.sqlmodel_update(changes)
+        if source.kind is SourceKind.file and source.uri:
+            source.uri = from_host(source.uri, settings)
+        _check_source(session, source, settings.media_roots)
+        if (
+            source.kind is SourceKind.file
+            and source.uri != old_uri
+            and Path(source.uri or "").is_file()
+        ):
+            _fill_file_facts(source, changes)
+    session.flush()
+
+
+@router.post("", status_code=status.HTTP_201_CREATED, responses=CONFLICT)
+def create_source(body: SourceCreate, session: SessionDep, settings: SettingsDep) -> SourceRead:
+    """Create a source of any kind: a file (must exist), a slice of a source, a remote link.
+    (``POST /recordings/{id}/sources`` adds one to a recording and answers with its
+    sources.)
+
+    A file must lie under one of the media roots (``EP_MEDIA_ROOTS``); a host path in a
+    directory of ``EP_HOST_PATHS`` is taken as the server path it maps to. Its codec,
+    duration, size and stream facts are read from the file.
+    """
+    source = add_source(session, body, settings)
     session.commit()
     return source_read(source, try_resolve(source), settings)
 
@@ -122,21 +162,10 @@ def update_source(
 ) -> SourceRead:
     """Change a source; a file's new ``uri`` (to locate a moved file) may be a host path
     (``EP_HOST_PATHS``). A file found at its new ``uri`` is read again (media type,
-    codec, ...: it may have been re-encoded)."""
+    codec, ...: it may have been re-encoded). (``PATCH /recordings/{id}/sources/{id}``
+    does the same and answers with the recording's sources.)"""
     source = get_or_404(session, Source, id)
-    old_uri = source.uri
-    with session.no_autoflush:
-        changes = body.model_dump()
-        source.sqlmodel_update(changes)
-        if source.kind is SourceKind.file and source.uri:
-            source.uri = from_host(source.uri, settings)
-        _check_source(session, source, settings.media_roots)
-        if (
-            source.kind is SourceKind.file
-            and source.uri != old_uri
-            and Path(source.uri or "").is_file()
-        ):
-            _fill_file_facts(source, changes)
+    change_source(session, source, body, settings)
     session.commit()
     return source_read(source, try_resolve(source), settings)
 

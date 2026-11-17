@@ -11,17 +11,20 @@ from ep.api.external_ids import add_external_id_routes
 from ep.api.release_groups import release_group_order
 from ep.api.schemas import (
     FileRead,
+    PreferredSourceWrite,
     RadioEpisodeRead,
     RadioShowRead,
     RadioSliceRead,
     RecordingCreate,
     RecordingDetail,
     RecordingRead,
+    RecordingSourceCreate,
     RecordingSourceRead,
     RecordingUpdate,
     SourceRole,
+    SourceUpdate,
 )
-from ep.api.sources import source_read
+from ep.api.sources import add_source, change_source, source_read
 from ep.api.tracks import playability_read
 from ep.credits import delete_artist_credit_if_unused, with_credit
 from ep.external_ids import delete_external_ids
@@ -102,19 +105,8 @@ def get_recording(id: uuid.UUID, session: SessionDep) -> RecordingDetail:
 
 @router.patch("/{id}", responses=NOT_FOUND | CONFLICT)
 def update_recording(id: uuid.UUID, body: RecordingUpdate, session: SessionDep) -> RecordingRead:
-    """Change a recording. ``preferred_source_id`` must be one of its sources that plays
-    (a file, or a slice of one)."""
+    """Change a recording (its preferred source: ``PUT /recordings/{id}/preferred-source``)."""
     recording = get_or_404(session, Recording, id)
-    preferred = body.preferred_source_id
-    if preferred is not MISSING and preferred is not None:
-        source = get_or_422(session, Source, preferred, ("preferred_source_id",))
-        if source.recording_id != id or try_resolve(source) is None:
-            raise unprocessable(
-                ("preferred_source_id",),
-                "not a playable source of this recording",
-                str(preferred),
-                "value_error",
-            )
     recording.sqlmodel_update(body.model_dump(exclude={"artist_credit"}))
     if body.artist_credit is not MISSING:
         old_credit = recording.artist_credit
@@ -147,10 +139,76 @@ def list_recording_sources(
     """The sources of this recording, oldest first: what each is (its own file, a range
     of a shared file, a radio excerpt, a link), where it came from (its parent sources),
     the file it plays from (with its host path and whether it is there), the radio
-    entry of an excerpt, and which one the user chose and which one plays."""
+    entry of an excerpt, whether it can be chosen to play, whether the user chose it and
+    which one will play.
+
+    The changes made from this list (``POST /recordings/{id}/sources``,
+    ``PATCH /recordings/{id}/sources/{source_id}``,
+    ``PUT /recordings/{id}/preferred-source``) answer with it."""
+    return _recording_source_reads(session, get_or_404(session, Recording, id), settings)
+
+
+@router.post("/{id}/sources", status_code=status.HTTP_201_CREATED, responses=NOT_FOUND | CONFLICT)
+def add_recording_source(
+    id: uuid.UUID, body: RecordingSourceCreate, session: SessionDep, settings: SettingsDep
+) -> list[RecordingSourceRead]:
+    """Add a source to this recording (as ``POST /sources``: a file, a slice, a link).
+    Returns the recording's sources."""
+    recording = get_or_404(session, Recording, id)
+    add_source(session, body, settings, recording.id)
+    session.commit()
+    return _recording_source_reads(session, recording, settings)
+
+
+@router.patch("/{id}/sources/{source_id}", responses=NOT_FOUND | CONFLICT)
+def update_recording_source(
+    id: uuid.UUID,
+    source_id: uuid.UUID,
+    body: SourceUpdate,
+    session: SessionDep,
+    settings: SettingsDep,
+) -> list[RecordingSourceRead]:
+    """Change a source the recording plays from, as ``PATCH /sources/{id}`` does: one of
+    its sources, or a source one derives from (locating a moved album or episode file
+    shared with other recordings). Returns the recording's sources."""
     recording = get_or_404(session, Recording, id)
     resolved = resolve_where_flagged(session, col(Source.recording_id) == id)
-    playing = playabilities(session, [recording])[id].playback
+    if source_id not in {s.id for r in resolved for s in (r.source, *r.ancestors)}:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, f"recording {id} plays from no source {source_id}"
+        )
+    change_source(session, get_or_404(session, Source, source_id), body, settings)
+    session.commit()
+    return _recording_source_reads(session, recording, settings)
+
+
+@router.put("/{id}/preferred-source", responses=NOT_FOUND)
+def set_preferred_source(
+    id: uuid.UUID, body: PreferredSourceWrite, session: SessionDep, settings: SettingsDep
+) -> list[RecordingSourceRead]:
+    """Choose which source plays (one of the recording's ``playable`` sources), or the
+    default choice (``source_id`` null): the oldest library source whose file is there,
+    else the oldest radio excerpt. Returns the recording's sources."""
+    recording = get_or_404(session, Recording, id)
+    if body.source_id is not None:
+        source = get_or_422(session, Source, body.source_id, ("source_id",))
+        if source.recording_id != id or try_resolve(source) is None:
+            raise unprocessable(
+                ("source_id",),
+                "not a playable source of this recording",
+                str(body.source_id),
+                "value_error",
+            )
+    recording.preferred_source_id = body.source_id
+    session.commit()
+    return _recording_source_reads(session, recording, settings)
+
+
+def _recording_source_reads(
+    session: Session, recording: Recording, settings: Settings
+) -> list[RecordingSourceRead]:
+    resolved = resolve_where_flagged(session, col(Source.recording_id) == recording.id)
+    playing = playabilities(session, [recording])[recording.id].playback
     entries = _radio_entries(session, [r.radio.track_id for r in resolved if r.radio])
     return [_recording_source_read(r, recording, playing, entries, settings) for r in resolved]
 
@@ -216,8 +274,9 @@ def _recording_source_read(
         ancestors=[source_read(a, try_resolve(a), settings) for a in resolved.ancestors],
         file=file,
         radio=radio,
+        playable=playback is not None,
         preferred=recording.preferred_source_id == source.id,
-        plays=playing is not None and playing.source_id == source.id,
+        will_play=playing is not None and playing.source_id == source.id,
     )
 
 

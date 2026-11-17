@@ -1,5 +1,6 @@
 """Tags: add by name (find or create, ignoring case), remove, list with counts and by
-prefix, everything with a tag, rename and merge, delete."""
+prefix (by name or most used first), rename and merge, delete. Everything with a tag:
+``test_api_search``."""
 
 import uuid
 from typing import Any
@@ -8,7 +9,7 @@ from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
 from ep.models import EntityTag, Tag
-from tests.helpers import make_artist, make_recording, make_release_group
+from tests.helpers import make_artist, make_release_group
 
 MBID = "8f3471b5-7e6a-48da-86a9-c1c07a0f47ae"
 
@@ -47,9 +48,12 @@ def test_add_find_or_create_ignoring_case(client: TestClient, session: Session) 
 def test_remove(client: TestClient) -> None:
     nina = make_artist(client)
     [tag] = add(client, "artist", nina["id"], "soul")
+    [jazz] = [t for t in add(client, "artist", nina["id"], "jazz") if t["name"] == "jazz"]
     path = f"/entity-tags/artist/{nina['id']}/{tag['id']}"
-    assert client.delete(path).status_code == 204
-    assert client.get(f"/entity-tags/artist/{nina['id']}").json() == []
+    # Answers with the entity's tags, as adding does.
+    response = client.delete(path)
+    assert response.status_code == 200
+    assert response.json() == [jazz]
     assert client.delete(path).status_code == 404
     # The tag stays, unused.
     assert client.get(f"/tags/{tag['id']}").json() == {**tag, "count": 0}
@@ -72,31 +76,14 @@ def test_list_with_counts_and_prefix(client: TestClient) -> None:
     # No LIKE wildcards.
     assert client.get("/tags", params={"prefix": "%"}).json() == []
     assert names(client.get("/tags", params={"limit": 1, "offset": 1}).json()) == ["Jazz"]
-
-
-def test_entities_with_a_tag(client: TestClient) -> None:
-    nina = make_artist(client)
-    album = make_release_group(client, nina)
-    songs = [make_recording(client, nina, f"Song {n}") for n in range(3)]
-    for type, entity in [("artist", nina), ("release_group", album)] + [
-        ("recording", song) for song in songs
-    ]:
-        [tag] = add(client, type, entity["id"], "soul")
-    entities = client.get(f"/tags/{tag['id']}/entities").json()
-    # By type; most recently tagged first.
-    assert [(e["type"], e["title"]) for e in entities] == [
-        ("artist", "Nina Simone"),
-        ("recording", "Song 2"),
-        ("recording", "Song 1"),
-        ("recording", "Song 0"),
-        ("release_group", "Pastel Blues"),
+    # Most used first, then by name (tag suggestions).
+    by_count = client.get("/tags", params={"prefix": "j", "sort": "count"}).json()
+    assert names(by_count) == ["Jazz", "jazz-funk"]
+    assert names(client.get("/tags", params={"sort": "count"}).json()) == [
+        "Jazz",
+        "Ambient",
+        "jazz-funk",
     ]
-    assert entities[-1]["subtitle"] == "Nina Simone"
-    page = client.get(f"/tags/{tag['id']}/entities", params={"limit": 2, "offset": 1}).json()
-    assert [e["title"] for e in page] == ["Song 2", "Song 1"]
-    only = client.get(f"/tags/{tag['id']}/entities", params={"types": "release_group"}).json()
-    assert [e["id"] for e in only] == [album["id"]]
-    assert client.get(f"/tags/{uuid.uuid4()}/entities").status_code == 404
 
 
 def test_rename_and_merge(client: TestClient, session: Session) -> None:

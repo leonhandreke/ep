@@ -132,7 +132,12 @@ def test_play_states(
     # Locate…: a new path for the missing file (re-encoded meanwhile); it plays again.
     found = settings.media_roots[2] / "found.opus"
     shutil.copyfile(audio_dir / "song.opus", found)
-    assert client.patch(f"/sources/{lost['id']}", json={"uri": str(found)}).status_code == 200
+    response = client.patch(
+        f"/recordings/{missing['id']}/sources/{lost['id']}", json={"uri": str(found)}
+    )
+    assert response.status_code == 200, response.text
+    [located] = response.json()
+    assert (located["file"]["exists"], located["will_play"]) == (True, True)
     playability = client.get(f"/recordings/{missing['id']}").json()["playability"]
     assert playability["state"] == "file"
     assert (playability["playback"]["media_type"], playability["playback"]["codec"]) == (
@@ -145,7 +150,7 @@ def test_play_states(
     assert excerpt_source["role"] == "radio_excerpt"
     assert excerpt_source["radio"]["show"]["name"] == "Late Night Tapes"
     assert excerpt_source["radio"]["offset_is_estimate"] is True
-    assert excerpt_source["plays"] is True
+    assert excerpt_source["will_play"] is True
 
     # Known only from an episode whose audio went missing: file missing, not no source.
     gone_episode = settings.media_roots[2] / "episode.m4a"
@@ -162,30 +167,43 @@ def test_play_states(
 
 def test_preferred_source(client: TestClient, audio_dir: Path) -> None:
     recording = make_recording(client, make_artist(client))
-    first = source(client, "file", uri=str(audio_dir / "song.mp3"), recording_id=recording["id"])
-    second = source(client, "file", uri=str(audio_dir / "song.m4a"), recording_id=recording["id"])
-    link = source(client, "youtube", uri="https://youtu.be/x", recording_id=recording["id"])
     url = f"/recordings/{recording['id']}"
-    assert client.get(url).json()["playability"]["playback"]["source_id"] == first["id"]
+    # Adding a source answers with the recording's sources.
+    first = source(client, "file", uri=str(audio_dir / "song.mp3"), recording_id=recording["id"])
+    response = client.post(
+        f"{url}/sources", json={"kind": "file", "uri": str(audio_dir / "song.m4a")}
+    )
+    assert response.status_code == 201, response.text
+    second = response.json()[1]["source"]
+    assert second["recording_id"] == recording["id"]
+    link = source(client, "youtube", uri="https://youtu.be/x", recording_id=recording["id"])
+    flags = [
+        (s["playable"], s["preferred"], s["will_play"]) for s in client.get(f"{url}/sources").json()
+    ]
+    assert flags == [(True, False, True), (True, False, False), (False, False, False)]
 
-    response = client.patch(url, json={"preferred_source_id": second["id"]})
-    assert response.status_code == 200
-    assert response.json()["preferred_source_id"] == second["id"]
-    assert client.get(url).json()["playability"]["playback"]["source_id"] == second["id"]
-    sources = client.get(f"{url}/sources").json()
-    assert [(s["preferred"], s["plays"]) for s in sources] == [
+    # Choosing answers with the sources: the chosen one will play.
+    response = client.put(f"{url}/preferred-source", json={"source_id": second["id"]})
+    assert response.status_code == 200, response.text
+    assert [(s["preferred"], s["will_play"]) for s in response.json()] == [
         (False, False),
         (True, True),
         (False, False),
     ]
+    assert client.get(url).json()["preferred_source_id"] == second["id"]
+    assert client.get(url).json()["playability"]["playback"]["source_id"] == second["id"]
     # Links do not play; null goes back to the default.
-    assert client.patch(url, json={"preferred_source_id": link["id"]}).status_code == 422
-    assert (
-        client.patch(url, json={"preferred_source_id": None}).json()["preferred_source_id"] is None
-    )
-    assert client.get(url).json()["playability"]["playback"]["source_id"] == first["id"]
+    response = client.put(f"{url}/preferred-source", json={"source_id": link["id"]})
+    assert response.status_code == 422
+    response = client.put(f"{url}/preferred-source", json={"source_id": None})
+    assert [s["will_play"] for s in response.json()] == [True, False, False]
+    assert client.get(url).json()["preferred_source_id"] is None
+    # A source of another recording is not this one's to locate.
+    other = make_recording(client, make_artist(client, "Other"))
+    response = client.patch(f"/recordings/{other['id']}/sources/{first['id']}", json={})
+    assert response.status_code == 404
     # Deleting the preferred source clears the choice.
-    client.patch(url, json={"preferred_source_id": second["id"]})
+    client.put(f"{url}/preferred-source", json={"source_id": second["id"]})
     assert client.delete(f"/sources/{second['id']}").status_code == 204
     assert client.get(url).json()["preferred_source_id"] is None
 

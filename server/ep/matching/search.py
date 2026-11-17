@@ -27,6 +27,8 @@ select, so that Postgres starts from whichever side is more selective. Such a hi
 by word similarity + similarity of the query to "<artist credit> <title>" or "<title>
 <artist credit>", without prefix bonus.
 
+Without a query, ``tagged`` lists the entities with a tag, by type and then name.
+
 Release groups and recordings are loaded with their artist credits, episodes with their
 show (for the hit's subtitle). Artists and recordings only known from radio tracklists
 (``ep.radio``) are left out unless ``include_radio_only``.
@@ -155,6 +157,41 @@ def search(
                 best[hit.entity.id] = hit
         found += sorted(best.values(), key=lambda hit: hit.score, reverse=True)[:type_limit]
     return sorted(found, key=lambda hit: hit.score, reverse=True)[:limit]
+
+
+def tagged(
+    session: Session,
+    tag_id: uuid.UUID,
+    types: Iterable[EntityType] = SEARCH_TYPES,
+    limit: int = 20,
+    include_radio_only: bool = False,
+    per_type: int | None = None,
+) -> list[SearchHit]:
+    """The entities with the tag ``tag_id``: by type (in ``SEARCH_TYPES`` order), then by
+    name ignoring case; at most ``per_type`` of each type and ``limit`` in all. There is
+    no query to rank by: every score is 0."""
+    found: list[SearchHit] = []
+    for entity_type in sorted(set(types), key=SEARCH_TYPES.index):
+        type_limit = min(limit - len(found), per_type or limit)
+        if type_limit <= 0:
+            break
+        searched = _COLUMNS[entity_type]
+        with_tag = select(EntityTag.entity_id).where(
+            EntityTag.tag_id == tag_id, EntityTag.entity_type == entity_type
+        )
+        statement = (
+            select(searched.model)
+            .where(col(searched.model.id).in_(with_tag))
+            .order_by(func.lower(searched.display), searched.display, col(searched.model.id))
+            .limit(type_limit)
+        )
+        if (visible := _visible(entity_type, include_radio_only)) is not None:
+            statement = statement.where(visible)
+        for load in searched.credit, searched.load:
+            if load is not None:
+                statement = statement.options(joinedload(load))
+        found += [SearchHit(entity_type, entity, 0.0) for entity in session.exec(statement)]
+    return found
 
 
 def _tagged(entity_type: EntityType, tag_id: uuid.UUID) -> ColumnElement[bool]:

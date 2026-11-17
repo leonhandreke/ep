@@ -1561,7 +1561,7 @@
           "recordings"
         ],
         "summary": "Update Recording",
-        "description": "Change a recording. ``preferred_source_id`` must be one of its sources that plays\n(a file, or a slice of one).",
+        "description": "Change a recording (its preferred source: ``PUT /recordings/{id}/preferred-source``).",
         "operationId": "update_recording",
         "parameters": [
           {
@@ -1690,7 +1690,7 @@
           "recordings"
         ],
         "summary": "List Recording Sources",
-        "description": "The sources of this recording, oldest first: what each is (its own file, a range\nof a shared file, a radio excerpt, a link), where it came from (its parent sources),\nthe file it plays from (with its host path and whether it is there), the radio\nentry of an excerpt, and which one the user chose and which one plays.",
+        "description": "The sources of this recording, oldest first: what each is (its own file, a range\nof a shared file, a radio excerpt, a link), where it came from (its parent sources),\nthe file it plays from (with its host path and whether it is there), the radio\nentry of an excerpt, whether it can be chosen to play, whether the user chose it and\nwhich one will play.\n\nThe changes made from this list (``POST /recordings/{id}/sources``,\n``PATCH /recordings/{id}/sources/{source_id}``,\n``PUT /recordings/{id}/preferred-source``) answer with it.",
         "operationId": "list_recording_sources",
         "parameters": [
           {
@@ -1715,6 +1715,238 @@
                     "$ref": "#/components/schemas/RecordingSourceRead"
                   },
                   "title": "Response List Recording Sources"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "recordings"
+        ],
+        "summary": "Add Recording Source",
+        "description": "Add a source to this recording (as ``POST /sources``: a file, a slice, a link).\nReturns the recording's sources.",
+        "operationId": "add_recording_source",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordingSourceCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RecordingSourceRead"
+                  },
+                  "title": "Response Add Recording Source"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorRead"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with existing data",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/recordings/{id}/sources/{source_id}": {
+      "patch": {
+        "tags": [
+          "recordings"
+        ],
+        "summary": "Update Recording Source",
+        "description": "Change a source the recording plays from, as ``PATCH /sources/{id}`` does: one of\nits sources, or a source one derives from (locating a moved album or episode file\nshared with other recordings). Returns the recording's sources.",
+        "operationId": "update_recording_source",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Id"
+            }
+          },
+          {
+            "name": "source_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Source Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourceUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RecordingSourceRead"
+                  },
+                  "title": "Response Update Recording Source"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorRead"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with existing data",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/recordings/{id}/preferred-source": {
+      "put": {
+        "tags": [
+          "recordings"
+        ],
+        "summary": "Set Preferred Source",
+        "description": "Choose which source plays (one of the recording's ``playable`` sources), or the\ndefault choice (``source_id`` null): the oldest library source whose file is there,\nelse the oldest radio excerpt. Returns the recording's sources.",
+        "operationId": "set_preferred_source",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreferredSourceWrite"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RecordingSourceRead"
+                  },
+                  "title": "Response Set Preferred Source"
                 }
               }
             }
@@ -2152,7 +2384,7 @@
           "sources"
         ],
         "summary": "Create Source",
-        "description": "Create a source of any kind: a file (must exist), a slice of a source, a remote link.\n\nA file must lie under one of the media roots (``EP_MEDIA_ROOTS``); a host path in a\ndirectory of ``EP_HOST_PATHS`` is taken as the server path it maps to. Its codec,\nduration, size and stream facts are read from the file.",
+        "description": "Create a source of any kind: a file (must exist), a slice of a source, a remote link.\n(``POST /recordings/{id}/sources`` adds one to a recording and answers with its\nsources.)\n\nA file must lie under one of the media roots (``EP_MEDIA_ROOTS``); a host path in a\ndirectory of ``EP_HOST_PATHS`` is taken as the server path it maps to. Its codec,\nduration, size and stream facts are read from the file.",
         "operationId": "create_source",
         "requestBody": {
           "content": {
@@ -2255,7 +2487,7 @@
           "sources"
         ],
         "summary": "Update Source",
-        "description": "Change a source; a file's new ``uri`` (to locate a moved file) may be a host path\n(``EP_HOST_PATHS``). A file found at its new ``uri`` is read again (media type,\ncodec, ...: it may have been re-encoded).",
+        "description": "Change a source; a file's new ``uri`` (to locate a moved file) may be a host path\n(``EP_HOST_PATHS``). A file found at its new ``uri`` is read again (media type,\ncodec, ...: it may have been re-encoded). (``PATCH /recordings/{id}/sources/{id}``\ndoes the same and answers with the recording's sources.)",
         "operationId": "update_source",
         "parameters": [
           {
@@ -3503,19 +3735,9 @@
           "search"
         ],
         "summary": "Search Library",
-        "description": "Artists, release groups, recordings, radio shows and radio episodes matching\n``q``, best first.\n\nAccent- and case-insensitive; finds prefixes (\"bjo\" finds \"Björk\"), tolerates small\ntypos, and matches artist and title together (\"nina simone sinnerman\"). ``types``\n(repeatable) limits the entity types; default all. ``per_type`` caps the hits of\neach type (for results grouped by type), ``limit`` all of them. ``tag_id``: only\nentities with that tag (everything with a tag: ``GET /tags/{id}/entities``).\nArtists and recordings only known from radio tracklists are left out unless\n``include_radio_only``.\n\nRadio episodes are also found by what they played: an episode that played a\nmatching recording, or a track of a matching release group, is a hit with\n``radio_match`` (the entry and its time). Release group hits carry their track\ncount, artist hits their release group and loose recording counts. Each hit\ncarries the link to write for it (``link``: ``[[type:uuid|Title]]``, the UUID being\nthe MBID if there is one, else the id).",
+        "description": "Artists, release groups, recordings, radio shows and radio episodes matching\n``q``, best first.\n\nAccent- and case-insensitive; finds prefixes (\"bjo\" finds \"Björk\"), tolerates small\ntypos, and matches artist and title together (\"nina simone sinnerman\"). ``types``\n(repeatable) limits the entity types; default all. ``per_type`` caps the hits of\neach type (for results grouped by type), ``limit`` all of them. ``tag_id``: only\nentities with that tag. Give ``q``, ``tag_id`` or both: without ``q``, everything\nwith the tag, by type (artists, release groups, recordings, radio shows, radio\nepisodes) and then by name, with ``score`` null. Artists and recordings only known\nfrom radio tracklists are left out unless ``include_radio_only``.\n\nRadio episodes are also found by what they played: an episode that played a\nmatching recording, or a track of a matching release group, is a hit with\n``radio_match`` (the entry and its time). Release group hits carry their track\ncount, artist hits their release group and loose recording counts. Each hit\ncarries the link to write for it (``link``: ``[[type:uuid|Title]]``, the UUID being\nthe MBID if there is one, else the id).",
         "operationId": "search_library",
         "parameters": [
-          {
-            "name": "q",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "minLength": 1,
-              "title": "Q"
-            }
-          },
           {
             "name": "types",
             "in": "query",
@@ -3583,6 +3805,23 @@
               "type": "boolean",
               "default": false,
               "title": "Include Radio Only"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
             }
           }
         ],
@@ -4044,7 +4283,7 @@
           "tags"
         ],
         "summary": "List Tags",
-        "description": "Tags by name, with how many entities have each. ``prefix`` (ignoring case)\nnarrows them, for autocomplete.",
+        "description": "Tags with how many entities have each, by name or (``sort=count``) most used\nfirst. ``prefix`` (ignoring case) narrows them, for autocomplete.",
         "operationId": "list_tags",
         "parameters": [
           {
@@ -4062,6 +4301,15 @@
                 }
               ],
               "title": "Prefix"
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/TagSort",
+              "default": "name"
             }
           },
           {
@@ -4295,108 +4543,6 @@
         }
       }
     },
-    "/tags/{id}/entities": {
-      "get": {
-        "tags": [
-          "tags"
-        ],
-        "summary": "List Tag Entities",
-        "description": "Everything with this tag, grouped by entity type (artists, radio episodes, radio\nshows, recordings, release groups), most recently tagged first within a type.\n``types`` (repeatable) limits the entity types.",
-        "operationId": "list_tag_entities",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid",
-              "title": "Id"
-            }
-          },
-          {
-            "name": "types",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "array",
-              "items": {
-                "$ref": "#/components/schemas/EntityType"
-              },
-              "title": "Types"
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "maximum": 1000,
-              "minimum": 1,
-              "default": 100,
-              "title": "Limit"
-            }
-          },
-          {
-            "name": "offset",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "minimum": 0,
-              "default": 0,
-              "title": "Offset"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/EntityRead"
-                  },
-                  "title": "Response List Tag Entities"
-                }
-              }
-            },
-            "headers": {
-              "X-Total-Count": {
-                "description": "Number of items in the whole list (all pages).",
-                "required": true,
-                "schema": {
-                  "type": "integer"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorRead"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/entity-tags/{type}/{id}": {
       "get": {
         "tags": [
@@ -4543,7 +4689,7 @@
           "tags"
         ],
         "summary": "Remove Entity Tag",
-        "description": "Remove a tag from an entity (the tag stays, even if nothing has it any more).",
+        "description": "Remove a tag from an entity (the tag stays, even if nothing has it any more).\nReturns the entity's tags, as adding one does.",
         "operationId": "remove_entity_tag",
         "parameters": [
           {
@@ -4576,8 +4722,19 @@
           }
         ],
         "responses": {
-          "204": {
-            "description": "Successful Response"
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TagRead"
+                  },
+                  "title": "Response Remove Entity Tag"
+                }
+              }
+            }
           },
           "404": {
             "description": "Not found",
@@ -8989,6 +9146,25 @@
         "title": "PlaybackRead",
         "description": "How to play a source: stream ``file_source_id`` and play ``start_ms`` to ``end_ms``.\n\n``GET /sources/{id}/stream`` serves the whole file for any source that resolves to\nit; the client seeks. ``end_ms`` null means to the end of the file."
       },
+      "PreferredSourceWrite": {
+        "properties": {
+          "source_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Id"
+          }
+        },
+        "type": "object",
+        "title": "PreferredSourceWrite",
+        "description": "The source to play instead of the default choice: one of the recording's\n``playable`` sources; null (or omitted): the default."
+      },
       "ProgressRead": {
         "properties": {
           "stage": {
@@ -10121,6 +10297,120 @@
         ],
         "title": "RecordingRead"
       },
+      "RecordingSourceCreate": {
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/SourceKind"
+          },
+          "uri": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uri"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Id"
+          },
+          "start_ms": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Ms"
+          },
+          "end_ms": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Ms"
+          },
+          "managed": {
+            "type": "boolean",
+            "title": "Managed",
+            "default": false
+          },
+          "codec": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Codec"
+          },
+          "duration_ms": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Ms"
+          },
+          "size": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size"
+          },
+          "sha256": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sha256"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind"
+        ],
+        "title": "RecordingSourceCreate",
+        "description": "A source of the recording named in the path."
+      },
       "RecordingSourceRead": {
         "properties": {
           "source": {
@@ -10156,13 +10446,17 @@
               }
             ]
           },
+          "playable": {
+            "type": "boolean",
+            "title": "Playable"
+          },
           "preferred": {
             "type": "boolean",
             "title": "Preferred"
           },
-          "plays": {
+          "will_play": {
             "type": "boolean",
-            "title": "Plays"
+            "title": "Will Play"
           }
         },
         "type": "object",
@@ -10172,8 +10466,9 @@
           "ancestors",
           "file",
           "radio",
+          "playable",
           "preferred",
-          "plays"
+          "will_play"
         ],
         "title": "RecordingSourceRead",
         "description": "A source of a recording, as the sources list shows it."
@@ -10269,18 +10564,6 @@
               }
             ],
             "title": "Length Ms"
-          },
-          "preferred_source_id": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "uuid"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Preferred Source Id"
           }
         },
         "type": "object",
@@ -10827,7 +11110,14 @@
             "title": "Link"
           },
           "score": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Score"
           },
           "track_count": {
@@ -11043,18 +11333,6 @@
             ],
             "title": "End Ms"
           },
-          "recording_id": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "uuid"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Recording Id"
-          },
           "managed": {
             "type": "boolean",
             "title": "Managed",
@@ -11107,13 +11385,26 @@
               }
             ],
             "title": "Sha256"
+          },
+          "recording_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recording Id"
           }
         },
         "type": "object",
         "required": [
           "kind"
         ],
-        "title": "SourceCreate"
+        "title": "SourceCreate",
+        "description": "A source of any recording, or of none (a container: an album or episode file)."
       },
       "SourceKind": {
         "type": "string",
@@ -11562,6 +11853,15 @@
           "count"
         ],
         "title": "TagRead"
+      },
+      "TagSort": {
+        "type": "string",
+        "enum": [
+          "name",
+          "count"
+        ],
+        "title": "TagSort",
+        "description": "The order of a tag list."
       },
       "TagUpdate": {
         "properties": {

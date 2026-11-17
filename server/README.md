@@ -127,9 +127,15 @@ uv run alembic revision --autogenerate -m "add catalogue"
 - `GET /recordings/{id}/sources` (`RecordingSourceRead`): each source's role, its
   ancestors (where a file came from), the file it plays from (codec, sample rate, bit
   depth, bit rate, host path, whether it is there), the radio entry of an excerpt,
-  whether it is preferred and whether it plays. `PATCH /recordings/{id}`
-  `{"preferred_source_id": ...}` chooses (null: the default). `SourceRead` has typed
-  stream facts; the extractor leftovers (`source.meta`) are not in the API.
+  whether it can be chosen (`playable`), whether it is preferred and whether it is the
+  one that will play (`will_play`: the preferred source if its file is there, else the
+  default choice). The changes made from that list answer with the whole list, so a
+  client needs no second request: `PUT /recordings/{id}/preferred-source`
+  `{"source_id": ...}` chooses (null: the default), `POST /recordings/{id}/sources` adds
+  a source, `PATCH /recordings/{id}/sources/{source_id}` changes one the recording plays
+  from (also an ancestor: "Locate…" on a shared album or episode file). The generic
+  `/sources` endpoints answer with the one source. `SourceRead` has typed stream facts;
+  the extractor leftovers (`source.meta`) are not in the API.
 - Details with counts: `GET /artists/{id}` (release groups, loose recordings, radio
   episodes, radio-only), `GET /release-groups/{id}` (tracks, discs, length, tracks per
   play state, kinds of link of link-only tracks), `GET /radio/shows/{id}` (episodes).
@@ -147,7 +153,8 @@ uv run alembic revision --autogenerate -m "add catalogue"
 - `/search`: hits carry typed facts (release group type and date, recording length and
   release group, episode date) and counts (tracks of a release group; release groups
   and loose recordings of an artist); `per_type` caps each type (for results grouped
-  by type), `tag_id` keeps tagged entities; episodes that played a recording hit (or a
+  by type), `tag_id` keeps tagged entities, and without `q` lists everything with the
+  tag (by type, then name; `score` null); episodes that played a recording hit (or a
   track of a release group hit) are hits with `radio_match` (entry, recording, time).
 - Radio entries have `state` (`in_library`, `excerpt_only`, `not_matched`); radio
   appearances have `playback`; `GET /entity-details` of a release group lists the radio
@@ -429,6 +436,9 @@ docker rm -f ep-harness-db && rm -rf "$D"     # tear down
   network/server errors `fetch_failed`. Times: the detected `offset`/`duration`, else
   `offset_estimate`/`duration_estimate` (`offset_is_estimate`), else no slice.
   `musicbrainz_track_id` is a **recording** MBID (checked against MusicBrainz).
+  Not in the data, so not modelled: the channel an episode aired on (NTS 1/2 is only in
+  the live schedule, not in show or episode responses) and a kind of tracklist entry
+  (talk, jingle: every entry is an artist and a title).
 - NTS import (input: an episode page URL): the audio is downloaded once with `yt-dlp -x`
   from the episode's SoundCloud upload (else the episode page) into
   `_radio/NTS/<Show>/<YYYY-MM-DD Episode>.<ext>` (6 h timeout); sources `nts` (page) →
@@ -516,11 +526,13 @@ docker rm -f ep-harness-db && rm -rf "$D"     # tear down
   the entity (`EntityRead`), its note, tags, backlinks and (recordings, artists) radio
   appearances, the same reads as the single endpoints, which stay for refreshing one
   part after an edit (`PUT /notes` answers with the note, tag changes with the tags).
-- Tags (`ep.notes.tags`, `ep.api.tags`): `GET /tags` (counts, `prefix`),
-  `GET/PATCH/DELETE /tags/{id}` (renaming onto an existing name merges),
-  `GET /tags/{id}/entities` (by type, newest first), `GET/POST /entity-tags/{type}/{id}`
-  (add by name: trimmed, whitespace collapsed, find-or-create ignoring case),
-  `DELETE /entity-tags/{type}/{id}/{tag_id}`. Hashtags in note bodies are not parsed.
+- Tags (`ep.notes.tags`, `ep.api.tags`): `GET /tags` (counts, `prefix`, `sort=name`
+  or `count`: most used first), `GET/PATCH/DELETE /tags/{id}` (renaming onto an
+  existing name merges), `GET/POST /entity-tags/{type}/{id}` (add by name: trimmed,
+  whitespace collapsed, find-or-create ignoring case),
+  `DELETE /entity-tags/{type}/{id}/{tag_id}`; adding and removing both answer with the
+  entity's tags. Everything with a tag: `GET /search?tag_id=` without `q`. Hashtags in
+  note bodies are not parsed.
 - Imported tags: Bandcamp tags and MusicBrainz genres (release group and release,
   `inc=genres`) on a release group, NTS genres and moods on an episode, **only when the
   import creates the entity**: re-importing never brings back a removed tag. YouTube

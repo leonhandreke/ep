@@ -122,7 +122,7 @@ def test_label_page_album_not_in_musicbrainz(
     tags = client.get(tags_path).json()
     assert {tag["name"] for tag in tags} == set(release["tags"])
     folk = next(tag for tag in tags if tag["name"] == "experimental folk")
-    assert client.delete(f"{tags_path}/{folk['id']}").status_code == 204
+    assert client.delete(f"{tags_path}/{folk['id']}").status_code == 200
 
     # Again: nothing new, nothing downloaded again, the removed tag stays removed.
     assert client.post(f"/imports/{job['id']}/retry").status_code == 200

@@ -113,6 +113,42 @@ def test_search_query_is_not_a_pattern(client: TestClient) -> None:
     assert search(client, "   ") == []
     assert client.get("/search", params={"q": ""}).status_code == 422
     assert client.get("/search", params={"q": "x", "types": "track"}).status_code == 422
+    # A query, a tag or both.
+    assert client.get("/search").status_code == 422
+
+
+def test_everything_with_a_tag(client: TestClient) -> None:
+    nina = make_artist(client)
+    album = make_release_group(client, nina)
+    songs = [make_recording(client, nina, title) for title in ("b song", "A Song", "Untagged")]
+    tagged = [
+        ("recording", songs[0]),
+        ("release_group", album),
+        ("artist", nina),
+        ("recording", songs[1]),
+    ]
+    for type, entity in tagged:
+        response = client.post(f"/entity-tags/{type}/{entity['id']}", json={"name": "soul"})
+        tag = response.json()[0]
+    params: dict[str, Any] = {"tag_id": tag["id"]}
+    hits = client.get("/search", params=params).json()
+    # By type, then by name ignoring case; no score without a query.
+    assert [(h["type"], h["title"]) for h in hits] == [
+        ("artist", "Nina Simone"),
+        ("release_group", "Pastel Blues"),
+        ("recording", "A Song"),
+        ("recording", "b song"),
+    ]
+    assert {h["score"] for h in hits} == {None}
+    assert hits[1]["track_count"] == 0
+    assert titles(client.get("/search", params={**params, "per_type": 1}).json()) == [
+        "Nina Simone",
+        "Pastel Blues",
+        "A Song",
+    ]
+    only = client.get("/search", params={**params, "types": "recording", "limit": 1}).json()
+    assert titles(only) == ["A Song"]
+    assert client.get("/search", params={"tag_id": str(uuid.uuid4())}).json() == []
 
 
 def test_resolve_by_internal_id_or_mbid(client: TestClient) -> None:
