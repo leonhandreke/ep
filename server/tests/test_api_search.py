@@ -151,6 +151,42 @@ def test_everything_with_a_tag(client: TestClient) -> None:
     assert client.get("/search", params={"tag_id": str(uuid.uuid4())}).json() == []
 
 
+def test_everything_with_a_tag_is_paged(client: TestClient) -> None:
+    nina = make_artist(client)
+    album = make_release_group(client, nina)
+    songs = [make_recording(client, nina, f"song {n}") for n in range(5)]
+    tag_id = ""
+    for type, entity in [
+        ("artist", nina),
+        ("release_group", album),
+        *(("recording", s) for s in songs),
+    ]:
+        tag_id = client.post(f"/entity-tags/{type}/{entity['id']}", json={"name": "soul"}).json()[
+            0
+        ]["id"]
+    expected = ["Nina Simone", "Pastel Blues", *(f"song {n}" for n in range(5))]
+
+    def page(**params: Any) -> tuple[list[str], str]:
+        response = client.get("/search", params={"tag_id": tag_id, **params})
+        assert response.status_code == 200
+        return titles(response.json()), response.headers["X-Total-Count"]
+
+    assert page() == (expected, "7")
+    # Pages cross the types; the total stays the length of the whole list.
+    assert page(limit=3) == (expected[:3], "7")
+    assert page(limit=3, offset=3) == (expected[3:6], "7")
+    assert page(limit=3, offset=6) == (expected[6:], "7")
+    assert page(offset=50) == ([], "7")
+    # per_type caps each type in the list that is paged.
+    assert page(per_type=2, limit=2, offset=2) == (["song 0", "song 1"], "4")
+    assert page(per_type=2, limit=2, offset=3) == (["song 1"], "4")
+    assert page(types="recording", limit=2, offset=1) == (["song 1", "song 2"], "5")
+    # A ranked search is not paged.
+    ranked = client.get("/search", params={"q": "song", "offset": 1})
+    assert ranked.status_code == 422
+    assert client.get("/search", params={"q": "song"}).headers["X-Total-Count"] == "5"
+
+
 def test_resolve_by_internal_id_or_mbid(client: TestClient) -> None:
     mbid, release_mbid = str(uuid.uuid4()), str(uuid.uuid4())
     nina = make_artist(client, "Nina Simone", mbid=mbid)

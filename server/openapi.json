@@ -3735,7 +3735,7 @@
           "search"
         ],
         "summary": "Search Library",
-        "description": "Artists, release groups, recordings, radio shows and radio episodes matching\n``q``, best first.\n\nAccent- and case-insensitive; finds prefixes (\"bjo\" finds \"Björk\"), tolerates small\ntypos, and matches artist and title together (\"nina simone sinnerman\"). ``types``\n(repeatable) limits the entity types; default all. ``per_type`` caps the hits of\neach type (for results grouped by type), ``limit`` all of them. ``tag_id``: only\nentities with that tag. Give ``q``, ``tag_id`` or both: without ``q``, everything\nwith the tag, by type (artists, release groups, recordings, radio shows, radio\nepisodes) and then by name, with ``score`` null. Artists and recordings only known\nfrom radio tracklists are left out unless ``include_radio_only``.\n\nRadio episodes are also found by what they played: an episode that played a\nmatching recording, or a track of a matching release group, is a hit with\n``radio_match`` (the entry and its time). Release group hits carry their track\ncount, artist hits their release group and loose recording counts. Each hit\ncarries the link to write for it (``link``: ``[[type:uuid|Title]]``, the UUID being\nthe MBID if there is one, else the id).",
+        "description": "Artists, release groups, recordings, radio shows and radio episodes matching\n``q``, best first.\n\nAccent- and case-insensitive; finds prefixes (\"bjo\" finds \"Björk\"), tolerates small\ntypos, and matches artist and title together (\"nina simone sinnerman\"). ``types``\n(repeatable) limits the entity types; default all. ``per_type`` caps the hits of\neach type (for results grouped by type), ``limit`` all of them. ``tag_id``: only\nentities with that tag. Give ``q``, ``tag_id`` or both: without ``q``, everything\nwith the tag, by type (artists, release groups, recordings, radio shows, radio\nepisodes) and then by name, with ``score`` null, in pages (``limit``, ``offset``;\n``X-Total-Count`` is the length of the whole list). A search with ``q`` is ranked and\nnot paged: ``offset`` must be 0 and ``X-Total-Count`` is the number of hits.\nArtists and recordings only known from radio tracklists are left out unless\n``include_radio_only``.\n\nRadio episodes are also found by what they played: an episode that played a\nmatching recording, or a track of a matching release group, is a hit with\n``radio_match`` (the entry and its time). Release group hits carry their track\ncount, artist hits their release group and loose recording counts. Each hit\ncarries the link to write for it (``link``: ``[[type:uuid|Title]]``, the UUID being\nthe MBID if there is one, else the id).",
         "operationId": "search_library",
         "parameters": [
           {
@@ -3798,6 +3798,17 @@
             }
           },
           {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
             "name": "tag_id",
             "in": "query",
             "required": false,
@@ -3836,6 +3847,15 @@
                     "$ref": "#/components/schemas/SearchHitRead"
                   },
                   "title": "Response Search Library"
+                }
+              }
+            },
+            "headers": {
+              "X-Total-Count": {
+                "description": "Number of items in the whole list (all pages).",
+                "required": true,
+                "schema": {
+                  "type": "integer"
                 }
               }
             }

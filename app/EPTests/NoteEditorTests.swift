@@ -11,6 +11,7 @@ private func text(_ string: String, _ range: NSRange) -> String {
     (string as NSString).substring(with: range)
 }
 
+@Suite(.timeLimit(.minutes(1)))
 struct NoteLinksTests {
     @Test func parsesLinksWithUTF16RangesPastNonBMPAndCombiningCharacters() throws {
         // 🎻 is two UTF-16 units; "é" is "e" + a combining accent (two units, one character).
@@ -52,6 +53,7 @@ struct NoteLinksTests {
     }
 }
 
+@Suite(.timeLimit(.minutes(1)))
 struct NoteStylingTests {
     private func kinds(_ styling: NoteStyling, in body: String) -> [String: NoteStyling.Kind] {
         Dictionary(styling.spans.map { (text(body, $0.range), $0.kind) }, uniquingKeysWith: { _, last in last })
@@ -102,6 +104,7 @@ struct NoteStylingTests {
     }
 }
 
+@Suite(.timeLimit(.minutes(1)))
 struct LinkQueryTests {
     private func query(_ body: String, caret: Int? = nil) -> LinkQuery? {
         let ns = body as NSString
@@ -137,7 +140,12 @@ private func connected(_ respond: @escaping @Sendable (HTTPRequest, Data?) -> (H
             return (HTTPResponse(status: .ok, headerFields: [.contentType: "application/json"]), Data(Fixtures.server.utf8))
         }
         let (status, json) = respond(request, nil)
-        return (HTTPResponse(status: status, headerFields: [.contentType: "application/json"]), Data(json.utf8))
+        var fields: HTTPFields = [.contentType: "application/json"]
+        // Lists carry their length, as the server's paged lists and `/search` do.
+        if let list = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [Any] {
+            fields[HTTPField.Name("X-Total-Count")!] = String(list.count)
+        }
+        return (HTTPResponse(status: status, headerFields: fields), Data(json.utf8))
     }
     let connection = ServerConnection(serverURL: URL(string: "http://ep.test")!, transport: transport)
     await connection.connect()
@@ -150,6 +158,7 @@ nonisolated private func hit(_ type: String, _ id: String, _ title: String, extr
         #"\#(entity), "score": 1, "track_count": null, "release_group_count": null, "loose_recording_count": null, "radio_match": null\#(extra)}"#
 }
 
+@Suite(.timeLimit(.minutes(1)))
 struct LinkAutocompleteTests {
     @Test func searchesTheLibraryAndChoosesWithReturnOrTab() async throws {
         let (connection, transport) = await connected { _, _ in
@@ -224,6 +233,7 @@ nonisolated private final class NoteServer: @unchecked Sendable {
     }
 }
 
+@Suite(.timeLimit(.minutes(1)))
 struct NoteDocumentTests {
     private static let t1 = "2026-11-01T12:00:00.000Z"
     private static let t2 = "2026-11-02T12:00:00.000Z"

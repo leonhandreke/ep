@@ -166,32 +166,42 @@ def tagged(
     limit: int = 20,
     include_radio_only: bool = False,
     per_type: int | None = None,
-) -> list[SearchHit]:
+    offset: int = 0,
+) -> tuple[list[SearchHit], int]:
     """The entities with the tag ``tag_id``: by type (in ``SEARCH_TYPES`` order), then by
-    name ignoring case; at most ``per_type`` of each type and ``limit`` in all. There is
-    no query to rank by: every score is 0."""
+    name ignoring case; at most ``per_type`` of each type are in the list, of which
+    ``limit`` from ``offset`` on are returned, with the length of the whole list. There
+    is no query to rank by: every score is 0."""
     found: list[SearchHit] = []
+    total = 0
     for entity_type in sorted(set(types), key=SEARCH_TYPES.index):
-        type_limit = min(limit - len(found), per_type or limit)
-        if type_limit <= 0:
-            break
         searched = _COLUMNS[entity_type]
         with_tag = select(EntityTag.entity_id).where(
             EntityTag.tag_id == tag_id, EntityTag.entity_type == entity_type
         )
-        statement = (
-            select(searched.model)
-            .where(col(searched.model.id).in_(with_tag))
-            .order_by(func.lower(searched.display), searched.display, col(searched.model.id))
-            .limit(type_limit)
-        )
+        statement = select(searched.model).where(col(searched.model.id).in_(with_tag))
         if (visible := _visible(entity_type, include_radio_only)) is not None:
             statement = statement.where(visible)
+        count = session.exec(select(func.count()).select_from(statement.subquery())).one()
+        count = min(count, per_type) if per_type else count
+        # This type's rows are the list's rows [total, total + count).
+        first = max(offset - total, 0)
+        room = min(limit - len(found), count - first)
+        total += count
+        if room <= 0:
+            continue
+        statement = (
+            statement.order_by(
+                func.lower(searched.display), searched.display, col(searched.model.id)
+            )
+            .limit(room)
+            .offset(first)
+        )
         for load in searched.credit, searched.load:
             if load is not None:
                 statement = statement.options(joinedload(load))
         found += [SearchHit(entity_type, entity, 0.0) for entity in session.exec(statement)]
-    return found
+    return found, total
 
 
 def _tagged(entity_type: EntityType, tag_id: uuid.UUID) -> ColumnElement[bool]:

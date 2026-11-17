@@ -154,7 +154,8 @@ uv run alembic revision --autogenerate -m "add catalogue"
   release group, episode date) and counts (tracks of a release group; release groups
   and loose recordings of an artist); `per_type` caps each type (for results grouped
   by type), `tag_id` keeps tagged entities, and without `q` lists everything with the
-  tag (by type, then name; `score` null); episodes that played a recording hit (or a
+  tag (by type, then name; `score` null), paged with `offset` and `X-Total-Count`
+  (a ranked search with `q` is not paged); episodes that played a recording hit (or a
   track of a release group hit) are hits with `radio_match` (entry, recording, time).
 - Radio entries have `state` (`in_library`, `excerpt_only`, `not_matched`); radio
   appearances have `playback`; `GET /entity-details` of a release group lists the radio

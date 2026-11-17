@@ -61,6 +61,8 @@ final class SearchStore {
 
     static let limit = 30
     static let perType = 6
+    /// The most hits listed for a tag alone.
+    static let maxTagged = 1000
 
     init(
         connection: ServerConnection, types: [Components.Schemas.EntityType]? = nil, grouped: Bool = true,
@@ -117,11 +119,17 @@ final class SearchStore {
         searchTask = Task {
             do {
                 if debounce > .zero { try await Task.sleep(for: debounce) }
-                let found = try await client.searchLibrary(
-                    query: .init(
-                        q: text.isEmpty ? nil : text, types: types, limit: Self.limit,
-                        perType: grouped ? Self.perType : nil, tagId: tag?.id, includeRadioOnly: true)
-                ).ok.body.json.map(EntitySummary.init)
+                let found: [EntitySummary]
+                if text.isEmpty {
+                    // Everything with the tag: the server lists it in pages (no ranking).
+                    found = try await Self.taggedHits(client: client, tag: tag?.id, types: types)
+                } else {
+                    found = try await client.searchLibrary(
+                        query: .init(
+                            q: text, types: types, limit: Self.limit,
+                            perType: grouped ? Self.perType : nil, tagId: tag?.id, includeRadioOnly: true)
+                    ).ok.body.json.map(EntitySummary.init)
+                }
                 guard !Task.isCancelled, current == generation else { return }
                 show(found, query: !text.isEmpty)
                 isSearching = false
@@ -133,6 +141,20 @@ final class SearchStore {
                 connection.reportFailure(error)
             }
         }
+    }
+
+    /// Everything with a tag, page by page (the API's largest page is 100), at most
+    /// `maxTagged`: a longer list is cut at the end of the last type listed.
+    private static func taggedHits(
+        client: Client, tag: String?, types: [Components.Schemas.EntityType]?
+    ) async throws -> [EntitySummary] {
+        let hits = try await allPages(pageSize: 100) { limit, offset in
+            let ok = try await client.searchLibrary(
+                query: .init(types: types, limit: limit, offset: offset, tagId: tag, includeRadioOnly: true)
+            ).ok
+            return (try ok.body.json.map(EntitySummary.init), min(ok.headers.xTotalCount, maxTagged))
+        }
+        return hits
     }
 
     /// Groups the hits; the best hit of a query is the top hit (a tag's list has none).

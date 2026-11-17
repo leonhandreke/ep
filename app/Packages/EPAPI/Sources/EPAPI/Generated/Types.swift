@@ -565,8 +565,11 @@ public protocol APIProtocol: Sendable {
     /// each type (for results grouped by type), ``limit`` all of them. ``tag_id``: only
     /// entities with that tag. Give ``q``, ``tag_id`` or both: without ``q``, everything
     /// with the tag, by type (artists, release groups, recordings, radio shows, radio
-    /// episodes) and then by name, with ``score`` null. Artists and recordings only known
-    /// from radio tracklists are left out unless ``include_radio_only``.
+    /// episodes) and then by name, with ``score`` null, in pages (``limit``, ``offset``;
+    /// ``X-Total-Count`` is the length of the whole list). A search with ``q`` is ranked and
+    /// not paged: ``offset`` must be 0 and ``X-Total-Count`` is the number of hits.
+    /// Artists and recordings only known from radio tracklists are left out unless
+    /// ``include_radio_only``.
     ///
     /// Radio episodes are also found by what they played: an episode that played a
     /// matching recording, or a track of a matching release group, is a hit with
@@ -1885,8 +1888,11 @@ extension APIProtocol {
     /// each type (for results grouped by type), ``limit`` all of them. ``tag_id``: only
     /// entities with that tag. Give ``q``, ``tag_id`` or both: without ``q``, everything
     /// with the tag, by type (artists, release groups, recordings, radio shows, radio
-    /// episodes) and then by name, with ``score`` null. Artists and recordings only known
-    /// from radio tracklists are left out unless ``include_radio_only``.
+    /// episodes) and then by name, with ``score`` null, in pages (``limit``, ``offset``;
+    /// ``X-Total-Count`` is the length of the whole list). A search with ``q`` is ranked and
+    /// not paged: ``offset`` must be 0 and ``X-Total-Count`` is the number of hits.
+    /// Artists and recordings only known from radio tracklists are left out unless
+    /// ``include_radio_only``.
     ///
     /// Radio episodes are also found by what they played: an episode that played a
     /// matching recording, or a track of a matching release group, is a hit with

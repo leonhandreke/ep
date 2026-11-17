@@ -17423,8 +17423,11 @@ public enum Operations {
     /// each type (for results grouped by type), ``limit`` all of them. ``tag_id``: only
     /// entities with that tag. Give ``q``, ``tag_id`` or both: without ``q``, everything
     /// with the tag, by type (artists, release groups, recordings, radio shows, radio
-    /// episodes) and then by name, with ``score`` null. Artists and recordings only known
-    /// from radio tracklists are left out unless ``include_radio_only``.
+    /// episodes) and then by name, with ``score`` null, in pages (``limit``, ``offset``;
+    /// ``X-Total-Count`` is the length of the whole list). A search with ``q`` is ranked and
+    /// not paged: ``offset`` must be 0 and ``X-Total-Count`` is the number of hits.
+    /// Artists and recordings only known from radio tracklists are left out unless
+    /// ``include_radio_only``.
     ///
     /// Radio episodes are also found by what they played: an episode that played a
     /// matching recording, or a track of a matching release group, is a hit with
@@ -17448,6 +17451,8 @@ public enum Operations {
                 public var limit: Swift.Int?
                 /// - Remark: Generated from `#/paths/search/GET/query/per_type`.
                 public var perType: Swift.Int?
+                /// - Remark: Generated from `#/paths/search/GET/query/offset`.
+                public var offset: Swift.Int?
                 /// - Remark: Generated from `#/paths/search/GET/query/tag_id`.
                 public var tagId: Swift.String?
                 /// - Remark: Generated from `#/paths/search/GET/query/include_radio_only`.
@@ -17459,6 +17464,7 @@ public enum Operations {
                 ///   - types:
                 ///   - limit:
                 ///   - perType:
+                ///   - offset:
                 ///   - tagId:
                 ///   - includeRadioOnly:
                 public init(
@@ -17466,6 +17472,7 @@ public enum Operations {
                     types: [Components.Schemas.EntityType]? = nil,
                     limit: Swift.Int? = nil,
                     perType: Swift.Int? = nil,
+                    offset: Swift.Int? = nil,
                     tagId: Swift.String? = nil,
                     includeRadioOnly: Swift.Bool? = nil
                 ) {
@@ -17473,6 +17480,7 @@ public enum Operations {
                     self.types = types
                     self.limit = limit
                     self.perType = perType
+                    self.offset = offset
                     self.tagId = tagId
                     self.includeRadioOnly = includeRadioOnly
                 }
@@ -17505,6 +17513,22 @@ public enum Operations {
         }
         @frozen public enum Output: Sendable, Hashable {
             public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/search/GET/responses/200/headers`.
+                public struct Headers: Sendable, Hashable {
+                    /// Number of items in the whole list (all pages).
+                    ///
+                    /// - Remark: Generated from `#/paths/search/GET/responses/200/headers/X-Total-Count`.
+                    public var xTotalCount: Swift.Int
+                    /// Creates a new `Headers`.
+                    ///
+                    /// - Parameters:
+                    ///   - xTotalCount: Number of items in the whole list (all pages).
+                    public init(xTotalCount: Swift.Int) {
+                        self.xTotalCount = xTotalCount
+                    }
+                }
+                /// Received HTTP response headers
+                public var headers: Operations.SearchLibrary.Output.Ok.Headers
                 /// - Remark: Generated from `#/paths/search/GET/responses/200/content`.
                 @frozen public enum Body: Sendable, Hashable {
                     /// - Remark: Generated from `#/paths/search/GET/responses/200/content/application\/json`.
@@ -17527,8 +17551,13 @@ public enum Operations {
                 /// Creates a new `Ok`.
                 ///
                 /// - Parameters:
+                ///   - headers: Received HTTP response headers
                 ///   - body: Received HTTP response body
-                public init(body: Operations.SearchLibrary.Output.Ok.Body) {
+                public init(
+                    headers: Operations.SearchLibrary.Output.Ok.Headers,
+                    body: Operations.SearchLibrary.Output.Ok.Body
+                ) {
+                    self.headers = headers
                     self.body = body
                 }
             }

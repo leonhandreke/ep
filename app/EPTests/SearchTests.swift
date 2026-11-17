@@ -35,13 +35,20 @@ nonisolated func searchTransport(
             return (jsonResponse(), Data(Fixtures.server.utf8))
         }
         guard let q = url.queryItems?.first(where: { $0.name == "q" })?.value else {
-            return (jsonResponse(), Data(tagged.utf8))
+            return (jsonResponse(total: count(of: tagged)), Data(tagged.utf8))
         }
         if let seconds = delay[q] { Thread.sleep(forTimeInterval: seconds) }
-        return (jsonResponse(), Data(results(q).utf8))
+        let json = results(q)
+        return (jsonResponse(total: count(of: json)), Data(json.utf8))
     }
 }
 
+/// How many items a JSON array has (`X-Total-Count`).
+private nonisolated func count(of json: String) -> Int {
+    ((try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [Any])?.count ?? 0
+}
+
+@Suite(.timeLimit(.minutes(1)))
 struct SearchStoreTests {
     @Test func groupsTheHitsUnderATopHit() async throws {
         let transport = searchTransport { _ in S.results }
@@ -110,9 +117,32 @@ struct SearchStoreTests {
         store.filter(by: nil)
         #expect(store.isEmpty && store.hits.isEmpty)
     }
+
+    @Test func aTagsListIsReadPageByPage() async throws {
+        let all = (0..<250).map { S.hit("artist", "a\($0)", "Artist \($0)") }
+        let transport = StubTransport { request in
+            let url = URLComponents(string: request.path ?? "")!
+            if url.path == "/server" { return (jsonResponse(), Data(Fixtures.server.utf8)) }
+            func number(_ name: String) -> Int {
+                url.queryItems?.first { $0.name == name }?.value.flatMap(Int.init) ?? 0
+            }
+            let page = all.dropFirst(number("offset")).prefix(number("limit"))
+            return (jsonResponse(total: all.count), Data(("[" + page.joined(separator: ",") + "]").utf8))
+        }
+        let store = SearchStore(connection: await stubConnection(transport), debounce: .zero)
+        let tag = try JSONDecoder().decode(
+            Components.Schemas.TagRead.self, from: Data(DetailFixtures.tag("t1", "ambient", count: 250).utf8))
+        store.filter(by: tag)
+        await store.settle()
+        #expect(store.hits.count == 250)
+        #expect(store.hits.last?.title == "Artist 249")
+        let searches = transport.requests.filter { $0.request.path?.hasPrefix("/search") == true }
+        #expect(searches.count == 3 && searches.allSatisfy { $0.request.path?.contains("limit=100") == true })
+    }
 }
 
 @MainActor
+@Suite(.timeLimit(.minutes(1)))
 struct SearchPlayTests {
     /// ⌥↩ in the palette: with nothing playing the album plays; then it goes in front of
     /// the queue, the current item going on.

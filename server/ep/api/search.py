@@ -5,13 +5,13 @@ from collections import Counter
 from collections.abc import Sequence
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Response, status
 from fastapi.exceptions import RequestValidationError
 from sqlalchemy import exists
 from sqlalchemy.orm import joinedload
 from sqlmodel import Session, col, func, select
 
-from ep.api.deps import SessionDep
+from ep.api.deps import PAGED, TOTAL_COUNT, SessionDep
 from ep.api.entities import entity_read, recording_albums
 from ep.api.errors import NOT_FOUND
 from ep.api.schemas import RadioMatchRead, ResolvedRead, SearchHitRead
@@ -37,14 +37,16 @@ router = APIRouter(tags=["search"])
 RADIO_MATCH_FACTOR = 0.9
 
 
-@router.get("/search")
+@router.get("/search", responses=PAGED)
 def search_library(
     session: SessionDep,
+    response: Response,
     *,
     q: Annotated[str | None, Query(min_length=1)] = None,
     types: Annotated[list[EntityType], Query(default_factory=list)],
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     per_type: Annotated[int | None, Query(ge=1, le=100)] = None,
+    offset: Annotated[int, Query(ge=0)] = 0,
     tag_id: uuid.UUID | None = None,
     include_radio_only: bool = False,
 ) -> list[SearchHitRead]:
@@ -57,8 +59,11 @@ def search_library(
     each type (for results grouped by type), ``limit`` all of them. ``tag_id``: only
     entities with that tag. Give ``q``, ``tag_id`` or both: without ``q``, everything
     with the tag, by type (artists, release groups, recordings, radio shows, radio
-    episodes) and then by name, with ``score`` null. Artists and recordings only known
-    from radio tracklists are left out unless ``include_radio_only``.
+    episodes) and then by name, with ``score`` null, in pages (``limit``, ``offset``;
+    ``X-Total-Count`` is the length of the whole list). A search with ``q`` is ranked and
+    not paged: ``offset`` must be 0 and ``X-Total-Count`` is the number of hits.
+    Artists and recordings only known from radio tracklists are left out unless
+    ``include_radio_only``.
 
     Radio episodes are also found by what they played: an episode that played a
     matching recording, or a track of a matching release group, is a hit with
@@ -73,9 +78,13 @@ def search_library(
         if tag_id is None:
             error = {"type": "missing", "loc": ("query", "q"), "input": None}
             raise RequestValidationError([{**error, "msg": "give q, tag_id or both"}])
-        hits = tagged(session, tag_id, wanted, limit, include_radio_only, per_type)
+        hits, total = tagged(session, tag_id, wanted, limit, include_radio_only, per_type, offset)
     else:
+        if offset:
+            error = {"type": "value_error", "loc": ("query", "offset"), "input": offset}
+            raise RequestValidationError([{**error, "msg": "a search with q is not paged"}])
         hits = search(session, q, wanted, limit, include_radio_only, per_type, tag_id)
+        total = len(hits)
     if q is not None and EntityType.radio_episode in wanted:
         radio = _radio_matches(session, hits, tag_id)
         direct = {hit.entity.id for hit in hits if hit.type is EntityType.radio_episode}
@@ -84,6 +93,8 @@ def search_library(
         for hit, _ in sorted(radio.values(), key=lambda m: m[0].score, reverse=True)[:cap]:
             hits.append(hit)
         hits = sorted(hits, key=lambda hit: hit.score, reverse=True)[:limit]
+        total = len(hits)
+    response.headers[TOTAL_COUNT] = str(total)
     by_type = _ids_by_type(hits)
     albums = recording_albums(
         session,
