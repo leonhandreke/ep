@@ -20,11 +20,15 @@ final class ImportFlowTests: EPUITestCase {
         app.typeKey(.return, modifierFlags: .command)
         waitForAbsence(app.element("review.sheet"))
 
-        // The answers went with the review: the job is queued to run again with them
-        // (the server keeps them internally; no worker runs in the harness).
+        // The answers went with the review: the job is queued to run again with them,
+        // and reads with them on its issues (no worker runs in the harness).
         let read = try await Harness.get("imports/\(Seed.turiyaJob)")
         let job = try XCTUnwrap(read as? [String: Any])
         XCTAssertEqual(job["state"] as? String, "queued")
         XCTAssertEqual(job["actions"] as? [String], ["cancel"])
+        let proposal = try XCTUnwrap(job["proposal"] as? [String: Any])
+        let issues = try XCTUnwrap(proposal["issues"] as? [[String: Any]])
+        let arca = try XCTUnwrap(issues.first { $0["id"] as? String == "uncertain_artist:Arca" })
+        XCTAssertEqual((arca["answer"] as? [String: Any])?["choice"] as? String, "create_new")
     }
 }

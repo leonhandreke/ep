@@ -5768,7 +5768,7 @@ public enum Operations {
             /// - Remark: Generated from `#/paths/imports/GET/query`.
             public struct Query: Sendable, Hashable {
                 /// - Remark: Generated from `#/paths/imports/GET/query/state`.
-                public var state: [Components.Schemas.JobState]?
+                public var state: [Components.Schemas.KnownJobState]?
                 /// - Remark: Generated from `#/paths/imports/GET/query/kind`.
                 public var kind: Components.Schemas.ImportKind?
                 /// - Remark: Generated from `#/paths/imports/GET/query/limit`.
@@ -5783,7 +5783,7 @@ public enum Operations {
                 ///   - limit:
                 ///   - offset:
                 public init(
-                    state: [Components.Schemas.JobState]? = nil,
+                    state: [Components.Schemas.KnownJobState]? = nil,
                     kind: Components.Schemas.ImportKind? = nil,
                     limit: Swift.Int? = nil,
                     offset: Swift.Int? = nil

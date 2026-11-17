@@ -108,6 +108,12 @@ names).
   `EPOpenAPINormalize` (Packages/EPAPIGenerator) first, which turns them into optional
   properties, and fails on any generator warning. This is a Swift-side concern: the
   server's document stays as it is.
+- Generated enums are closed (one unknown value fails the whole response). The schemas a
+  newer server may extend (`openEnums` in `EPOpenAPINormalize`: `IssueKind`, `JobState`,
+  `Choice`) are rewritten into the generator's documented open-enum pattern: the closed
+  enum becomes `Known<Name>` (also what query parameters take), `<Name>` a struct with the
+  known case or the raw string. `OpenEnum.swift` adds `known` (nil: unknown), `rawValue`,
+  `init(_ known:)` and `==` with a known case; `switch` on `.known`, with a generic branch.
 - `Client.ep(serverURL:transport:)` is the configured client (fractional-second
   timestamps, explicit nulls). The app has one, `ServerConnection.client`.
 - A new call: use the generated method (`try await connection.client.listArtists(...)`,
@@ -192,7 +198,9 @@ the review sheet `review` (`.sheet`, `.title`, `.headline`, `.filter`, `.questio
   library. Folders are sent as paths on this Mac; the server maps them (`EP_HOST_PATHS`)
   and refuses one outside its media roots (the sheet names the folders it reads). The
   review sheet works for any issue kind: the kinds it has words for get a question, any
-  other shows its message and choices. ⇧⌘I opens the sheet for its jobs (Return reviews
+  other (also one this app does not know) shows its message and its known choices. A
+  job queued again after review shows the answers given (`Issue.answer`) above the log of
+  its expanded row. ⇧⌘I opens the sheet for its jobs (Return reviews
   the newest job waiting); ⌘V with a link (not in a text field) opens it with the link.
 - **Playback**: `Player` (in the environment of every window) plays what
   `LibraryBrowser.play(_:)` asks for and, for the Radio view, `playEpisode(_:from:)`.

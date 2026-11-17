@@ -19,6 +19,16 @@
 // - Afterwards no `{"type": "null"}` schema may remain; the script also fails on any
 //   generator warning, so a new unsupported shape never disappears silently.
 //
+// Open enums. The generator's enums are closed: one unknown value fails decoding of the
+// whole response, so a newer server with a new issue kind or job state would break the
+// import queue, while the app must show unknown issue kinds generically. For the schemas
+// in `openEnums` this tool applies the generator's documented open-enum pattern
+// ("Useful OpenAPI patterns"): the closed enum moves to `Known<Name>`, and `<Name>`
+// becomes `anyOf: [{$ref: Known<Name>}, {type: string}]`, a struct with `value1` (the
+// known case, nil if unknown) and `value2` (the raw string). `OpenEnum.swift` in EPAPI
+// gives these structs `known`, `rawValue`, `init(_ known:)` and `==` with a known case.
+// Parameters (`paths`) keep the closed `Known<Name>`: the client only sends known values.
+//
 // Usage: EPOpenAPINormalize <input.json> <output.json>
 
 import Foundation
@@ -92,9 +102,49 @@ func remainingNullSchemas(_ value: Any, at path: String = "#") -> [String] {
     return object.keys.sorted().flatMap { remainingNullSchemas(object[$0]!, at: "\(path)/\($0)") }
 }
 
+/// Enums a newer server may extend; see "Open enums" above.
+let openEnums = ["IssueKind", "JobState", "Choice"]
+
+/// Replaces `$ref`s to the open enums by `$ref`s to their closed `Known<Name>`.
+func referToKnown(_ value: Any) -> Any {
+    if let array = value as? [Any] { return array.map(referToKnown) }
+    guard var object = value as? [String: Any] else { return value }
+    for name in openEnums where (object["$ref"] as? String) == "#/components/schemas/\(name)" {
+        object["$ref"] = "#/components/schemas/Known\(name)"
+    }
+    for (key, child) in object { object[key] = referToKnown(child) }
+    return object
+}
+
+func openingEnums(_ document: Any) throws -> Any {
+    guard var document = document as? [String: Any],
+        var components = document["components"] as? [String: Any],
+        var schemas = components["schemas"] as? [String: Any]
+    else { throw CocoaError(.fileReadCorruptFile) }
+    for name in openEnums {
+        guard let closed = schemas[name] as? [String: Any], closed["enum"] != nil, schemas["Known\(name)"] == nil
+        else {
+            FileHandle.standardError.write(Data("EPOpenAPINormalize: \(name) is not a closed enum schema\n".utf8))
+            exit(1)
+        }
+        var known = closed
+        known["title"] = "Known\(name)"
+        schemas["Known\(name)"] = known
+        var open: [String: Any] = [
+            "anyOf": [["$ref": "#/components/schemas/Known\(name)"], ["type": "string"]]
+        ]
+        open["description"] = closed["description"]
+        schemas[name] = open
+    }
+    components["schemas"] = schemas
+    document["components"] = components
+    if let paths = document["paths"] { document["paths"] = referToKnown(paths) }
+    return document
+}
+
 do {
     let input = try Data(contentsOf: URL(filePath: arguments[1]))
-    let document = normalize(try JSONSerialization.jsonObject(with: input))
+    let document = try openingEnums(normalize(try JSONSerialization.jsonObject(with: input)))
     let remaining = remainingNullSchemas(document)
     guard remaining.isEmpty else {
         FileHandle.standardError.write(

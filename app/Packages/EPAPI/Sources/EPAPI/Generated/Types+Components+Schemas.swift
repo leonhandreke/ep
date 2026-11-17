@@ -458,12 +458,51 @@ extension Components {
             case musicbrainzRecording = "musicbrainz_recording"
         }
         /// - Remark: Generated from `#/components/schemas/Choice`.
-        @frozen public enum Choice: String, Codable, Hashable, Sendable, CaseIterable {
-            case pickCandidate = "pick_candidate"
-            case createNew = "create_new"
-            case keepAsEntered = "keep_as_entered"
-            case skip = "skip"
-            case retry = "retry"
+        public struct Choice: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/Choice/value1`.
+            public var value1: Components.Schemas.KnownChoice?
+            /// - Remark: Generated from `#/components/schemas/Choice/value2`.
+            public var value2: Swift.String?
+            /// Creates a new `Choice`.
+            ///
+            /// - Parameters:
+            ///   - value1:
+            ///   - value2:
+            public init(
+                value1: Components.Schemas.KnownChoice? = nil,
+                value2: Swift.String? = nil
+            ) {
+                self.value1 = value1
+                self.value2 = value2
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                var errors: [any Swift.Error] = []
+                do {
+                    self.value1 = try decoder.decodeFromSingleValueContainer()
+                } catch {
+                    errors.append(error)
+                }
+                do {
+                    self.value2 = try decoder.decodeFromSingleValueContainer()
+                } catch {
+                    errors.append(error)
+                }
+                try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                    [
+                        self.value1,
+                        self.value2
+                    ],
+                    type: Self.self,
+                    codingPath: decoder.codingPath,
+                    errors: errors
+                )
+            }
+            public func encode(to encoder: any Swift.Encoder) throws {
+                try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                    self.value1,
+                    self.value2
+                ])
+            }
         }
         /// Rows the last apply created.
         ///
@@ -2181,17 +2220,51 @@ extension Components {
             }
         }
         /// - Remark: Generated from `#/components/schemas/IssueKind`.
-        @frozen public enum IssueKind: String, Codable, Hashable, Sendable, CaseIterable {
-            case uncertainArtist = "uncertain_artist"
-            case uncertainReleaseGroup = "uncertain_release_group"
-            case uncertainRecording = "uncertain_recording"
-            case uncertainMetadata = "uncertain_metadata"
-            case releaseConflict = "release_conflict"
-            case metadataNotFound = "metadata_not_found"
-            case fetchFailed = "fetch_failed"
-            case unexpectedResponse = "unexpected_response"
-            case unreadableFile = "unreadable_file"
-            case downloadFailed = "download_failed"
+        public struct IssueKind: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/IssueKind/value1`.
+            public var value1: Components.Schemas.KnownIssueKind?
+            /// - Remark: Generated from `#/components/schemas/IssueKind/value2`.
+            public var value2: Swift.String?
+            /// Creates a new `IssueKind`.
+            ///
+            /// - Parameters:
+            ///   - value1:
+            ///   - value2:
+            public init(
+                value1: Components.Schemas.KnownIssueKind? = nil,
+                value2: Swift.String? = nil
+            ) {
+                self.value1 = value1
+                self.value2 = value2
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                var errors: [any Swift.Error] = []
+                do {
+                    self.value1 = try decoder.decodeFromSingleValueContainer()
+                } catch {
+                    errors.append(error)
+                }
+                do {
+                    self.value2 = try decoder.decodeFromSingleValueContainer()
+                } catch {
+                    errors.append(error)
+                }
+                try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                    [
+                        self.value1,
+                        self.value2
+                    ],
+                    type: Self.self,
+                    codingPath: decoder.codingPath,
+                    errors: errors
+                )
+            }
+            public func encode(to encoder: any Swift.Encoder) throws {
+                try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                    self.value1,
+                    self.value2
+                ])
+            }
         }
         /// What the user can do with a job now.
         ///
@@ -2214,7 +2287,75 @@ extension Components {
             case apply = "apply"
         }
         /// - Remark: Generated from `#/components/schemas/JobState`.
-        @frozen public enum JobState: String, Codable, Hashable, Sendable, CaseIterable {
+        public struct JobState: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/JobState/value1`.
+            public var value1: Components.Schemas.KnownJobState?
+            /// - Remark: Generated from `#/components/schemas/JobState/value2`.
+            public var value2: Swift.String?
+            /// Creates a new `JobState`.
+            ///
+            /// - Parameters:
+            ///   - value1:
+            ///   - value2:
+            public init(
+                value1: Components.Schemas.KnownJobState? = nil,
+                value2: Swift.String? = nil
+            ) {
+                self.value1 = value1
+                self.value2 = value2
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                var errors: [any Swift.Error] = []
+                do {
+                    self.value1 = try decoder.decodeFromSingleValueContainer()
+                } catch {
+                    errors.append(error)
+                }
+                do {
+                    self.value2 = try decoder.decodeFromSingleValueContainer()
+                } catch {
+                    errors.append(error)
+                }
+                try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                    [
+                        self.value1,
+                        self.value2
+                    ],
+                    type: Self.self,
+                    codingPath: decoder.codingPath,
+                    errors: errors
+                )
+            }
+            public func encode(to encoder: any Swift.Encoder) throws {
+                try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                    self.value1,
+                    self.value2
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/KnownChoice`.
+        @frozen public enum KnownChoice: String, Codable, Hashable, Sendable, CaseIterable {
+            case pickCandidate = "pick_candidate"
+            case createNew = "create_new"
+            case keepAsEntered = "keep_as_entered"
+            case skip = "skip"
+            case retry = "retry"
+        }
+        /// - Remark: Generated from `#/components/schemas/KnownIssueKind`.
+        @frozen public enum KnownIssueKind: String, Codable, Hashable, Sendable, CaseIterable {
+            case uncertainArtist = "uncertain_artist"
+            case uncertainReleaseGroup = "uncertain_release_group"
+            case uncertainRecording = "uncertain_recording"
+            case uncertainMetadata = "uncertain_metadata"
+            case releaseConflict = "release_conflict"
+            case metadataNotFound = "metadata_not_found"
+            case fetchFailed = "fetch_failed"
+            case unexpectedResponse = "unexpected_response"
+            case unreadableFile = "unreadable_file"
+            case downloadFailed = "download_failed"
+        }
+        /// - Remark: Generated from `#/components/schemas/KnownJobState`.
+        @frozen public enum KnownJobState: String, Codable, Hashable, Sendable, CaseIterable {
             case queued = "queued"
             case running = "running"
             case needsReview = "needs_review"

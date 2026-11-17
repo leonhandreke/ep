@@ -252,7 +252,7 @@ struct ImportStoreTests {
         await store.settle()
 
         await store.perform(.retry, on: "j1")
-        #expect(store.job(id: "j1")?.state == .queued)
+        #expect(store.job(id: "j1")?.state.known == .queued)
         await store.perform(.dismiss, on: "j1")
         #expect(store.actionError?.contains("a queued job cannot be dismissed") == true)
         store.stop()
@@ -413,6 +413,46 @@ struct ReviewModelTests {
         let issue = try #require(row.issue)
         #expect(ReviewModel.question(for: issue) == nil)
         #expect(row.options.map(\.title) == ["Try again"] && model.pick(for: row)?.choice == .retry)
-        #expect(model.answers.map(\.choice) == [.retry])
+        #expect(model.answers.map(\.choice.known) == [.retry])
+    }
+
+    /// Kinds, states and choices a newer server adds decode (open enums) and reach the
+    /// generic path: the message is the question, unknown choices are not offered.
+    @Test func aKindNewerThanTheAppDecodesAndRendersGenerically() async throws {
+        let proposal =
+            #"{"media": [], "artists": [], "releases": [], "loose_tracks": [], "radio": null, "issues": [\#(F.issue("future_kind:x", kind: "future_kind", subject: "x", type: "medium", choices: ["skip", "future_choice"], message: "Something new happened."))]}"#
+        let transport = SequenceTransport([
+            "/server": [(.ok, Fixtures.server)],
+            "/imports/j1": [(.ok, F.read("j1", state: "archived", proposal: proposal, actions: ["review"]))],
+        ])
+        let model = ReviewModel(jobID: "j1", connection: await stubConnection(transport.stub))
+        await model.load()
+        try #require(model.phase == .ready)
+        #expect(model.job?.state.known == nil && model.job?.state.rawValue == "archived")
+        let row = try #require(model.selected)
+        let issue = try #require(row.issue)
+        #expect(issue.kind.known == nil && issue.kind.rawValue == "future_kind")
+        #expect(row.question == "Something new happened." && ReviewModel.question(for: issue) == nil)
+        #expect(row.options.map(\.choice) == [.skip])
+        #expect(model.answers.map(\.choice.known) == [.skip])
+    }
+
+    /// A job queued again after review reads with its answers (`Issue.answer`); the
+    /// queue keeps them for the expanded row.
+    @Test func aQueuedJobShowsTheAnswersGiven() async throws {
+        let transport = SequenceTransport([
+            "/server": [(.ok, Fixtures.server)],
+            "/imports/summary": [(.ok, F.summary())],
+            "/imports": [(.ok, "[\(F.job("j1", state: "queued"))]")],
+        ])
+        let store = ImportStore(connection: await stubConnection(transport.stub))
+        let read = try JSONDecoder.iso8601Fractional.decode(
+            Components.Schemas.ImportJobRead.self,
+            from: Data(F.read("j1", state: "queued", proposal: F.radioProposal).utf8))
+        store.started(read)
+        await store.settle()
+        let answered = try #require(store.answered["j1"])
+        #expect(answered.map(\.id) == ["uncertain_recording:ep#4"])
+        #expect(ReviewModel.answerTitle(for: answered[0]) == "New recording")
     }
 }

@@ -40,6 +40,9 @@ final class ImportStore {
     private(set) var jobs: [Job] = []
     /// Logs of the jobs whose log is shown (the running job's card, expanded rows).
     private(set) var logs: [String: [Components.Schemas.LogEntry]] = [:]
+    /// The answered issues of those jobs: a job queued again after review shows what was
+    /// answered (the server sets `Issue.answer` when the answers are sent).
+    private(set) var answered: [String: [Components.Schemas.Issue]] = [:]
     /// Rows whose log is expanded.
     private(set) var expanded: Set<String> = []
     private(set) var toast: Toast?
@@ -59,7 +62,9 @@ final class ImportStore {
     /// Whether `jobs` was loaded once: a job's first sighting is not a change.
     @ObservationIgnored private var jobsLoaded = false
 
-    static let states: [Components.Schemas.JobState] = [.queued, .running, .applying, .needsReview, .done, .failed]
+    static let states: [Components.Schemas.KnownJobState] = [
+        .queued, .running, .applying, .needsReview, .done, .failed,
+    ]
     static let pageSize = 100
 
     init(connection: ServerConnection, interval: Duration = .seconds(2), toastDuration: Duration = .seconds(8)) {
@@ -180,7 +185,12 @@ final class ImportStore {
 
     private func loadLog(_ id: String) async {
         guard let job = try? await connection.client.getImportJob(path: .init(id: id)).ok.body.json else { return }
-        logs[id] = job.log
+        keep(job)
+    }
+
+    private func keep(_ job: Components.Schemas.ImportJobRead) {
+        logs[job.id] = job.log
+        answered[job.id] = (job.proposal?.issues ?? []).filter { $0.answer != nil }
     }
 
     /// A job that reached `done`, `needs_review` or `failed` since the last look gets a
@@ -193,7 +203,7 @@ final class ImportStore {
             let previous = before[job.id]
             guard previous != job.state else { continue }
             let wasActive = previous.map(Self.isActive) ?? true
-            switch job.state {
+            switch job.state.known {
             case .done:
                 library = library || (wasActive && job.createdAnything)
                 show(Toast(job: job, kind: .done))
@@ -211,11 +221,11 @@ final class ImportStore {
     }
 
     static func isActive(_ state: Components.Schemas.JobState) -> Bool {
-        [.queued, .running, .applying].contains(state)
+        state == .queued || isRunning(state)
     }
 
     static func isRunning(_ state: Components.Schemas.JobState) -> Bool {
-        [.running, .applying].contains(state)
+        state == .running || state == .applying
     }
 
     // MARK: - Toast
@@ -252,7 +262,7 @@ final class ImportStore {
     func started(_ job: Components.Schemas.ImportJobRead) {
         jobs.removeAll { $0.id == job.id }
         jobs.insert(Job(job), at: 0)
-        logs[job.id] = job.log
+        keep(job)
         refresh()
     }
 
@@ -291,6 +301,7 @@ final class ImportStore {
                 jobs.removeAll { $0.id == id }
                 expanded.remove(id)
                 logs[id] = nil
+                answered[id] = nil
             } else if let index = jobs.firstIndex(where: { $0.id == id }) {
                 jobs[index] = Job(job)
             }

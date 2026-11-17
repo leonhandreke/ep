@@ -354,6 +354,29 @@ private struct StageStrip: View {
     }
 }
 
+/// What was answered in review, for a job queued again with the answers (not drawn in
+/// the design; shown above the log of an expanded row): "Subject → answer" per line.
+private struct AnswerList: View {
+    let issues: [Components.Schemas.Issue]
+    let id: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(issues.count == 1 ? "1 answer given" : "\(issues.count) answers given")
+                .font(Typography.subheading)
+                .foregroundStyle(Palette.text2)
+            ForEach(issues, id: \.id) { issue in
+                Text("\(issue.subject.label) → \(ReviewModel.answerTitle(for: issue) ?? "")")
+                    .font(Typography.secondary)
+                    .foregroundStyle(Palette.text2)
+                    .lineLimit(1)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier(id)
+    }
+}
+
 /// The log: mono 11 pt, line height 1.5, at most 64 pt high (scrolls, newest at the bottom).
 private struct LogBox: View {
     let entries: [Components.Schemas.LogEntry]
@@ -442,8 +465,13 @@ private struct JobRow: View {
                 actions
             }
             if isExpanded {
-                LogBox(entries: imports.logs[job.id] ?? [], id: "import.job.\(job.id).log")
-                    .padding(.leading, 34)
+                VStack(alignment: .leading, spacing: 6) {
+                    if ImportStore.isActive(job.state), let answered = imports.answered[job.id], !answered.isEmpty {
+                        AnswerList(issues: answered, id: "import.job.\(job.id).answers")
+                    }
+                    LogBox(entries: imports.logs[job.id] ?? [], id: "import.job.\(job.id).log")
+                }
+                .padding(.leading, 34)
             }
         }
         .padding(.horizontal, 8)
@@ -491,7 +519,7 @@ private struct JobRow: View {
     }
 
     @ViewBuilder private var stateIcon: some View {
-        switch job.state {
+        switch job.state.known {
         case .needsReview where job.onlyFailures, .failed:
             Image(systemName: "xmark.circle").foregroundStyle(Palette.danger)
                 .accessibilityLabel("Failed")
@@ -504,6 +532,9 @@ private struct JobRow: View {
         case .done:
             Image(systemName: "checkmark").foregroundStyle(Palette.text3)
                 .accessibilityLabel("Done")
+        case nil:  // a state a newer server added
+            Image(systemName: "questionmark.circle").foregroundStyle(Palette.text3)
+                .accessibilityLabel(job.state.rawValue)
         default:
             ProgressView().controlSize(.mini)
         }
@@ -511,7 +542,7 @@ private struct JobRow: View {
 
     /// The second line, by state (design 7.1's table).
     private var detail: (text: String, color: Color) {
-        switch job.state {
+        switch job.state.known {
         case .needsReview where job.onlyFailures:
             let message = job.firstIssue?.message ?? String(localized: "Some items failed")
             let imported = job.created.tracks
@@ -525,7 +556,7 @@ private struct JobRow: View {
             let text =
                 open == 1
                 ? String(localized: "Needs review · 1 question") : String(localized: "Needs review · \(open) questions")
-            if job.firstIssue?.kind == .releaseConflict, let message = job.firstIssue?.message {
+            if job.firstIssue?.kind.known == .releaseConflict, let message = job.firstIssue?.message {
                 return (message, Palette.danger)
             }
             return (text, Palette.warn)
@@ -538,6 +569,8 @@ private struct JobRow: View {
             return (String(localized: "Waiting"), Palette.text2)
         case .done:
             return (job.doneDetail, Palette.text2)
+        case nil:
+            return (job.error ?? job.firstIssue?.message ?? job.state.rawValue, Palette.text2)
         default:
             return (String(localized: "Running"), Palette.text2)
         }

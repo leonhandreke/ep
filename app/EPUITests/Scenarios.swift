@@ -326,8 +326,19 @@ final class Scenarios: EPUITestCase {
         screenshot("reviewSameRecording")
     }
 
-    // No "review with a long radio tracklist" scenario: the seed's review job has four
-    // entries (backend friction: a 30-entry review job in the seed).
+    /// The review sheet of a 34-entry episode with three uncertain entries, under "All",
+    /// moved by keyboard to the last entry: the long list scrolled to its end.
+    func testReviewLongList() throws {
+        let app = try launchConnected()
+        app.typeKey("i", modifierFlags: [.command, .shift])
+        waitFor(app.element("import.job.\(Seed.allNightLongJob).review")).click()
+        waitFor(app.element("review.row.uncertain_recording:\(Seed.allNightLongURL)#2"))
+        waitFor(app.element("review.filter")).radioButtons.element(boundBy: 1).click()
+        let last = app.element("review.row.track:\(Seed.allNightLongURL)#34")
+        for _ in 0..<40 { app.typeKey(.downArrow, modifierFlags: []) }
+        waitFor(last)
+        screenshot("reviewLongList")
+    }
 
     /// Radio → Late Night Tapes → "Homage to the night shift".
     private func openNightShift(in app: XCUIApplication) {

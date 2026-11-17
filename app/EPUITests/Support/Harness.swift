@@ -145,4 +145,7 @@ enum Seed {
     static let treasureJob = "2c8b134e-fe16-561c-8071-57973258facf"
     /// The episode job's track keys are its URL with "#<entry>".
     static let turiyaURL = "https://www.nts.live/shows/late-night-tapes/episodes/turiya-and-friends"
+    /// The NTS episode "All night long" in review: 34 entries, three uncertain (2, 6, 11).
+    static let allNightLongJob = "47c4cec0-8b29-5a98-b6bb-c7b664d66c3f"
+    static let allNightLongURL = "https://www.nts.live/shows/late-night-tapes/episodes/all-night-long"
 }

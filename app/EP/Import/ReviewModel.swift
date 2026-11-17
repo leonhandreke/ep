@@ -9,11 +9,13 @@ import Observation
 /// ⌘↩ confirm all.
 ///
 /// Kinds the app has words for get their question; any other kind (one the backend adds
-/// later) shows its message and its choices, so the sheet never depends on the list.
+/// later, decoded as an open enum with `known == nil`) shows its message and its choices,
+/// so the sheet never depends on the list. A choice this app does not know is not offered.
 @Observable
 final class ReviewModel {
     typealias Issue = Components.Schemas.Issue
-    typealias Choice = Components.Schemas.Choice
+    /// The choices this app knows; a choice a newer server adds is not offered.
+    typealias Choice = Components.Schemas.KnownChoice
 
     enum Filter: Hashable { case uncertain, all }
 
@@ -212,8 +214,10 @@ final class ReviewModel {
     /// type of library row the issue may be answered with (any row of it, not only a
     /// candidate), nil for kinds that take only their candidates.
     var searchType: Components.Schemas.EntityType? {
-        guard let issue = selected?.issue, issue.choices.contains(.pickCandidate) else { return nil }
-        return Self.searchTypes[issue.kind]
+        guard let issue = selected?.issue, issue.choices.contains(where: { $0 == .pickCandidate }),
+            let kind = issue.kind.known
+        else { return nil }
+        return Self.searchTypes[kind]
     }
 
     // MARK: - Confirming
@@ -226,7 +230,7 @@ final class ReviewModel {
             if let answer = issue.answer, answer.choice == pick.choice, answer.candidateId == pick.candidateID {
                 return nil
             }
-            return .init(candidateId: pick.candidateID, choice: pick.choice, issueId: issue.id)
+            return .init(candidateId: pick.candidateID, choice: .init(pick.choice), issueId: issue.id)
         }
     }
 
@@ -273,17 +277,28 @@ final class ReviewModel {
     /// (retry for a failure, keep as entered for metadata not found).
     static func defaultOption(for issue: Issue, in options: [Option]) -> Option? {
         if let answer = issue.answer,
-            let option = options.first(where: { $0.choice == answer.choice && $0.candidateID == answer.candidateId })
+            let option = options.first(where: { answer.choice == $0.choice && $0.candidateID == answer.candidateId })
         {
             return option
         }
         return options.first
     }
 
+    /// The stored answer in words: the option it picks ("New recording", "Same recording —
+    /// link to …"), a library row picked by search, or the raw choice of one this app does
+    /// not know. Nil while the issue is open.
+    static func answerTitle(for issue: Issue) -> String? {
+        guard let answer = issue.answer else { return nil }
+        guard let choice = answer.choice.known else { return answer.choice.rawValue }
+        let option = options(for: issue).first { $0.choice == choice && $0.candidateID == answer.candidateId }
+        if let option { return option.title }
+        return choice == .pickCandidate ? String(localized: "A library item you picked") : title(of: choice, for: issue)
+    }
+
     /// `radioEntry`: the issue is about a radio tracklist entry (skipping leaves it as text).
     static func options(for issue: Issue, radioEntry: Bool = false) -> [Option] {
         var options: [Option] = []
-        for choice in issue.choices {
+        for choice in issue.choices.compactMap(\.known) {
             if choice == .pickCandidate {
                 for (index, candidate) in issue.candidates.enumerated() {
                     options.append(
@@ -307,7 +322,7 @@ final class ReviewModel {
     {
         let name = [candidate.title, candidate.subtitle].compactMap { $0?.isEmpty == false ? $0 : nil }
             .joined(separator: " — ")
-        switch issue.kind {
+        switch issue.kind.known {
         case .uncertainRecording where first:
             return String(localized: "Same recording — link to “\(name)”")
         case .releaseConflict:
@@ -351,7 +366,7 @@ final class ReviewModel {
 
     /// Kinds an answer may name any library row of (`PICK_ANY` on the server), and what
     /// to search for it.
-    static let searchTypes: [Components.Schemas.IssueKind: Components.Schemas.EntityType] = [
+    static let searchTypes: [Components.Schemas.KnownIssueKind: Components.Schemas.EntityType] = [
         .uncertainArtist: .artist, .uncertainReleaseGroup: .releaseGroup, .uncertainRecording: .recording,
     ]
 
@@ -359,7 +374,7 @@ final class ReviewModel {
     /// kind shows its message.
     static func shortQuestion(for issue: Issue) -> String {
         let name = issue.subject.label
-        switch issue.kind {
+        switch issue.kind.known {
         case .uncertainRecording: return String(localized: "Same recording as library track?")
         case .uncertainArtist:
             return issue.candidates.isEmpty
@@ -374,7 +389,7 @@ final class ReviewModel {
     /// The detail pane's heading (18 pt); nil: the message is the question.
     static func question(for issue: Issue) -> String? {
         let name = issue.subject.label
-        switch issue.kind {
+        switch issue.kind.known {
         case .uncertainRecording: return String(localized: "Is this the same recording as the one in your library?")
         case .uncertainArtist: return String(localized: "Which artist is “\(name)”?")
         case .uncertainReleaseGroup: return String(localized: "Is this album already in your library?")
