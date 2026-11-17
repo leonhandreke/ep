@@ -2216,7 +2216,7 @@ extension APIProtocol {
     public func scanWatchDir(
         path: Operations.ScanWatchDir.Input.Path,
         headers: Operations.ScanWatchDir.Input.Headers = .init(),
-        body: Operations.ScanWatchDir.Input.Body
+        body: Operations.ScanWatchDir.Input.Body? = nil
     ) async throws -> Operations.ScanWatchDir.Output {
         try await scanWatchDir(Operations.ScanWatchDir.Input(
             path: path,

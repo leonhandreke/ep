@@ -138,7 +138,7 @@ def test_explicit_scan_queues_existing_folders(
     assert [(j["input"], j["state"], j["kind"]) for j in jobs] == [(str(old), "queued", "folder")]
     jobs = client.post(f"/watch-dirs/{watch_dir['id']}/scan", json={}).json()
     assert [j["input"] for j in jobs] == [str(second)]
-    assert client.post(f"/watch-dirs/{watch_dir['id']}/scan", json={}).json() == []
+    assert client.post(f"/watch-dirs/{watch_dir['id']}/scan").json() == []  # no body at all
     assert queued_inputs(session) == sorted([str(old), str(second)])
 
     outside = client.post(f"/watch-dirs/{watch_dir['id']}/scan", json={"path": str(library.parent)})

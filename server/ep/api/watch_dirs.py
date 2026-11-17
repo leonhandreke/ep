@@ -8,8 +8,9 @@ already there that are not imported or queued yet.
 import uuid
 from datetime import timedelta
 from pathlib import Path
+from typing import Annotated
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, Body, status
 from sqlalchemy import ColumnElement
 from sqlmodel import Session, col, func, select
 
@@ -112,9 +113,16 @@ def delete_watch_dir(id: uuid.UUID, session: SessionDep) -> None:
     session.commit()
 
 
+# Without a body: everything.
+_SCAN_ALL = WatchDirScan()
+
+
 @router.post("/{id}/scan", responses=NOT_FOUND)
 def scan_watch_dir(
-    id: uuid.UUID, body: WatchDirScan, session: SessionDep, settings: SettingsDep
+    id: uuid.UUID,
+    session: SessionDep,
+    settings: SettingsDep,
+    body: Annotated[WatchDirScan, Body()] = _SCAN_ALL,
 ) -> list[ImportJobSummary]:
     """Queue folder imports for the album folders in the watch dir (or in ``path``, a
     directory inside it) that are not imported or queued yet, however old: the explicit
@@ -122,10 +130,11 @@ def scan_watch_dir(
     within the settle period are left to the watcher. Returns the queued jobs."""
     watch_dir = get_or_404(session, WatchDir, id)
     under = None
-    if body.path is not None:
-        under = check_folder_input(from_host(body.path, settings), settings, ("path",))
+    path = body.path
+    if path is not None:
+        under = check_folder_input(from_host(path, settings), settings, ("path",))
         if not under.resolve().is_relative_to(Path(watch_dir.path).resolve()):
-            raise unprocessable(("path",), "not inside the watch dir", body.path, "value_error")
+            raise unprocessable(("path",), "not inside the watch dir", path, "value_error")
     settle = timedelta(seconds=settings.watch_settle_seconds)
     folders = folders_to_import(
         session, watch_dir, utcnow(), settle, under=under, use_baseline=False

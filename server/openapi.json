@@ -5793,11 +5793,11 @@
           }
         ],
         "requestBody": {
-          "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/WatchDirScan"
+                "$ref": "#/components/schemas/WatchDirScan",
+                "default": {}
               }
             }
           }

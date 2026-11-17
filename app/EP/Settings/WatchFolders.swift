@@ -83,7 +83,7 @@ final class WatchFolders {
     @discardableResult
     func importExisting(_ id: String) async -> Int? {
         do {
-            let jobs = try await connection.client.scanWatchDir(path: .init(id: id), body: .json(.init())).ok.body.json
+            let jobs = try await connection.client.scanWatchDir(path: .init(id: id)).ok.body.json
             error = nil
             return jobs.count
         } catch {

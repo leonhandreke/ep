@@ -22188,7 +22188,7 @@ public enum Operations {
                 /// - Remark: Generated from `#/paths/watch-dirs/{id}/scan/POST/requestBody/content/application\/json`.
                 case json(Components.Schemas.WatchDirScan)
             }
-            public var body: Operations.ScanWatchDir.Input.Body
+            public var body: Operations.ScanWatchDir.Input.Body?
             /// Creates a new `Input`.
             ///
             /// - Parameters:
@@ -22198,7 +22198,7 @@ public enum Operations {
             public init(
                 path: Operations.ScanWatchDir.Input.Path,
                 headers: Operations.ScanWatchDir.Input.Headers = .init(),
-                body: Operations.ScanWatchDir.Input.Body
+                body: Operations.ScanWatchDir.Input.Body? = nil
             ) {
                 self.path = path
                 self.headers = headers
