@@ -35,6 +35,7 @@ nonisolated struct WindowTarget: Hashable, Codable, Sendable {
 struct MainWindow: View {
     @Environment(ServerConnection.self) private var connection
     @Environment(Player.self) private var player
+    @Environment(ImportStore.self) private var imports
     @Environment(\.appearsActive) private var appearsActive
     /// This window's Library: its artist list (filter, toggle) and its selection and history.
     @State private var artists: ArtistList
@@ -68,9 +69,15 @@ struct MainWindow: View {
         let album = EntityDetails(connection: connection)
         let track = EntityDetails(connection: connection)
         // A saved note may link to what another panel shows: its "Linked from" reloads.
-        artist.onNoteSaved = { [weak album, weak track] in album?.reload(); track?.reload() }
-        album.onNoteSaved = { [weak artist, weak track] in artist?.reload(); track?.reload() }
-        track.onNoteSaved = { [weak artist, weak album] in artist?.reload(); album?.reload() }
+        artist.onNoteSaved = { [weak album, weak track] in
+            album?.reload(); track?.reload()
+        }
+        album.onNoteSaved = { [weak artist, weak track] in
+            artist?.reload(); track?.reload()
+        }
+        track.onNoteSaved = { [weak artist, weak album] in
+            artist?.reload(); album?.reload()
+        }
         _artistDetails = State(initialValue: artist)
         _albumDetails = State(initialValue: album)
         _trackDetails = State(initialValue: track)
@@ -88,6 +95,35 @@ struct MainWindow: View {
     }
 
     var body: some View {
+        applyModifiers(content)
+    }
+
+    private var content: some View {
+        frame
+            .overlay(alignment: .bottomTrailing) { toast }
+            .animation(.easeOut(duration: 0.2), value: imports.toast)
+            .overlay {
+                if searchOpen {
+                    SearchPalette(store: search) { searchOpen = false }
+                }
+            }
+            .background { PasteLinkMonitor { link in openImport(link: link) } }
+            .background(Palette.bg)
+            .frame(minWidth: WindowMetrics.minimumWidth, minHeight: WindowMetrics.minimumHeight)
+            .navigationTitle("EP")
+    }
+
+    @ViewBuilder private var toast: some View {
+        if let toast = imports.toast {
+            ImportToast(toast: toast) { open(toast) }
+                .padding(.trailing, 16)
+                .padding(.bottom, Metrics.playerBarHeight + 12)
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+        }
+    }
+
+    /// The banner, the columns, the divider, the detail panels and the player bar.
+    private var frame: some View {
         VStack(spacing: 0) {
             if case .unreachable = connection.state {
                 UnreachableBanner()
@@ -101,74 +137,85 @@ struct MainWindow: View {
                     if detailPanelsCollapsed {
                         DetailPanels(
                             section: section, collapsed: $detailPanelsCollapsed, artist: artistDetails,
-                            album: albumDetails, track: trackDetails, radio: radioDetails)
-                            .frame(height: Metrics.panelHeaderHeight)
+                            album: albumDetails, track: trackDetails, radio: radioDetails
+                        )
+                        .frame(height: Metrics.panelHeaderHeight)
                     } else {
                         DetailDivider(height: panels, available: available) { detailPanelsHeight = $0 }
                         DetailPanels(
                             section: section, collapsed: $detailPanelsCollapsed, artist: artistDetails,
-                            album: albumDetails, track: trackDetails, radio: radioDetails)
-                            .frame(height: panels)
+                            album: albumDetails, track: trackDetails, radio: radioDetails
+                        )
+                        .frame(height: panels)
                     }
                 }
             }
             PlayerBar(showPlaying: showPlaying)
         }
-        .overlay {
-            if searchOpen {
-                SearchPalette(store: search) { searchOpen = false }
+    }
+
+    /// Environment, sheets, toolbar, focused values and reloads.
+    private func applyModifiers(_ content: some View) -> some View {
+        content
+            .environment(artists)
+            .environment(browser)
+            .environment(radio)
+            .environment(\.openEntity, OpenEntityAction(handler: open))
+            .environment(\.showTag) { tag in openSearch(tag: tag) }
+            .environment(\.presentSheet) { sheet = $0 }
+            .environment(\.openImport) { link in openImport(link: link) }
+            .sheet(item: $sheet) { sheet in
+                sheetView(sheet)
             }
-        }
-        .background(Palette.bg)
-        .frame(minWidth: WindowMetrics.minimumWidth, minHeight: WindowMetrics.minimumHeight)
-        .navigationTitle("EP")
-        .environment(artists)
-        .environment(browser)
-        .environment(radio)
-        .environment(\.openEntity, OpenEntityAction(handler: open))
-        .environment(\.showTag) { tag in openSearch(tag: tag) }
-        .environment(\.presentSheet) { sheet = $0 }
-        .sheet(item: $sheet) { sheet in
-            sheetView(sheet)
-        }
-        .toolbar { MainToolbar(section: $section, history: history) { openSearch(tag: nil) } }
-        .toolbarBackground(Palette.bar, for: .windowToolbar)
-        .focusedSceneValue(\.detailPanelsCollapsed, $detailPanelsCollapsed)
-        .focusedSceneValue(\.history, history)
-        .focusedSceneValue(\.showPlaying, showPlaying)
-        .focusedSceneValue(\.openSearch) { openSearch(tag: nil) }
-        .focusedSceneValue(\.newEntity) { kind in newEntity(kind) }
-        // The server is the only source of truth and does not push: load once connected
-        // (again after being unreachable), and reload when the window becomes active.
-        .onChange(of: connection.isConnected, initial: true) { _, connected in
-            guard connected else { return }
-            reloadLibrary()
-            if let target = pendingTarget {
-                pendingTarget = nil
-                open(target, newWindow: false)
+            .toolbar {
+                MainToolbar(
+                    section: $section, history: history, search: { openSearch(tag: nil) },
+                    importer: { openImport(link: nil) })
             }
-        }
-        // The panels follow the selection; a track's note and tags are its recording's.
-        .onChange(of: browser.location.artistID, initial: true) { _, id in
-            artistDetails.show(id.map { EntityRef(type: .artist, id: $0) })
-        }
-        .onChange(of: browser.location.album, initial: true) { _, album in
-            albumDetails.show(album?.releaseGroupID.map { EntityRef(type: .releaseGroup, id: $0) })
-        }
-        .onChange(of: browser.selectedTrack?.recordingID, initial: true) { _, id in
-            trackDetails.show(id.map { EntityRef(type: .recording, id: $0) })
-        }
-        // The Radio panel: the episode, else the show.
-        .onChange(of: radio.location, initial: true) { _, location in
-            radioDetails.show(
-                location.episodeID.map { EntityRef(type: .radioEpisode, id: $0) }
-                    ?? location.showID.map { EntityRef(type: .radioShow, id: $0) })
-        }
-        .onChange(of: appearsActive) { _, active in
-            guard active else { return }
-            if connection.isConnected { reloadLibrary() }
-            Task { await connection.refresh() }
-        }
+            .toolbarBackground(Palette.bar, for: .windowToolbar)
+            .focusedSceneValue(\.detailPanelsCollapsed, $detailPanelsCollapsed)
+            .focusedSceneValue(\.history, history)
+            .focusedSceneValue(\.showPlaying, showPlaying)
+            .focusedSceneValue(\.openSearch) { openSearch(tag: nil) }
+            .focusedSceneValue(\.newEntity) { kind in newEntity(kind) }
+            .focusedSceneValue(\.openImports) { sheet = WindowSheet(kind: .importer(link: nil, focusLink: false)) }
+            // The server is the only source of truth and does not push: load once connected
+            // (again after being unreachable), and reload when the window becomes active.
+            .onChange(of: connection.isConnected, initial: true) { _, connected in
+                guard connected else { return }
+                reloadLibrary()
+                imports.refresh()
+                if let target = pendingTarget {
+                    pendingTarget = nil
+                    open(target, newWindow: false)
+                }
+            }
+            // The panels follow the selection; a track's note and tags are its recording's.
+            .onChange(of: browser.location.artistID, initial: true) { _, id in
+                artistDetails.show(id.map { EntityRef(type: .artist, id: $0) })
+            }
+            .onChange(of: browser.location.album, initial: true) { _, album in
+                albumDetails.show(album?.releaseGroupID.map { EntityRef(type: .releaseGroup, id: $0) })
+            }
+            .onChange(of: browser.selectedTrack?.recordingID, initial: true) { _, id in
+                trackDetails.show(id.map { EntityRef(type: .recording, id: $0) })
+            }
+            // The Radio panel: the episode, else the show.
+            .onChange(of: radio.location, initial: true) { _, location in
+                radioDetails.show(
+                    location.episodeID.map { EntityRef(type: .radioEpisode, id: $0) }
+                        ?? location.showID.map { EntityRef(type: .radioShow, id: $0) })
+            }
+            .onChange(of: appearsActive) { _, active in
+                guard active else { return }
+                if connection.isConnected {
+                    reloadLibrary()
+                    imports.refresh()
+                }
+                Task { await connection.refresh() }
+            }
+            // A job put something into the library: what this window shows may have changed.
+            .onChange(of: imports.libraryChanges) { reloadLibrary() }
     }
 
     @ViewBuilder private func sheetView(_ sheet: WindowSheet) -> some View {
@@ -186,6 +233,32 @@ struct MainWindow: View {
                 reloadLibrary()
                 done(created)
             }
+        case .importer(let link, let focusLink):
+            ImportSheet(
+                link: link, focusLink: focusLink,
+                review: { id in self.sheet = WindowSheet(kind: .review(jobID: id)) },
+                showExisting: { ref in
+                    self.sheet = nil
+                    open(OpenTarget(entity: ref), newWindow: false)
+                })
+        case .review(let jobID):
+            ReviewSheet(jobID: jobID) { job in imports.started(job) }
+        }
+    }
+
+    /// The import sheet, with a link to start from (⌘V, a link-only track's Import…).
+    private func openImport(link: String?) {
+        sheet = WindowSheet(kind: .importer(link: link))
+    }
+
+    /// The toast's button: a job to review opens its review sheet; any other shows the
+    /// import sheet.
+    private func open(_ toast: ImportStore.Toast) {
+        imports.dismissToast()
+        if toast.kind == .review {
+            sheet = WindowSheet(kind: .review(jobID: toast.jobID))
+        } else {
+            sheet = WindowSheet(kind: .importer(link: nil, focusLink: false))
         }
     }
 
@@ -265,6 +338,7 @@ struct MainWindow: View {
     MainWindow(connection: connection, player: player)
         .environment(connection)
         .environment(player)
+        .environment(ImportStore(connection: connection))
         .environment(CoverImages())
         .frame(width: 1440, height: 900)
 }

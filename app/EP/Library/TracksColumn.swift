@@ -14,6 +14,7 @@ struct TracksColumn: View {
     /// The row whose sources popover is open (its state icon, or "Sources…").
     @State private var sourcesRowID: String?
     @Environment(\.presentSheet) private var presentSheet
+    @Environment(\.openImport) private var openImport
 
     var body: some View {
         VStack(spacing: 0) {
@@ -21,7 +22,11 @@ struct TracksColumn: View {
             if let group = browser.releaseGroup, browser.location.album == .releaseGroup(group.id),
                 let banner = NoPlayableBanner.text(for: group)
             {
-                NoPlayableBanner(text: banner)
+                // Import… starts from the first track's link (the server says whether
+                // it imports it).
+                NoPlayableBanner(text: banner) {
+                    openImport?(browser.tracks.lazy.compactMap { $0.playability.link?.url }.first)
+                }
             }
             content
         }
@@ -120,6 +125,14 @@ struct TracksColumn: View {
                 moveLeft()
                 return .handled
             }
+            // ⌥↩ on a link-only track offers Import (§3.5): the import sheet with its link.
+            .onKeyPress(.return, phases: .down) { press in
+                guard press.modifiers == .option, let row = browser.selectedTrack, row.playState == .linkOnly,
+                    let link = row.playability.link?.url, let openImport
+                else { return .ignored }
+                openImport(link)
+                return .handled
+            }
             .contextMenu(forSelectionType: String.self) { ids in
                 if let row = ids.first.flatMap(row(id:)) {
                     Button("Edit…") { presentSheet?(WindowSheet(kind: .edit(.recording(row.recordingID)))) }
@@ -135,9 +148,12 @@ struct TracksColumn: View {
             .onChange(of: browser.location.trackID) { _, id in
                 if let id { proxy.scrollTo(id) }
             }
-            .focusedValue(\.editSelection, browser.selectedTrack.map { row in
-                { presentSheet?(WindowSheet(kind: .edit(.recording(row.recordingID)))) }
-            })
+            .focusedValue(
+                \.editSelection,
+                browser.selectedTrack.map { row in
+                    { presentSheet?(WindowSheet(kind: .edit(.recording(row.recordingID)))) }
+                }
+            )
             .accessibilityIdentifier("tracks.list")
         }
     }
@@ -244,10 +260,10 @@ private struct TrackRowView: View {
     }
 }
 
-/// "None of these 8 tracks play here. 6 have a Spotify link." with Import… (§11.5;
-/// importing is stage 9, so the button is disabled).
+/// "None of these 8 tracks play here. 6 have a Spotify link." with Import… (§11.5).
 private struct NoPlayableBanner: View {
     let text: String
+    let importLink: () -> Void
 
     static func text(for group: Components.Schemas.ReleaseGroupDetail) -> String? {
         let states = group.playStates
@@ -279,10 +295,9 @@ private struct NoPlayableBanner: View {
                 .foregroundStyle(Palette.text)
                 .lineLimit(2)
             Spacer(minLength: 0)
-            Button("Import…") {}
+            Button("Import…", action: importLink)
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
-                .disabled(true)
                 .accessibilityIdentifier("tracks.banner.import")
         }
         .padding(.horizontal, 14)

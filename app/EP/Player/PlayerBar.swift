@@ -480,6 +480,7 @@ private struct NothingPlaying: View {
 private struct NoticeView: View {
     let notice: Player.Notice
     @Environment(\.openURL) private var openURL
+    @Environment(\.openImport) private var openImport
 
     var body: some View {
         HStack(spacing: 10) {
@@ -493,11 +494,10 @@ private struct NoticeView: View {
                 Button("Open in \(kind.displayName)") { openURL(url) }
                     .controlSize(.small)
                     .accessibilityIdentifier("player.notice.open")
-                // Importing is stage 9.
-                Button("Import…") {}
+                Button("Import…") { openImport?(url.absoluteString) }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
-                    .disabled(true)
+                    .disabled(openImport == nil)
                     .accessibilityIdentifier("player.notice.import")
             }
         }

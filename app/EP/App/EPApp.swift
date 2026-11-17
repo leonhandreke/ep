@@ -17,7 +17,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let alert = NSAlert()
         alert.messageText = String(localized: "Some notes are not saved")
         alert.informativeText = String(
-            localized: "\(count) note(s) could not be saved: they were changed elsewhere or the server cannot be reached. Quitting now loses these edits.")
+            localized:
+                "\(count) note(s) could not be saved: they were changed elsewhere or the server cannot be reached. Quitting now loses these edits."
+        )
         alert.addButton(withTitle: String(localized: "Cancel"))
         alert.addButton(withTitle: String(localized: "Quit Anyway"))
         return alert.runModal() == .alertSecondButtonReturn
@@ -32,6 +34,8 @@ struct EPApp: App {
     @State private var covers = CoverImages()
     /// The one player all windows share (decision 13).
     @State private var player: Player
+    /// The import queue all windows share (toolbar button, toasts, sheets).
+    @State private var imports: ImportStore
 
     init() {
         let settings = AppSettings()
@@ -40,6 +44,7 @@ struct EPApp: App {
         _settings = State(initialValue: settings)
         _connection = State(initialValue: connection)
         _player = State(initialValue: player)
+        _imports = State(initialValue: ImportStore(connection: connection))
         LaunchOptions.applyAppearance()
         // As the unit tests' host the app stays offline: tests use their own stubs.
         if !Self.isUnitTestHost {
@@ -60,6 +65,7 @@ struct EPApp: App {
                 .environment(connection)
                 .environment(covers)
                 .environment(player)
+                .environment(imports)
         }
         .defaultSize(LaunchOptions.windowSize)
         .windowToolbarStyle(.unified(showsTitle: false))
@@ -82,6 +88,7 @@ struct AppCommands: Commands {
     @FocusedValue(\.openSearch) private var openSearch
     @FocusedValue(\.editSelection) private var editSelection
     @FocusedValue(\.newEntity) private var newEntity
+    @FocusedValue(\.openImports) private var openImports
 
     var body: some Commands {
         CommandMenu("Go") {
@@ -100,6 +107,12 @@ struct AppCommands: Commands {
                 .disabled(newEntity == nil)
             Button("New Recording…") { newEntity?(.recording) }
                 .disabled(newEntity == nil)
+            Divider()
+            // ⇧⌘I: the import sheet with its jobs; Return then reviews the newest job
+            // waiting for a decision.
+            Button("Import…") { openImports?() }
+                .keyboardShortcut("i", modifiers: [.command, .shift])
+                .disabled(openImports == nil)
         }
         // Decision 6: ⌘E edits the selection of the focused list.
         CommandGroup(after: .pasteboard) {
@@ -156,4 +169,6 @@ extension FocusedValues {
     @Entry var editSelection: (() -> Void)?
     /// Creates an artist, album or recording by hand in the focused main window.
     @Entry var newEntity: ((Creator.Kind) -> Void)?
+    /// Opens the focused main window's import sheet (⇧⌘I).
+    @Entry var openImports: (() -> Void)?
 }

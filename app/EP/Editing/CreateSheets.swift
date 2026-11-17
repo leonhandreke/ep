@@ -11,6 +11,11 @@ struct WindowSheet: Identifiable {
         /// "New album or recording…"), a name to start with, a credit to start with.
         case create(kinds: [Creator.Kind], name: String, credit: [CreditPart])
         case musicBrainz(query: String)
+        /// The import sheet (start and jobs), with a link to start from; the link field
+        /// takes the keyboard unless the sheet was opened for its jobs (⇧⌘I).
+        case importer(link: String?, focusLink: Bool = true)
+        /// The review sheet of an import job.
+        case review(jobID: String)
     }
 
     let id = UUID()
@@ -202,9 +207,12 @@ struct MusicBrainzSheet: View {
                             Text(hit.disambiguation).font(Typography.secondary).foregroundStyle(Palette.text3)
                         }
                     }
-                    Text([hit.artistCredit, hit.date].compactMap { $0?.isEmpty == false ? $0 : nil }.joined(separator: " · "))
-                        .font(Typography.secondary)
-                        .foregroundStyle(Palette.text2)
+                    Text(
+                        [hit.artistCredit, hit.date].compactMap { $0?.isEmpty == false ? $0 : nil }.joined(
+                            separator: " · ")
+                    )
+                    .font(Typography.secondary)
+                    .foregroundStyle(Palette.text2)
                 }
                 .lineLimit(1)
                 .padding(.vertical, 3)
@@ -215,7 +223,9 @@ struct MusicBrainzSheet: View {
         }
         .listStyle(.bordered)
         .contextMenu(forSelectionType: String.self) { _ in
-        } primaryAction: { _ in add() }
+        } primaryAction: { _ in
+            add()
+        }
         .overlay {
             if search.hits.isEmpty, !search.isSearching, search.searched != nil {
                 Text("Nothing found on MusicBrainz.").font(Typography.secondary).foregroundStyle(Palette.text3)

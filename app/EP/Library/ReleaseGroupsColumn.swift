@@ -91,9 +91,12 @@ struct ReleaseGroupsColumn: View {
                     Button("Copy Link") { copyNoteLink(group.link) }
                 }
             }
-            .focusedValue(\.editSelection, browser.location.album?.releaseGroupID.map { id in
-                { presentSheet?(WindowSheet(kind: .edit(.releaseGroup(id)))) }
-            })
+            .focusedValue(
+                \.editSelection,
+                browser.location.album?.releaseGroupID.map { id in
+                    { presentSheet?(WindowSheet(kind: .edit(.releaseGroup(id)))) }
+                }
+            )
             .onChange(of: browser.location.album) { _, album in
                 if let album { proxy.scrollTo(album) }
             }
@@ -173,12 +176,12 @@ private struct LooseTracksRow: View {
 }
 
 /// An artist with no albums and no loose tracks (§11.4): "No albums in your library.
-/// Played in N radio episodes." with Add album by hand…; importing (stage 9) is not built
-/// yet, so its button is shown disabled.
+/// Played in N radio episodes." with Add album by hand… and Import….
 private struct NoReleasesView: View {
     let artist: Components.Schemas.ArtistDetail
 
     @Environment(\.presentSheet) private var presentSheet
+    @Environment(\.openImport) private var openImport
 
     var body: some View {
         VStack(spacing: 12) {
@@ -205,8 +208,8 @@ private struct NoReleasesView: View {
                     presentSheet?(WindowSheet(kind: .create(kinds: [.album], name: "", credit: [credit])))
                 }
                 .accessibilityIdentifier("releaseGroups.addByHand")
-                Button("Import…") {}
-                    .disabled(true)
+                Button("Import…") { openImport?(nil) }
+                    .disabled(openImport == nil)
                     .accessibilityIdentifier("releaseGroups.import")
             }
             .controlSize(.small)

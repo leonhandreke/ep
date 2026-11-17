@@ -1,14 +1,15 @@
 import SwiftUI
 
 /// The main window's toolbar (design §3.1): back, forward, import; the Library | Radio
-/// switch centred; the search field on the right. Import (stage 9) and search (stage 8)
-/// come later.
+/// switch centred; the search field on the right.
 struct MainToolbar: ToolbarContent {
     @Binding var section: AppSection
     /// The shown view's history (Library or Radio).
     let history: any HistoryNavigating
     /// Opens the search palette.
     let search: () -> Void
+    /// Opens the import sheet.
+    let importer: () -> Void
 
     var body: some ToolbarContent {
         ToolbarItemGroup(placement: .navigation) {
@@ -23,10 +24,8 @@ struct MainToolbar: ToolbarContent {
                 .accessibilityLabel("Forward (⌘])")
                 .accessibilityIdentifier("toolbar.forward")
                 .disabled(!history.canGoForward)
-            Button("Import", systemImage: "plus") {}
-                .help("Import")
-                .accessibilityIdentifier("toolbar.import")
-                .disabled(true)
+            ImportToolbarButton(action: importer)
+                .padding(.leading, 4)
         }
 
         ToolbarItem(placement: .principal) {
