@@ -352,7 +352,8 @@ class Issue(Model):
     # Best first; empty for kinds without candidates.
     candidates: list[IssueCandidate] = Field(default_factory=list)
     choices: list[Choice]
-    # The user's answer; null while the issue is open.
+    # The user's answer; null while the issue is open. Set when the answer is submitted
+    # (``POST /imports/{id}/review``), before the job runs again.
     answer: Answer | None = None
     # While open, the job does not apply. Non-blocking issues (about ``optional`` tracks,
     # failed downloads, unreadable files) leave out what they concern: the job applies

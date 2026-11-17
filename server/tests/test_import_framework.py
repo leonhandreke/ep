@@ -218,6 +218,9 @@ def test_uncertain_match_review_round_trip(
     answer = {"issue_id": issue["id"], "choice": "pick_candidate", "candidate_id": other["id"]}
     queued = review(client, str(job.id), answer)
     assert queued["state"] == "queued"
+    # Shown as answered while it waits to run again.
+    [issue] = get_job(client, str(job.id))["proposal"]["issues"]
+    assert issue["answer"] == {"choice": "pick_candidate", "candidate_id": other["id"]}
     assert len(job_queue.jobs) == 1
     assert run() == {job.id: JobState.done}
 

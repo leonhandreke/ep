@@ -93,6 +93,13 @@ def check(client: TestClient) -> None:
         "failed",
         "done",
     }
+    # A long radio tracklist to review, few entries uncertain.
+    long_lists = [
+        client.get(f"/imports/{job['id']}").json()["proposal"]
+        for job in jobs
+        if job["state"] == "needs_review" and job["kind"] == "nts"
+    ]
+    assert any(len(p["radio"]["entries"]) >= 30 and 0 < len(p["issues"]) <= 5 for p in long_lists)
     details = client.get(f"/entity-details/artist/{bjork}").json()
     assert any(link["target"] is None for link in details["note"]["links"])  # a broken link
     assert details["tags"]

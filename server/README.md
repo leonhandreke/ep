@@ -205,7 +205,8 @@ uv run python -m ep.seed --database-url postgresql+psycopg://ep:ep@localhost:543
 `ep/seed.py` migrates, refuses a database with data and a non-empty directory or one
 under `~/Music`, and writes a small fixed library (every play state, a multi-disc and
 a single-file album, a radio show with two episodes, notes with links and a broken
-one, tags, jobs in each state) with generated audio and covers. The audio covers every
+one, tags, jobs in each state, among them an NTS review with a 34-entry tracklist and
+three uncertain entries) with generated audio and covers. The audio covers every
 decoder path: FLAC, MP3, AAC in M4A, Ogg Vorbis (Sigur Rós), WebM/Opus (the YouTube loose
 track "Loose Tone") and Ogg Opus (the episode "Homage to the night shift"; the other
 episode is M4A). It prints the
@@ -341,8 +342,9 @@ docker rm -f ep-harness-db && rm -rf "$D"     # tear down
   JSON); where an item goes (`Target`) and covers (`IncomingCover`) are unions
   discriminated by `kind`.
 - Issues have stable ids (`<kind>:<subject key>`); `POST /imports/{id}/review` stores
-  answers by id and re-runs the job from the start, each stage applying the stored
-  answer to the issue it would raise. An answer that no longer fits (its candidate is not
+  answers by id (and at once on the stored proposal's issues, `Issue.answer`, so a job
+  queued again reads with what was answered) and re-runs the job from the start, each
+  stage applying the stored answer to the issue it would raise. An answer that no longer fits (its candidate is not
   offered any more) is ignored and the issue asked again. An item with an open issue is
   not matched further. The review, retry and dismiss endpoints lock the job row.
 - Non-blocking issues (`Issue.blocking: false`): an issue about an `optional` track

@@ -656,7 +656,11 @@ def default_library_path(proposal: Proposal, medium: IncomingMedium) -> PurePath
 
 def record_answers(job: ImportJob, answers: dict[str, Answer]) -> None:
     """Store answers to the job's issues (validated with ``answer_fits`` by the caller;
-    ``retry`` answers clear a stored answer) and queue the job again."""
+    ``retry`` answers clear a stored answer) and queue the job again.
+
+    The answers also go onto the proposal's issues at once, so the job reads with what
+    was answered while it waits to run again; the run rebuilds the proposal from the
+    stored answers (and opens an issue again if its answer no longer fits)."""
     stored = dict(job.answers)
     for key, answer in answers.items():
         if answer.choice is Choice.retry:
@@ -664,6 +668,14 @@ def record_answers(job: ImportJob, answers: dict[str, Answer]) -> None:
         else:
             stored[key] = answer.model_dump(mode="json")
     job.answers = stored
+    if job.proposal is not None:
+        proposal = Proposal.model_validate(job.proposal)
+        for issue in proposal.issues:
+            if issue.id in answers:
+                issue.answer = (
+                    Answer.model_validate(stored[issue.id]) if issue.id in stored else None
+                )
+        job.proposal = proposal.model_dump(mode="json")
     requeue(job)
 
 

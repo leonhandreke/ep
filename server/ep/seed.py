@@ -20,7 +20,8 @@ times; entries matched to an album track, to a loose track, radio-only and unmat
 every audio format a client decodes (FLAC, MP3, AAC in M4A, Ogg Vorbis, an Ogg Opus
 episode, a WebM/Opus YouTube download);
 notes with links between artists, albums, tracks and episodes (one broken); tags; and
-import jobs running, waiting, needing review, failed and done.
+import jobs running, waiting, needing review (one a long radio tracklist with a few
+uncertain entries), failed and done.
 
 Deterministic: IDs are UUID 5 of fixed names, timestamps fixed (the audio files are
 regenerated, so their bytes depend on the ffmpeg version).
@@ -839,6 +840,8 @@ class Seeder:
         )
         # Needs review: a radio episode with uncertain entries (several kinds).
         self._radio_review(job, log)
+        # Needs review: a long radio tracklist, few entries uncertain.
+        self._long_radio_review(job, log)
         # Running (downloading 3 of 5), and one waiting behind it.
         job(
             "agora",
@@ -879,15 +882,10 @@ class Seeder:
         )
         self.session.flush()
 
-    def _radio_review(self, job: Callable[..., None], log: Callable[..., list[dict]]) -> None:
-        url = "https://www.nts.live/shows/late-night-tapes/episodes/turiya-and-friends"
-        entries = [
-            ("Alice Coltrane", "Turiya and Ramakrishna", 602000, False),
-            ("Laurel Halo", "Unknown title", 1095000, False),
-            ("Arca", "Piel", 1990000, False),
-            ("Jon Hassell", "Dreamworld", 3520000, True),
-        ]
-        tracks = [
+    @staticmethod
+    def _radio_tracks(url: str, entries: list[tuple[str, str, int, bool]]) -> list[IncomingTrack]:
+        """Loose tracks for tracklist entries (artist, title, start, estimated)."""
+        return [
             IncomingTrack(
                 key=f"{url}#{n}",
                 medium_key=url,
@@ -899,12 +897,69 @@ class Seeder:
             )
             for n, (artist, title, start, _) in enumerate(entries, 1)
         ]
+
+    @staticmethod
+    def _radio_proposal(
+        show: IncomingRadioShow,
+        episode: IncomingRadioEpisode,
+        entries: list[tuple[str, str, int, bool]],
+        tracks: list[IncomingTrack],
+        issues: list[Issue],
+    ) -> Proposal:
+        url = episode.url
+        return Proposal(
+            media=[
+                IncomingMedium(
+                    key=url,
+                    path=None,
+                    managed=True,
+                    download=True,
+                    origin=Origin(kind=SourceKind.nts, uri=url),
+                )
+            ],
+            artists=[
+                IncomingArtist(key=artist, name=artist)
+                for artist in dict.fromkeys(e[0] for e in entries)
+            ],
+            loose_tracks=tracks,
+            radio=IncomingRadio(
+                show=show,
+                episode=episode,
+                medium_key=url,
+                entries=[
+                    IncomingRadioEntry(
+                        position=n,
+                        track_key=track.key,
+                        artist_text=track.credit[0].credited_name,
+                        title_text=track.title,
+                        start_ms=track.start_ms,
+                        offset_is_estimate=estimated,
+                    )
+                    for n, (track, (*_, estimated)) in enumerate(
+                        zip(tracks, entries, strict=True), 1
+                    )
+                ],
+            ),
+            issues=issues,
+        )
+
+    @staticmethod
+    def _track_subject(track: IncomingTrack) -> Subject:
+        label = f"{track.credit[0].credited_name} — {track.title}"
+        return Subject(type=SubjectType.track, key=track.key, label=label)
+
+    def _radio_review(self, job: Callable[..., None], log: Callable[..., list[dict]]) -> None:
+        url = "https://www.nts.live/shows/late-night-tapes/episodes/turiya-and-friends"
+        entries = [
+            ("Alice Coltrane", "Turiya and Ramakrishna", 602000, False),
+            ("Laurel Halo", "Unknown title", 1095000, False),
+            ("Arca", "Piel", 1990000, False),
+            ("Jon Hassell", "Dreamworld", 3520000, True),
+        ]
+        tracks = self._radio_tracks(url, entries)
         joga = self.recordings["Jóga"]
         arcas = [a for key, a in self.artists.items() if key.startswith("Arca|")]
-
-        def subject(track: IncomingTrack) -> Subject:
-            label = f"{track.credit[0].credited_name} — {track.title}"
-            return Subject(type=SubjectType.track, key=track.key, label=label)
+        subject = self._track_subject
 
         issues = [
             Issue(
@@ -970,48 +1025,20 @@ class Seeder:
                 blocking=False,
             ),
         ]
-        proposal = Proposal(
-            media=[
-                IncomingMedium(
-                    key=url,
-                    path=None,
-                    managed=True,
-                    download=True,
-                    origin=Origin(kind=SourceKind.nts, uri=url),
-                )
-            ],
-            artists=[
-                IncomingArtist(key=artist, name=artist)
-                for artist in dict.fromkeys(e[0] for e in entries)
-            ],
-            loose_tracks=tracks,
-            radio=IncomingRadio(
-                show=IncomingRadioShow(
-                    station=RadioStation.nts, slug="late-night-tapes", name="Late Night Tapes"
-                ),
-                episode=IncomingRadioEpisode(
-                    slug="turiya-and-friends",
-                    name="Turiya and friends",
-                    broadcast_at=datetime(2025, 3, 21, 22, tzinfo=UTC),
-                    url=url,
-                    image=IncomingImage(url="https://media.ntslive.co.uk/demo.jpg"),
-                ),
-                medium_key=url,
-                entries=[
-                    IncomingRadioEntry(
-                        position=n,
-                        track_key=track.key,
-                        artist_text=track.credit[0].credited_name,
-                        title_text=track.title,
-                        start_ms=track.start_ms,
-                        offset_is_estimate=estimated,
-                    )
-                    for n, (track, (*_, estimated)) in enumerate(
-                        zip(tracks, entries, strict=True), 1
-                    )
-                ],
+        proposal = self._radio_proposal(
+            IncomingRadioShow(
+                station=RadioStation.nts, slug="late-night-tapes", name="Late Night Tapes"
             ),
-            issues=issues,
+            IncomingRadioEpisode(
+                slug="turiya-and-friends",
+                name="Turiya and friends",
+                broadcast_at=datetime(2025, 3, 21, 22, tzinfo=UTC),
+                url=url,
+                image=IncomingImage(url="https://media.ntslive.co.uk/demo.jpg"),
+            ),
+            entries,
+            tracks,
+            issues,
         )
         job(
             "turiya",
@@ -1021,6 +1048,101 @@ class Seeder:
             state=JobState.needs_review,
             proposal=proposal.model_dump(mode="json"),
             log=log(-90, "started", "needs review: 3 open issue(s)"),
+        )
+
+    def _long_radio_review(self, job: Callable[..., None], log: Callable[..., list[dict]]) -> None:
+        """A two-hour episode with a long tracklist, only three entries uncertain: the
+        review sheet's long list."""
+        url = "https://www.nts.live/shows/late-night-tapes/episodes/all-night-long"
+        names = [
+            ("Pharoah Sanders", "Harvest Time"),
+            ("Björk", "Hunter (Live at Shepherds Bush)"),
+            ("Hiroshi Yoshimura", "Blink"),
+            ("Midori Takada", "Mr. Henri Rousseau's Dream"),
+            ("Laraaji", "Being Here"),
+            ("Sigur Rós", "Svefn-g-englar (Radio Edit)"),
+            ("Suzanne Ciani", "Lixiviation"),
+            ("Jon Hassell", "Chor Moiré"),
+            ("Pauline Anna Strom", "Organic Cybernetics"),
+            ("Gigi Masin", "Clouds"),
+            ("Fennesz", "Rainfall (Reprise)"),
+            ("Satoshi Ashikawa", "Still Space"),
+            ("Ana Roxanne", "Slowdance"),
+            ("Iasos", "Crystal Petals"),
+            ("Beverly Glenn-Copeland", "Ever New"),
+            ("Mariah", "Shinzo No Tobira"),
+            ("Huerco S.", "Promises of Fertility"),
+            ("Carl Stone", "Shing Kee"),
+            ("Kaitlyn Aurelia Smith", "An Intention"),
+            ("Joanna Brouk", "The Space Between"),
+            ("Harold Budd", "Olancha Farewell"),
+            ("Visible Cloaks", "Valve"),
+            ("Mary Lattimore", "Wawona Bound"),
+            ("Pan American", "Starlite"),
+            ("Ryuichi Sakamoto", "Andata"),
+            ("Grouper", "Heavy Water/I'd Rather Be Sleeping"),
+            ("Hiroshi Yoshimura", "Water Copy"),
+            ("Chuck Johnson", "Calico Lux"),
+            ("Ellen Fullman", "Flowing Melody"),
+            ("Hailu Mergia", "Hari Meru Meru"),
+            ("Alice Coltrane", "Journey in Satchidananda"),
+            ("Laurel Halo", "Sun to Solar"),
+            ("Mica Levi", "Love"),
+            ("Gas", "Pop 4"),
+        ]
+        # About four minutes each; the second hour has only estimated times.
+        entries = [
+            (artist, title, 90000 + n * 231000, n >= 17) for n, (artist, title) in enumerate(names)
+        ]
+        tracks = self._radio_tracks(url, entries)
+
+        def uncertain(index: int, recording: str, artist: str, score: float) -> Issue:
+            track = tracks[index]
+            return Issue(
+                id=f"uncertain_recording:{track.key}",
+                kind=IssueKind.uncertain_recording,
+                message=f"Is '{track.title}' one of these recordings in the library, or new?",
+                subject=self._track_subject(track),
+                candidates=[
+                    IssueCandidate(
+                        type=CandidateType.recording,
+                        id=self.recordings[recording].id,
+                        title=recording,
+                        subtitle=artist,
+                        score=score,
+                    )
+                ],
+                choices=[Choice.pick_candidate, Choice.create_new, Choice.skip],
+                blocking=False,
+            )
+
+        issues = [
+            uncertain(1, "Hunter", "Björk", 78),
+            uncertain(5, "Svefn-g-englar", "Sigur Rós", 84),
+            uncertain(10, "Rainfall", "Fennesz", 71),
+        ]
+        proposal = self._radio_proposal(
+            IncomingRadioShow(
+                station=RadioStation.nts, slug="late-night-tapes", name="Late Night Tapes"
+            ),
+            IncomingRadioEpisode(
+                slug="all-night-long",
+                name="All night long",
+                broadcast_at=datetime(2025, 4, 4, 22, tzinfo=UTC),
+                url=url,
+            ),
+            entries,
+            tracks,
+            issues,
+        )
+        job(
+            "all-night-long",
+            ImportKind.nts,
+            url,
+            -45,
+            state=JobState.needs_review,
+            proposal=proposal.model_dump(mode="json"),
+            log=log(-45, "started", "needs review: 3 open issue(s)"),
         )
 
     def fix_timestamps(self) -> None:
