@@ -49,6 +49,14 @@ struct ReviewSheet: View {
         .focusEffectDisabled()
         .focused($keyboardFocus)
         .onKeyPress(phases: .down) { press in handle(press) }
+        // Another question (a click, ↑↓ is the field's own while it is open): the search
+        // belongs to the one it was opened for, and the keys come back to the sheet.
+        .onChange(of: model?.selectedID) {
+            if searching {
+                searching = false
+                keyboardFocus = true
+            }
+        }
         .task {
             guard model == nil else { return }
             let model = ReviewModel(jobID: jobID, connection: connection)
@@ -135,7 +143,8 @@ struct ReviewSheet: View {
             Spacer(minLength: 8)
             if model?.isSubmitting == true { ProgressView().controlSize(.small) }
             Button("Later") { dismiss() }
-                .keyboardShortcut(.cancelAction)
+                // Escape closes the library search first, not the sheet.
+                .keyboardShortcut(searching ? nil : .cancelAction)
                 .accessibilityIdentifier("review.later")
             Button(confirmTitle, action: confirm)
                 .buttonStyle(.borderedProminent)
@@ -206,7 +215,10 @@ private struct QuestionRow: View {
             Text(row.time.map { (row.timeIsEstimate ? "~" : "") + $0 } ?? "")
                 .font(Typography.body.monospacedDigit())
                 .italic(row.timeIsEstimate)
-                .frame(width: 52, alignment: .leading)
+                // 52 pt in the design, which has no episode past an hour: "~1:30:03" needs more.
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .frame(width: 62, alignment: .leading)
             VStack(alignment: .leading, spacing: 3) {
                 Text(row.title).font(Typography.name).lineLimit(1)
                 Text(row.question).font(Typography.secondary).lineLimit(2)

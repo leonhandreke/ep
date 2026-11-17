@@ -61,6 +61,8 @@ final class ImportStore {
     @ObservationIgnored private var toastTask: Task<Void, Never>?
     /// Whether `jobs` was loaded once: a job's first sighting is not a change.
     @ObservationIgnored private var jobsLoaded = false
+    /// `refresh()` was called while a poll was in flight.
+    @ObservationIgnored private var pollAgain = false
 
     static let states: [Components.Schemas.KnownJobState] = [
         .queued, .running, .applying, .needsReview, .done, .failed,
@@ -110,12 +112,21 @@ final class ImportStore {
 
     // MARK: - Polling
 
-    /// Polls once now, and on while a job is queued or running.
+    /// Polls once now, and on while a job is queued or running. One loop for the whole
+    /// app: a call while it runs does not start a second, but makes sure a poll that
+    /// began earlier is followed by another (a job started meanwhile is not missed).
     func refresh() {
-        guard pollTask == nil else { return }
+        guard pollTask == nil else {
+            pollAgain = true
+            return
+        }
         isPolling = true
         pollTask = Task { [weak self] in
-            while !Task.isCancelled, let wait = await self?.poll() {
+            while !Task.isCancelled, let self {
+                pollAgain = false
+                let wait = await poll()
+                if pollAgain, !Task.isCancelled { continue }
+                guard let wait else { break }
                 try? await Task.sleep(for: wait)
             }
             self?.pollTask = nil
@@ -123,10 +134,12 @@ final class ImportStore {
         }
     }
 
-    /// One poll; the time to the next while something runs, nil to stop.
+    /// One poll; the time to the next while something runs, nil to stop. Polling also
+    /// stops while the server is unreachable: the connection's own retry takes over, and
+    /// the window's refresh on reconnecting starts it again.
     private func poll() async -> Duration? {
         await load()
-        return isActive && !Task.isCancelled ? interval : nil
+        return isActive && connection.isConnected && !Task.isCancelled ? interval : nil
     }
 
     /// Waits until polling has stopped (tests).
@@ -143,6 +156,7 @@ final class ImportStore {
     func queueShown(_ shown: Bool) {
         queueViewers = max(0, queueViewers + (shown ? 1 : -1))
         if shown {
+            actionError = nil
             Task { await loadJobs() }
             refresh()
         }

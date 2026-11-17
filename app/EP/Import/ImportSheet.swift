@@ -190,7 +190,9 @@ struct ImportSheet: View {
                             .padding(.bottom, 8)
                     }
                     ForEach(imports.jobs.filter { !ImportStore.isRunning($0.state) }, id: \.id) { job in
-                        JobRow(job: job, review: { review(job.id) }, showExisting: showExisting)
+                        JobRow(
+                            job: job, reviewIsDefault: !fieldFocused && job.id == imports.firstToReview?.id,
+                            review: { review(job.id) }, showExisting: showExisting)
                             .padding(.horizontal, 16)
                     }
                     if imports.jobs.isEmpty {
@@ -417,6 +419,8 @@ private struct LogBox: View {
 /// detail, source, time, actions; a click on the title shows the log.
 private struct JobRow: View {
     let job: ImportStore.Job
+    /// Return reviews this job (the newest waiting, while the link field has no focus).
+    let reviewIsDefault: Bool
     let review: () -> Void
     let showExisting: (EntityRef) -> Void
 
@@ -487,7 +491,7 @@ private struct JobRow: View {
             if job.actions.contains(.review) {
                 Button("Review", action: review)
                     .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(job.id == imports.firstToReview?.id ? .defaultAction : nil)
+                    .keyboardShortcut(reviewIsDefault ? .defaultAction : nil)
                     .accessibilityLabel("Review \(job.displayTitle)")
                     .accessibilityIdentifier("import.job.\(job.id).review")
             }

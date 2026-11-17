@@ -1,6 +1,7 @@
 import EPAPI
 import Foundation
 import HTTPTypes
+import Synchronization
 import Testing
 
 @testable import EP
@@ -175,6 +176,36 @@ struct ImportStoreTests {
         store.refresh()
         await store.settle()
         #expect(transport.count("/imports/summary") == 4)
+    }
+
+    @Test func pollingStopsWhenTheServerIsUnreachable() async throws {
+        let up = Mutex(true)
+        let summaries = Mutex(0)
+        let transport = StubTransport { request in
+            let path = request.path?.split(separator: "?").first.map(String.init) ?? ""
+            if path == "/imports/summary" {
+                summaries.withLock { $0 += 1 }
+                guard up.withLock({ $0 }) else { throw URLError(.cannotConnectToHost) }
+            }
+            let json =
+                switch path {
+                case "/server": Fixtures.server
+                case "/imports/summary": F.summary(running: 1, fraction: "0.5")
+                default: "[]"
+                }
+            return (HTTPResponse(status: .ok, headerFields: [.contentType: "application/json"]), Data(json.utf8))
+        }
+        let connection = await stubConnection(transport)
+        let store = ImportStore(connection: connection, interval: .milliseconds(10), toastDuration: .seconds(60))
+        store.refresh()
+        while summaries.withLock({ $0 }) < 3 { try await Task.sleep(for: .milliseconds(10)) }
+        up.withLock { $0 = false }
+        await store.settle()  // a running job keeps polling; unreachable ends it
+        #expect(!connection.isConnected)
+        #expect(!store.isPolling)
+        let asked = summaries.withLock { $0 }
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(summaries.withLock { $0 } == asked)
     }
 
     @Test func theBadgeAndRingFollowTheSummary() async throws {
