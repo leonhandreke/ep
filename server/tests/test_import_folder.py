@@ -170,6 +170,20 @@ def test_folder_with_musicbrainz_ids(
         assert source.codec == "flac" and source.recording_id is not None
     isrcs = session.exec(select(ExternalId.value).where(ExternalId.scheme == "isrc")).all()
     assert "USLB12010001" in isrcs
+    # A track's source panel: the file's facts and the import that added it.
+    [listed] = client.get(f"/recordings/{tracks[0]['recording']['id']}/sources").json()
+    file = listed["file"]
+    assert (file["codec"], file["media_type"], file["exists"]) == ("flac", "audio/flac", True)
+    assert file["size"] == Path(file["path"]).stat().st_size
+    assert file["channels"] is not None and file["sample_rate"] is not None
+    imported_by = listed["imported_by"]
+    assert (imported_by["id"], imported_by["kind"], imported_by["state"]) == (
+        job["id"],
+        "folder",
+        "done",
+    )
+    assert imported_by["input"] == job["input"]
+    assert imported_by["input_host_path"] == job["input_host_path"]
     # The cover is stored in the library, nothing is written next to the files.
     assert rg.cover_path and Path(rg.cover_path).is_relative_to(settings.library_dir)
     assert {path: digest(path) for path in album.iterdir()} == before

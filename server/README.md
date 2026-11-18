@@ -139,7 +139,9 @@ uv run alembic revision --autogenerate -m "add catalogue"
   is fetched.
 - `GET /recordings/{id}/sources` (`RecordingSourceRead`): each source's role, its
   ancestors (where a file came from), the file it plays from (codec, sample rate, bit
-  depth, bit rate, host path, whether it is there), the radio entry of an excerpt,
+  depth, bit rate, channels, duration, size, host path, whether it is there), the import
+  that added that file (`imported_by`, from `Source.meta.import_job_id`; null for one
+  added by hand), the radio entry of an excerpt,
   whether it can be chosen (`playable`), whether it is preferred and whether it is the
   one that will play (`will_play`: the preferred source if its file is there, else the
   default choice). The changes made from that list answer with the whole list, so a

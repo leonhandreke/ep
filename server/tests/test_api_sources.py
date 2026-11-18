@@ -196,6 +196,10 @@ def test_recording_sources_and_track_playback(client: TestClient, audio_dir: Pat
     assert sources[0]["file"] is None
     assert sources[1]["file"]["source_id"] == album["id"]
     assert sources[1]["file"]["exists"] is True
+    assert sources[1]["file"]["size"] == album["size"]
+    assert sources[1]["file"]["channels"] == album["channels"]
+    # Added by hand, not by an import.
+    assert [s["imported_by"] for s in sources] == [None, None]
     assert sources[1]["ancestors"][0]["id"] == album["id"]
     assert client.get(f"/recordings/{second['id']}/sources").json() == []
     assert client.get(f"/recordings/{uuid.uuid4()}/sources").status_code == 404

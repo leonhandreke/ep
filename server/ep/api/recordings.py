@@ -2,6 +2,7 @@ import uuid
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import MISSING
+from sqlalchemy import select as sa_select
 from sqlalchemy.orm import contains_eager, joinedload
 from sqlmodel import Session, col, select
 
@@ -21,6 +22,7 @@ from ep.api.schemas import (
     RecordingSourceCreate,
     RecordingSourceRead,
     RecordingUpdate,
+    SourceImportRead,
     SourceRole,
     SourceUpdate,
 )
@@ -32,6 +34,8 @@ from ep.host_paths import to_host
 from ep.models import (
     ArtistCredit,
     EntityType,
+    ImportJob,
+    ImportKind,
     RadioEpisode,
     RadioEpisodeTrack,
     Recording,
@@ -210,7 +214,59 @@ def _recording_source_reads(
     resolved = resolve_where_flagged(session, col(Source.recording_id) == recording.id)
     playing = playabilities(session, [recording])[recording.id].playback
     entries = _radio_entries(session, [r.radio.track_id for r in resolved if r.radio])
-    return [_recording_source_read(r, recording, playing, entries, settings) for r in resolved]
+    job_ids = {r.source.id: _import_job_id(r) for r in resolved}
+    jobs = _import_jobs(session, {id for id in job_ids.values() if id is not None}, settings)
+    return [
+        _recording_source_read(
+            r, recording, playing, entries, jobs.get(job_ids[r.source.id]), settings
+        )
+        for r in resolved
+    ]
+
+
+def _import_job_id(resolved: Resolved) -> uuid.UUID | None:
+    """The import that added the source: recorded on the file it plays from
+    (``Source.meta``), else on the nearest source of its chain that has one."""
+    chain = [resolved.source, *resolved.ancestors]
+    if (playback := resolved.playback) is not None:
+        chain.sort(key=lambda s: s.id != playback.file_source_id)  # the file first
+    for source in chain:
+        try:
+            return uuid.UUID(source.meta["import_job_id"])
+        except KeyError, TypeError, ValueError:
+            continue
+    return None
+
+
+def _import_jobs(
+    session: Session, ids: set[uuid.UUID], settings: Settings
+) -> dict[uuid.UUID, SourceImportRead]:
+    if not ids:
+        return {}
+    rows = session.connection().execute(  # not the proposal and log
+        sa_select(
+            col(ImportJob.id),
+            col(ImportJob.created_at),
+            col(ImportJob.updated_at),
+            col(ImportJob.kind),
+            col(ImportJob.input),
+            col(ImportJob.watch_dir_id),
+            col(ImportJob.state),
+        ).where(col(ImportJob.id).in_(ids))
+    )
+    return {
+        id: SourceImportRead(
+            id=id,
+            created_at=created_at,
+            updated_at=updated_at,
+            kind=kind,
+            input=input,
+            input_host_path=to_host(input, settings) if kind is ImportKind.folder else None,
+            watch_dir_id=watch_dir_id,
+            state=state,
+        )
+        for id, created_at, updated_at, kind, input, watch_dir_id, state in rows
+    }
 
 
 def _radio_entries(
@@ -231,6 +287,7 @@ def _recording_source_read(
     recording: Recording,
     playing: Playback | None,
     entries: dict[uuid.UUID, RadioEpisodeTrack],
+    imported_by: SourceImportRead | None,
     settings: Settings,
 ) -> RecordingSourceRead:
     source, playback = resolved.source, resolved.playback
@@ -250,7 +307,9 @@ def _recording_source_read(
                 sample_rate=node.sample_rate,
                 bit_depth=node.bit_depth,
                 bit_rate=node.bit_rate,
+                channels=node.channels,
                 duration_ms=node.duration_ms,
+                size=node.size,
             )
     radio = None
     if resolved.radio is not None and (entry := entries.get(resolved.radio.track_id)):
@@ -273,6 +332,7 @@ def _recording_source_read(
         role=role,
         ancestors=[source_read(a, try_resolve(a), settings) for a in resolved.ancestors],
         file=file,
+        imported_by=imported_by,
         radio=radio,
         playable=playback is not None,
         preferred=recording.preferred_source_id == source.id,

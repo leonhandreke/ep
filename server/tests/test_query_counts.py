@@ -11,10 +11,10 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 from sqlalchemy import event
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from ep.jobs.queue import create_import
-from ep.models import ImportKind
+from ep.models import ImportKind, Source, SourceKind
 from ep.settings import Settings
 from tests.helpers import credit, make_artist, make_release_group, make_track, post
 
@@ -97,8 +97,9 @@ CASES: list[tuple[str, Callable[[dict[str, str]], str], int]] = [
     ("recording_detail", lambda ids: f"/recordings/{ids['recording']}", 4),
     # release group + credit + names, tracks + recordings, sources + ancestors
     ("release_group_detail", lambda ids: f"/release-groups/{ids['release_group']}", 4),
-    # recording, sources + ancestors (twice: the list, and what plays)
-    ("recording_sources", lambda ids: f"/recordings/{ids['recording']}/sources", 3),
+    # recording, sources + ancestors (twice: the list, and what plays), the imports
+    # that added them
+    ("recording_sources", lambda ids: f"/recordings/{ids['recording']}/sources", 4),
     # threshold + normalised query, then per type: by name/title, as "artist title";
     # radio entries that played hits (tracks of release group hits, entries), release
     # groups of recording hits, track counts, artist counts (release groups, loose)
@@ -131,6 +132,11 @@ def test_list_endpoint_query_count(client: TestClient, session: Session, audio_d
         build_library(client, audio_dir / audio_file, size)
         for size, audio_file in ((1, "album.flac"), (5, "song.mp3"))
     ]
+    # The files were added by an import (the sources list shows it).
+    job = create_import(session, ImportKind.folder, str(audio_dir))
+    for source in session.exec(select(Source).where(Source.kind == SourceKind.file)):
+        source.meta = {"import_job_id": str(job.id)}
+    session.commit()
     check_counts(client, session, libraries, CASES)
 
 

@@ -699,7 +699,23 @@ class FileRead(BaseModel):
     sample_rate: int | None
     bit_depth: int | None
     bit_rate: int | None
+    channels: int | None
     duration_ms: int | None
+    # In bytes.
+    size: int | None
+
+
+class SourceImportRead(Read):
+    """The import job that added a source's file (``GET /imports/{id}`` has the rest)."""
+
+    kind: ImportKind
+    # A directory path for ``folder``; the page URL for the other kinds.
+    input: str
+    # ``folder``: the input's path on the host (``EP_HOST_PATHS``).
+    input_host_path: str | None
+    # The watched directory whose watcher queued it; null if queued by hand.
+    watch_dir_id: uuid.UUID | None
+    state: JobState
 
 
 class RadioSliceRead(BaseModel):
@@ -720,6 +736,9 @@ class RecordingSourceRead(BaseModel):
     ancestors: list[SourceRead]
     # The file it plays from; null for links (and broken chains).
     file: FileRead | None
+    # The import that added the file it plays from (or, for a source without a file,
+    # the source itself); null for sources added by hand or by older imports.
+    imported_by: SourceImportRead | None
     radio: RadioSliceRead | None
     # It resolves to a file, so it can be chosen to play (links cannot).
     playable: bool
