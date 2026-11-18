@@ -2,11 +2,11 @@
 they are wanted, not stored): a curated set, one link per service, in a fixed order.
 
 A relationship is classified by its URL's host (MusicBrainz's ``free streaming``,
-``streaming`` and ``purchase for download`` each cover many services), except the
-official homepage (by relationship type). Wikipedia comes from a ``wikipedia``
-relationship or else the Wikidata item's sitelinks (English, else another language).
-Ended relationships are left out. A release group's links include those of the release
-it was imported from (MusicBrainz keeps Bandcamp and streaming links on releases).
+``streaming`` and ``purchase for download`` each cover many services). Wikipedia comes
+from a ``wikipedia`` relationship or else the Wikidata item's sitelinks (English, else
+another language). Ended relationships are left out. A release group's links include
+those of the release it was imported from (MusicBrainz keeps Bandcamp and Spotify links
+on releases). The MusicBrainz link is built from the MBID.
 
 Answers are cached in the process (``TTL``): MusicBrainz relationships per entity,
 Wikidata sitelinks per item. Failures are not cached.
@@ -42,34 +42,9 @@ class LinkService(StrEnum):
     """Services, in the order links are listed."""
 
     wikipedia = "wikipedia"
-    official_homepage = "official_homepage"
     bandcamp = "bandcamp"
     spotify = "spotify"
-    apple_music = "apple_music"
-    youtube = "youtube"
-    discogs = "discogs"
-    # Release groups only.
-    allmusic = "allmusic"
     musicbrainz = "musicbrainz"
-
-
-ORDER = list(LinkService)
-ARTIST_SERVICES = frozenset(LinkService) - {LinkService.allmusic}
-RELEASE_GROUP_SERVICES = frozenset(LinkService)
-
-# Hosts (without ``www.``) of each service classified by host; Bandcamp is any
-# subdomain of bandcamp.com.
-_HOSTS = {
-    "open.spotify.com": LinkService.spotify,
-    "music.apple.com": LinkService.apple_music,
-    "itunes.apple.com": LinkService.apple_music,
-    "youtube.com": LinkService.youtube,
-    "m.youtube.com": LinkService.youtube,
-    "music.youtube.com": LinkService.youtube,
-    "youtu.be": LinkService.youtube,
-    "discogs.com": LinkService.discogs,
-    "allmusic.com": LinkService.allmusic,
-}
 
 
 @dataclass(frozen=True)
@@ -89,15 +64,16 @@ def _host(url: str) -> str:
 
 
 def classify(relation: MBUrlRelation) -> LinkService | None:
-    """The service of a URL relationship; None for those not listed (and Wikidata)."""
-    if relation.type == "official homepage":
-        return LinkService.official_homepage
+    """The service of a URL relationship, by its host; None for other services (and
+    Wikidata)."""
     host = _host(relation.url.resource)
     if host.endswith(".wikipedia.org"):
         return LinkService.wikipedia
     if host == "bandcamp.com" or host.endswith(".bandcamp.com"):
         return LinkService.bandcamp
-    return _HOSTS.get(host)
+    if host == "open.spotify.com":
+        return LinkService.spotify
+    return None
 
 
 def wikidata_item(relations: Iterable[MBUrlRelation]) -> str | None:
@@ -178,16 +154,13 @@ def _wikipedia(wikidata: Wikidata, qid: str) -> ServiceLink | None:
 
 
 def _links(
-    relations: Iterable[MBUrlRelation],
-    services: frozenset[LinkService],
-    wikidata: Wikidata,
-    musicbrainz_url: str,
+    relations: Iterable[MBUrlRelation], wikidata: Wikidata, musicbrainz_url: str
 ) -> list[ServiceLink]:
     relations = [r for r in relations if not r.ended]
     found: dict[LinkService, ServiceLink] = {}
     for relation in relations:
         service = classify(relation)
-        if service in services and service not in found:
+        if service is not None and service not in found:
             label = None
             if service is LinkService.wikipedia:
                 label = _host(relation.url.resource).removesuffix(".wikipedia.org")
@@ -196,7 +169,7 @@ def _links(
     if qid and (article := _wikipedia(wikidata, qid)) is not None:
         found[LinkService.wikipedia] = article
     found[LinkService.musicbrainz] = ServiceLink(LinkService.musicbrainz, musicbrainz_url)
-    return [found[service] for service in ORDER if service in found]
+    return [found[service] for service in LinkService if service in found]
 
 
 def artist_links(
@@ -204,10 +177,7 @@ def artist_links(
 ) -> list[ServiceLink]:
     """An artist's links; raises MusicBrainzError if MusicBrainz cannot be asked."""
     return _links(
-        _relations(musicbrainz, "artist", mbid),
-        ARTIST_SERVICES,
-        wikidata,
-        f"{MUSICBRAINZ_URL}/artist/{mbid}",
+        _relations(musicbrainz, "artist", mbid), wikidata, f"{MUSICBRAINZ_URL}/artist/{mbid}"
     )
 
 
@@ -222,6 +192,4 @@ def release_group_links(
     relations = _relations(musicbrainz, "release-group", mbid)
     if release_mbid is not None:
         relations += _relations(musicbrainz, "release", release_mbid)
-    return _links(
-        relations, RELEASE_GROUP_SERVICES, wikidata, f"{MUSICBRAINZ_URL}/release-group/{mbid}"
-    )
+    return _links(relations, wikidata, f"{MUSICBRAINZ_URL}/release-group/{mbid}")

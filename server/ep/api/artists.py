@@ -324,10 +324,9 @@ def list_artist_links(
     id: uuid.UUID, session: SessionDep, musicbrainz: MusicBrainzDep, wikidata: WikidataDep
 ) -> list[ServiceLinkRead]:
     """The artist's links to other services, asked from MusicBrainz (cached for a day):
-    Wikipedia (through Wikidata), official homepage, Bandcamp, Spotify, Apple Music,
-    YouTube, Discogs, and MusicBrainz itself, in that order, at most one of each. Empty
-    for an artist without MBID. 502 if MusicBrainz cannot be asked; without Wikipedia if
-    only Wikidata cannot."""
+    Wikipedia (through Wikidata), Bandcamp, Spotify and MusicBrainz itself, in that
+    order, at most one of each. Empty for an artist without MBID. 502 if MusicBrainz
+    cannot be asked; without Wikipedia if only Wikidata cannot."""
     artist = get_or_404(session, Artist, id)
     if artist.mbid is None:
         return []

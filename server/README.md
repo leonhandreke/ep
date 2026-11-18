@@ -202,9 +202,9 @@ uv run alembic revision --autogenerate -m "add catalogue"
   `service`, `url`, `label`): links to other services, asked from MusicBrainz when
   wanted (`inc=url-rels`; a release group with its release's), never stored
   (`ep.service_links`): Wikipedia (from a `wikipedia` relationship, else the Wikidata
-  item's sitelinks: English, else another language; `label` is the language), official
-  homepage, Bandcamp, Spotify, Apple Music, YouTube, Discogs, AllMusic (release groups)
-  and MusicBrainz, in that order, one each, classified by URL host. Cached in the
+  item's sitelinks: English, else another language; `label` is the language), Bandcamp,
+  Spotify (both mostly on the release) and MusicBrainz (from the MBID), in that order,
+  one each, classified by URL host. Cached in the
   process for a day (MusicBrainz relationships per entity, Wikidata sitelinks per item;
   failures are not cached). Empty without MBID; 502 when MusicBrainz cannot be asked;
   without Wikipedia when only Wikidata cannot (`ep.metadata.wikidata`: one request a

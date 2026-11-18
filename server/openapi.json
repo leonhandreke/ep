@@ -965,7 +965,7 @@
           "artists"
         ],
         "summary": "List Artist Links",
-        "description": "The artist's links to other services, asked from MusicBrainz (cached for a day):\nWikipedia (through Wikidata), official homepage, Bandcamp, Spotify, Apple Music,\nYouTube, Discogs, and MusicBrainz itself, in that order, at most one of each. Empty\nfor an artist without MBID. 502 if MusicBrainz cannot be asked; without Wikipedia if\nonly Wikidata cannot.",
+        "description": "The artist's links to other services, asked from MusicBrainz (cached for a day):\nWikipedia (through Wikidata), Bandcamp, Spotify and MusicBrainz itself, in that\norder, at most one of each. Empty for an artist without MBID. 502 if MusicBrainz\ncannot be asked; without Wikipedia if only Wikidata cannot.",
         "operationId": "list_artist_links",
         "parameters": [
           {
@@ -1616,7 +1616,7 @@
           "release groups"
         ],
         "summary": "List Release Group Links",
-        "description": "The release group's links to other services, asked from MusicBrainz for it and\nits release (``release_mbid``; cached for a day): Wikipedia (through Wikidata),\nofficial homepage, Bandcamp, Spotify, Apple Music, YouTube, Discogs, AllMusic, and\nMusicBrainz itself, in that order, at most one of each. Empty for a release group\nwithout MBID. 502 if MusicBrainz cannot be asked; without Wikipedia if only Wikidata\ncannot.",
+        "description": "The release group's links to other services, asked from MusicBrainz for it and\nits release (``release_mbid``; cached for a day): Wikipedia (through Wikidata),\nBandcamp (mostly the release's), Spotify (likewise) and MusicBrainz itself, in that\norder, at most one of each. Empty for a release group without MBID. 502 if\nMusicBrainz cannot be asked; without Wikipedia if only Wikidata cannot.",
         "operationId": "list_release_group_links",
         "parameters": [
           {
@@ -8747,13 +8747,8 @@
         "type": "string",
         "enum": [
           "wikipedia",
-          "official_homepage",
           "bandcamp",
           "spotify",
-          "apple_music",
-          "youtube",
-          "discogs",
-          "allmusic",
           "musicbrainz"
         ],
         "title": "LinkService",

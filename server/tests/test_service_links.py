@@ -25,12 +25,8 @@ from tests.mock_musicbrainz import (
 
 FLOATING_POINTS_LINKS = [
     ("wikipedia", "https://en.wikipedia.org/wiki/Floating_Points", "en"),
-    ("official_homepage", "https://floatingpoints.co.uk/", None),
     ("bandcamp", "https://floatingpoints.bandcamp.com/", None),
     ("spotify", "https://open.spotify.com/artist/2AR42Ur9PcchQDtEdwkv4L", None),
-    ("apple_music", "https://music.apple.com/gb/artist/311514259", None),
-    ("youtube", "https://www.youtube.com/channel/UC5NbPNPbdLwAPPwWTJw0EbQ", None),
-    ("discogs", "https://www.discogs.com/artist/1385084", None),
     ("musicbrainz", f"https://musicbrainz.org/artist/{FLOATING_POINTS}", None),
 ]
 
@@ -83,8 +79,8 @@ def links(client: TestClient, path: str) -> list[tuple[str, str, str | None]]:
 def test_artist_links(client: TestClient, services: Services) -> None:
     artist = make_artist(client, "Floating Points", mbid=FLOATING_POINTS)
     path = f"/artists/{artist['id']}/links"
-    # The curated services in order, one each (the first Discogs page; the current
-    # Apple Music page, not the ended iTunes one); no AllMusic for artists.
+    # The four services in order, one each; the homepage, Apple Music, YouTube, Discogs,
+    # AllMusic, ... are left out.
     assert links(client, path) == FLOATING_POINTS_LINKS
     assert [r.url.params["inc"] for r in services.musicbrainz.requests] == ["url-rels"]
     assert len(services.wikidata_requests) == 1
@@ -100,7 +96,8 @@ def test_release_group_links(client: TestClient, services: Services) -> None:
     album = make_release_group(
         client, artist, "Promises", mbid=PROMISES_RELEASE_GROUP, release_mbid=PROMISES_RELEASE
     )
-    # Bandcamp from the release; Discogs and AllMusic from the release group.
+    # Wikipedia from the release group's Wikidata item, Bandcamp from the release; not
+    # the release group's Discogs and AllMusic.
     assert links(client, f"/release-groups/{album['id']}/links") == [
         (
             "wikipedia",
@@ -109,8 +106,6 @@ def test_release_group_links(client: TestClient, services: Services) -> None:
             "en",
         ),
         ("bandcamp", "https://floatingpoints.bandcamp.com/album/promises", None),
-        ("discogs", "https://www.discogs.com/master/2041873", None),
-        ("allmusic", "https://www.allmusic.com/album/mw0003479180", None),
         ("musicbrainz", f"https://musicbrainz.org/release-group/{PROMISES_RELEASE_GROUP}", None),
     ]
     assert [r.url.path.split("/")[3] for r in services.musicbrainz.requests] == [
@@ -166,18 +161,17 @@ def relation(type: str, url: str, **fields: Any) -> MBUrlRelation:
 @pytest.mark.parametrize(
     ("type", "url", "service"),
     [
-        ("official homepage", "https://artist.bandcamp.com/", LinkService.official_homepage),
+        ("official homepage", "https://artist.bandcamp.com/", LinkService.bandcamp),
+        ("official homepage", "https://artist.example/", None),
         ("bandcamp", "https://artist.bandcamp.com/", LinkService.bandcamp),
+        ("purchase for download", "https://artist.bandcamp.com/album/x", LinkService.bandcamp),
         ("free streaming", "https://open.spotify.com/album/x", LinkService.spotify),
         ("free streaming", "https://www.deezer.com/album/1", None),
-        ("streaming", "https://music.apple.com/gb/album/1", LinkService.apple_music),
-        ("streaming", "https://tidal.com/album/1", None),
-        ("purchase for download", "https://itunes.apple.com/gb/album/id1", LinkService.apple_music),
-        ("youtube", "https://www.youtube.com/channel/x", LinkService.youtube),
-        ("free streaming", "https://music.youtube.com/browse/x", LinkService.youtube),
-        ("discogs", "https://www.discogs.com/master/1", LinkService.discogs),
+        ("streaming", "https://music.apple.com/gb/album/1", None),
+        ("youtube", "https://www.youtube.com/channel/x", None),
+        ("discogs", "https://www.discogs.com/master/1", None),
         ("wikipedia", "https://de.wikipedia.org/wiki/X", LinkService.wikipedia),
-        ("allmusic", "https://www.allmusic.com/album/x", LinkService.allmusic),
+        ("allmusic", "https://www.allmusic.com/album/x", None),
         ("wikidata", "https://www.wikidata.org/wiki/Q1", None),
         ("social network", "https://twitter.com/x", None),
         ("other databases", "not a url", None),
@@ -203,15 +197,14 @@ def test_wikipedia_article() -> None:
 
 def test_direct_wikipedia_relationship_wins(client: TestClient, services: Services) -> None:
     """A ``wikipedia`` relationship is used as it is, without asking Wikidata."""
-    from ep.service_links import ARTIST_SERVICES, _links
+    from ep.service_links import _links
 
     found = _links(
         [
             relation("wikidata", "https://www.wikidata.org/wiki/Q22277802"),
             relation("wikipedia", "https://fr.wikipedia.org/wiki/X"),
-            relation("official homepage", "https://old.example/", ended=True),
+            relation("bandcamp", "https://old.bandcamp.com/", ended=True),
         ],
-        ARTIST_SERVICES,
         services.get_wikidata(),
         "https://musicbrainz.org/artist/x",
     )
