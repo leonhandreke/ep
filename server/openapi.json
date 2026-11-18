@@ -959,6 +959,74 @@
         }
       }
     },
+    "/artists/{id}/links": {
+      "get": {
+        "tags": [
+          "artists"
+        ],
+        "summary": "List Artist Links",
+        "description": "The artist's links to other services, asked from MusicBrainz (cached for a day):\nWikipedia (through Wikidata), official homepage, Bandcamp, Spotify, Apple Music,\nYouTube, Discogs, and MusicBrainz itself, in that order, at most one of each. Empty\nfor an artist without MBID. 502 if MusicBrainz cannot be asked; without Wikipedia if\nonly Wikidata cannot.",
+        "operationId": "list_artist_links",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ServiceLinkRead"
+                  },
+                  "title": "Response List Artist Links"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorRead"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Upstream service failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/release-groups": {
       "post": {
         "tags": [
@@ -1521,6 +1589,74 @@
           },
           "404": {
             "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/release-groups/{id}/links": {
+      "get": {
+        "tags": [
+          "release groups"
+        ],
+        "summary": "List Release Group Links",
+        "description": "The release group's links to other services, asked from MusicBrainz for it and\nits release (``release_mbid``; cached for a day): Wikipedia (through Wikidata),\nofficial homepage, Bandcamp, Spotify, Apple Music, YouTube, Discogs, AllMusic, and\nMusicBrainz itself, in that order, at most one of each. Empty for a release group\nwithout MBID. 502 if MusicBrainz cannot be asked; without Wikipedia if only Wikidata\ncannot.",
+        "operationId": "list_release_group_links",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ServiceLinkRead"
+                  },
+                  "title": "Response List Release Group Links"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorRead"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Upstream service failed",
             "content": {
               "application/json": {
                 "schema": {
@@ -5065,7 +5201,7 @@
           "imports"
         ],
         "summary": "List Import Jobs",
-        "description": "Jobs, newest first. The inbox: ``state=needs_review&state=failed``. Each with\nwhat it imports (title, cover, counts), its progress, what it is stuck on and the\njob a queued one waits for.",
+        "description": "Jobs, newest first. The inbox: ``attention=true`` (``needs_review`` and\n``failed`` jobs, waiting for an answer, a retry or a dismiss); the rest of the queue\nwithout them: ``attention=false``. Each with what it imports (title, cover, counts),\nits progress, what it is stuck on and the job a queued one waits for.",
         "operationId": "list_import_jobs",
         "parameters": [
           {
@@ -5102,6 +5238,24 @@
               ],
               "title": "Kind"
             }
+          },
+          {
+            "name": "attention",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "true: only jobs that need attention (``needs_review``, ``failed``: the inbox); false: only the others. Combines with ``state``.",
+              "title": "Attention"
+            },
+            "description": "true: only jobs that need attention (``needs_review``, ``failed``: the inbox); false: only the others. Combines with ``state``."
           },
           {
             "name": "limit",
@@ -6845,6 +6999,17 @@
             ],
             "title": "Bit Rate"
           },
+          "channels": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Channels"
+          },
           "duration_ms": {
             "anyOf": [
               {
@@ -6855,6 +7020,17 @@
               }
             ],
             "title": "Duration Ms"
+          },
+          "size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size"
           }
         },
         "type": "object",
@@ -6868,7 +7044,9 @@
           "sample_rate",
           "bit_depth",
           "bit_rate",
-          "duration_ms"
+          "channels",
+          "duration_ms",
+          "size"
         ],
         "title": "FileRead",
         "description": "The file a source plays from."
@@ -8554,6 +8732,22 @@
         ],
         "title": "LinkRead",
         "description": "A link source: somewhere else the recording can be found."
+      },
+      "LinkService": {
+        "type": "string",
+        "enum": [
+          "wikipedia",
+          "official_homepage",
+          "bandcamp",
+          "spotify",
+          "apple_music",
+          "youtube",
+          "discogs",
+          "allmusic",
+          "musicbrainz"
+        ],
+        "title": "LinkService",
+        "description": "Services, in the order links are listed."
       },
       "LogEntry": {
         "properties": {
@@ -10551,6 +10745,16 @@
               }
             ]
           },
+          "imported_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SourceImportRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "radio": {
             "anyOf": [
               {
@@ -10580,6 +10784,7 @@
           "role",
           "ancestors",
           "file",
+          "imported_by",
           "radio",
           "playable",
           "preferred",
@@ -11356,6 +11561,36 @@
         ],
         "title": "ServerRead"
       },
+      "ServiceLinkRead": {
+        "properties": {
+          "service": {
+            "$ref": "#/components/schemas/LinkService"
+          },
+          "url": {
+            "type": "string",
+            "title": "Url"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          }
+        },
+        "type": "object",
+        "required": [
+          "service",
+          "url",
+          "label"
+        ],
+        "title": "ServiceLinkRead",
+        "description": "A link of an artist or release group to another service (``LinkService``)."
+      },
       "SkipTarget": {
         "properties": {
           "kind": {
@@ -11520,6 +11755,71 @@
         ],
         "title": "SourceCreate",
         "description": "A source of any recording, or of none (a container: an album or episode file)."
+      },
+      "SourceImportRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ImportKind"
+          },
+          "input": {
+            "type": "string",
+            "title": "Input"
+          },
+          "input_host_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Host Path"
+          },
+          "watch_dir_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Watch Dir Id"
+          },
+          "state": {
+            "$ref": "#/components/schemas/JobState"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "created_at",
+          "updated_at",
+          "kind",
+          "input",
+          "input_host_path",
+          "watch_dir_id",
+          "state"
+        ],
+        "title": "SourceImportRead",
+        "description": "The import job that added a source's file (``GET /imports/{id}`` has the rest)."
       },
       "SourceKind": {
         "type": "string",

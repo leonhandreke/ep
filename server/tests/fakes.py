@@ -27,6 +27,9 @@ The fixtures:
   detected times, ISRCs, Deezer and ACRCloud ids, 12 of them with a MusicBrainz
   recording MBID; 5 typed in with estimated times; audio on SoundCloud), and
   ``nts/show_early-bird-show-w-pam.json``, its show; served by ``nts_transport``
+- ``wikidata/<id>.json``: Wikidata's ``wbgetentities`` sitelinks of Floating Points
+  (``Q22277802``) and "Promises" (``Q106318794``), 2026-11-18; served by
+  ``wikidata_transport``
 """
 
 import atexit
@@ -46,6 +49,7 @@ FIXTURES = Path(__file__).parent / "fixtures"
 YTDLP = FIXTURES / "ytdlp"
 BANDCAMP = FIXTURES / "bandcamp"
 NTS = FIXTURES / "nts"
+WIKIDATA = FIXTURES / "wikidata"
 
 SINGLE_VIDEO = "https://www.youtube.com/watch?v=GSWtPDAN3PE"
 CHAPTERED_VIDEO = "https://www.youtube.com/watch?v=Hx5aGvXCwyQ"
@@ -197,5 +201,21 @@ def nts_transport(
         if request.url.host.endswith("ntslive.co.uk"):
             return httpx2.Response(200, content=png_bytes())
         return httpx2.Response(404, content=b"not found")
+
+    return httpx2.MockTransport(handle)
+
+
+def wikidata_transport(requests: list[str] | None = None) -> httpx2.MockTransport:
+    """Wikidata's API from the fixtures; an unknown item is Wikidata's
+    ``no-such-entity`` error (a 200)."""
+
+    def handle(request: httpx2.Request) -> httpx2.Response:
+        if requests is not None:
+            requests.append(str(request.url))
+        path = WIKIDATA / f"{request.url.params.get('ids')}.json"
+        if request.url.path == "/w/api.php" and path.is_file():
+            return httpx2.Response(200, content=path.read_bytes())
+        error = {"error": {"code": "no-such-entity", "info": "Could not find an entity"}}
+        return httpx2.Response(200, json=error)
 
     return httpx2.MockTransport(handle)

@@ -5,7 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, SQLModel, col, delete, func, select
 
-from ep.api.musicbrainz import get_musicbrainz
+from ep.api.deps import get_musicbrainz
 from ep.credits import CreditPart, get_or_create_artist_credit
 from ep.importers.musicbrainz import (
     RecordingConflict,

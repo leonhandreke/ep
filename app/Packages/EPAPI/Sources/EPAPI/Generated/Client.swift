@@ -1095,6 +1095,140 @@ public struct Client: APIProtocol {
             }
         )
     }
+    /// List Artist Links
+    ///
+    /// The artist's links to other services, asked from MusicBrainz (cached for a day):
+    /// Wikipedia (through Wikidata), official homepage, Bandcamp, Spotify, Apple Music,
+    /// YouTube, Discogs, and MusicBrainz itself, in that order, at most one of each. Empty
+    /// for an artist without MBID. 502 if MusicBrainz cannot be asked; without Wikipedia if
+    /// only Wikidata cannot.
+    ///
+    /// - Remark: HTTP `GET /artists/{id}/links`.
+    /// - Remark: Generated from `#/paths//artists/{id}/links/get(list_artist_links)`.
+    public func listArtistLinks(_ input: Operations.ListArtistLinks.Input) async throws -> Operations.ListArtistLinks.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.ListArtistLinks.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/artists/{}/links",
+                    parameters: [
+                        input.path.id
+                    ]
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .get
+                )
+                suppressMutabilityWarning(&request)
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                return (request, nil)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 200:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.ListArtistLinks.Output.Ok.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            [Components.Schemas.ServiceLinkRead].self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .ok(.init(body: body))
+                case 404:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.ListArtistLinks.Output.NotFound.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ErrorRead.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .notFound(.init(body: body))
+                case 422:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.ListArtistLinks.Output.UnprocessableContent.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.HTTPValidationError.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .unprocessableContent(.init(body: body))
+                case 502:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.ListArtistLinks.Output.BadGateway.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ErrorRead.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .badGateway(.init(body: body))
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
     /// List Artist Radio Appearances
     ///
     /// The radio episodes that played recordings credited to this artist, newest first.
@@ -2837,9 +2971,10 @@ public struct Client: APIProtocol {
     }
     /// List Import Jobs
     ///
-    /// Jobs, newest first. The inbox: ``state=needs_review&state=failed``. Each with
-    /// what it imports (title, cover, counts), its progress, what it is stuck on and the
-    /// job a queued one waits for.
+    /// Jobs, newest first. The inbox: ``attention=true`` (``needs_review`` and
+    /// ``failed`` jobs, waiting for an answer, a retry or a dismiss); the rest of the queue
+    /// without them: ``attention=false``. Each with what it imports (title, cover, counts),
+    /// its progress, what it is stuck on and the job a queued one waits for.
     ///
     /// - Remark: HTTP `GET /imports`.
     /// - Remark: Generated from `#/paths//imports/get(list_import_jobs)`.
@@ -2870,6 +3005,13 @@ public struct Client: APIProtocol {
                     explode: true,
                     name: "kind",
                     value: input.query.kind
+                )
+                try converter.setQueryItemAsURI(
+                    in: &request,
+                    style: .form,
+                    explode: true,
+                    name: "attention",
+                    value: input.query.attention
                 )
                 try converter.setQueryItemAsURI(
                     in: &request,
@@ -7948,6 +8090,141 @@ public struct Client: APIProtocol {
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
                     return .unprocessableContent(.init(body: body))
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
+    /// List Release Group Links
+    ///
+    /// The release group's links to other services, asked from MusicBrainz for it and
+    /// its release (``release_mbid``; cached for a day): Wikipedia (through Wikidata),
+    /// official homepage, Bandcamp, Spotify, Apple Music, YouTube, Discogs, AllMusic, and
+    /// MusicBrainz itself, in that order, at most one of each. Empty for a release group
+    /// without MBID. 502 if MusicBrainz cannot be asked; without Wikipedia if only Wikidata
+    /// cannot.
+    ///
+    /// - Remark: HTTP `GET /release-groups/{id}/links`.
+    /// - Remark: Generated from `#/paths//release-groups/{id}/links/get(list_release_group_links)`.
+    public func listReleaseGroupLinks(_ input: Operations.ListReleaseGroupLinks.Input) async throws -> Operations.ListReleaseGroupLinks.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.ListReleaseGroupLinks.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/release-groups/{}/links",
+                    parameters: [
+                        input.path.id
+                    ]
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .get
+                )
+                suppressMutabilityWarning(&request)
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                return (request, nil)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 200:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.ListReleaseGroupLinks.Output.Ok.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            [Components.Schemas.ServiceLinkRead].self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .ok(.init(body: body))
+                case 404:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.ListReleaseGroupLinks.Output.NotFound.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ErrorRead.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .notFound(.init(body: body))
+                case 422:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.ListReleaseGroupLinks.Output.UnprocessableContent.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.HTTPValidationError.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .unprocessableContent(.init(body: body))
+                case 502:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.ListReleaseGroupLinks.Output.BadGateway.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ErrorRead.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .badGateway(.init(body: body))
                 default:
                     return .undocumented(
                         statusCode: response.status.code,

@@ -1,7 +1,7 @@
 """Shared helpers for routers."""
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from typing import Annotated, Any
 
@@ -13,11 +13,29 @@ from ep.api.errors import unprocessable
 from ep.api.schemas import ArtistCreditNameIn, Page
 from ep.credits import CreditPart, get_or_create_artist_credit
 from ep.db import get_session
+from ep.metadata.musicbrainz import MusicBrainz
+from ep.metadata.wikidata import Wikidata
 from ep.models import Artist, ArtistCredit
 from ep.settings import Settings, get_settings
 
 SessionDep = Annotated[Session, Depends(get_session)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
+
+
+def get_musicbrainz() -> Iterator[MusicBrainz]:
+    """FastAPI dependency: a MusicBrainz client for the request."""
+    with MusicBrainz() as client:
+        yield client
+
+
+def get_wikidata() -> Iterator[Wikidata]:
+    """FastAPI dependency: a Wikidata client for the request."""
+    with Wikidata() as client:
+        yield client
+
+
+MusicBrainzDep = Annotated[MusicBrainz, Depends(get_musicbrainz)]
+WikidataDep = Annotated[Wikidata, Depends(get_wikidata)]
 
 TOTAL_COUNT = "X-Total-Count"
 PAGED: dict[int | str, dict[str, Any]] = {

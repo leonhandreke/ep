@@ -8,8 +8,8 @@ from sqlalchemy import select as sa_select
 from sqlalchemy.orm import aliased
 from sqlmodel import col, func, select
 
-from ep.api.deps import PAGED, PageDep, SessionDep, get_or_404
-from ep.api.errors import CONFLICT, NOT_FOUND
+from ep.api.deps import PAGED, MusicBrainzDep, PageDep, SessionDep, WikidataDep, get_or_404
+from ep.api.errors import BAD_GATEWAY, CONFLICT, NOT_FOUND
 from ep.api.external_ids import add_external_id_routes
 from ep.api.release_groups import release_group_order
 from ep.api.schemas import (
@@ -22,10 +22,12 @@ from ep.api.schemas import (
     PlayableRecordingRead,
     RecordingRead,
     ReleaseGroupRead,
+    ServiceLinkRead,
 )
 from ep.api.tracks import playability_read
 from ep.credits import with_credit
 from ep.external_ids import delete_external_ids
+from ep.metadata.musicbrainz import MusicBrainzError
 from ep.models import (
     Artist,
     ArtistCreditName,
@@ -43,6 +45,7 @@ from ep.radio import (
     visible_artists,
     visible_recordings,
 )
+from ep.service_links import artist_links
 
 router = APIRouter(prefix="/artists", tags=["artists"])
 
@@ -314,3 +317,22 @@ def list_artist_recordings(
 
 
 add_external_id_routes(router, Artist, EntityType.artist, "")
+
+
+@router.get("/{id}/links", responses=NOT_FOUND | BAD_GATEWAY)
+def list_artist_links(
+    id: uuid.UUID, session: SessionDep, musicbrainz: MusicBrainzDep, wikidata: WikidataDep
+) -> list[ServiceLinkRead]:
+    """The artist's links to other services, asked from MusicBrainz (cached for a day):
+    Wikipedia (through Wikidata), official homepage, Bandcamp, Spotify, Apple Music,
+    YouTube, Discogs, and MusicBrainz itself, in that order, at most one of each. Empty
+    for an artist without MBID. 502 if MusicBrainz cannot be asked; without Wikipedia if
+    only Wikidata cannot."""
+    artist = get_or_404(session, Artist, id)
+    if artist.mbid is None:
+        return []
+    try:
+        links = artist_links(musicbrainz, wikidata, artist.mbid)
+    except MusicBrainzError as e:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(e)) from e
+    return [ServiceLinkRead.model_validate(link, from_attributes=True) for link in links]

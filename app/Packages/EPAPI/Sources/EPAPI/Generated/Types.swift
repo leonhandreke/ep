@@ -74,6 +74,17 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `DELETE /artists/{id}/external-ids/{external_id}`.
     /// - Remark: Generated from `#/paths//artists/{id}/external-ids/{external_id}/delete(remove_artist_external_id)`.
     func removeArtistExternalId(_ input: Operations.RemoveArtistExternalId.Input) async throws -> Operations.RemoveArtistExternalId.Output
+    /// List Artist Links
+    ///
+    /// The artist's links to other services, asked from MusicBrainz (cached for a day):
+    /// Wikipedia (through Wikidata), official homepage, Bandcamp, Spotify, Apple Music,
+    /// YouTube, Discogs, and MusicBrainz itself, in that order, at most one of each. Empty
+    /// for an artist without MBID. 502 if MusicBrainz cannot be asked; without Wikipedia if
+    /// only Wikidata cannot.
+    ///
+    /// - Remark: HTTP `GET /artists/{id}/links`.
+    /// - Remark: Generated from `#/paths//artists/{id}/links/get(list_artist_links)`.
+    func listArtistLinks(_ input: Operations.ListArtistLinks.Input) async throws -> Operations.ListArtistLinks.Output
     /// List Artist Radio Appearances
     ///
     /// The radio episodes that played recordings credited to this artist, newest first.
@@ -198,9 +209,10 @@ public protocol APIProtocol: Sendable {
     func getHealth(_ input: Operations.GetHealth.Input) async throws -> Operations.GetHealth.Output
     /// List Import Jobs
     ///
-    /// Jobs, newest first. The inbox: ``state=needs_review&state=failed``. Each with
-    /// what it imports (title, cover, counts), its progress, what it is stuck on and the
-    /// job a queued one waits for.
+    /// Jobs, newest first. The inbox: ``attention=true`` (``needs_review`` and
+    /// ``failed`` jobs, waiting for an answer, a retry or a dismiss); the rest of the queue
+    /// without them: ``attention=false``. Each with what it imports (title, cover, counts),
+    /// its progress, what it is stuck on and the job a queued one waits for.
     ///
     /// - Remark: HTTP `GET /imports`.
     /// - Remark: Generated from `#/paths//imports/get(list_import_jobs)`.
@@ -540,6 +552,18 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `DELETE /release-groups/{id}/external-ids/{external_id}`.
     /// - Remark: Generated from `#/paths//release-groups/{id}/external-ids/{external_id}/delete(remove_release_group_external_id)`.
     func removeReleaseGroupExternalId(_ input: Operations.RemoveReleaseGroupExternalId.Input) async throws -> Operations.RemoveReleaseGroupExternalId.Output
+    /// List Release Group Links
+    ///
+    /// The release group's links to other services, asked from MusicBrainz for it and
+    /// its release (``release_mbid``; cached for a day): Wikipedia (through Wikidata),
+    /// official homepage, Bandcamp, Spotify, Apple Music, YouTube, Discogs, AllMusic, and
+    /// MusicBrainz itself, in that order, at most one of each. Empty for a release group
+    /// without MBID. 502 if MusicBrainz cannot be asked; without Wikipedia if only Wikidata
+    /// cannot.
+    ///
+    /// - Remark: HTTP `GET /release-groups/{id}/links`.
+    /// - Remark: Generated from `#/paths//release-groups/{id}/links/get(list_release_group_links)`.
+    func listReleaseGroupLinks(_ input: Operations.ListReleaseGroupLinks.Input) async throws -> Operations.ListReleaseGroupLinks.Output
     /// Set Release Group Track Order
     ///
     /// Move tracks to new discs and positions in one step (e.g. after dragging rows).
@@ -893,6 +917,25 @@ extension APIProtocol {
             headers: headers
         ))
     }
+    /// List Artist Links
+    ///
+    /// The artist's links to other services, asked from MusicBrainz (cached for a day):
+    /// Wikipedia (through Wikidata), official homepage, Bandcamp, Spotify, Apple Music,
+    /// YouTube, Discogs, and MusicBrainz itself, in that order, at most one of each. Empty
+    /// for an artist without MBID. 502 if MusicBrainz cannot be asked; without Wikipedia if
+    /// only Wikidata cannot.
+    ///
+    /// - Remark: HTTP `GET /artists/{id}/links`.
+    /// - Remark: Generated from `#/paths//artists/{id}/links/get(list_artist_links)`.
+    public func listArtistLinks(
+        path: Operations.ListArtistLinks.Input.Path,
+        headers: Operations.ListArtistLinks.Input.Headers = .init()
+    ) async throws -> Operations.ListArtistLinks.Output {
+        try await listArtistLinks(Operations.ListArtistLinks.Input(
+            path: path,
+            headers: headers
+        ))
+    }
     /// List Artist Radio Appearances
     ///
     /// The radio episodes that played recordings credited to this artist, newest first.
@@ -1145,9 +1188,10 @@ extension APIProtocol {
     }
     /// List Import Jobs
     ///
-    /// Jobs, newest first. The inbox: ``state=needs_review&state=failed``. Each with
-    /// what it imports (title, cover, counts), its progress, what it is stuck on and the
-    /// job a queued one waits for.
+    /// Jobs, newest first. The inbox: ``attention=true`` (``needs_review`` and
+    /// ``failed`` jobs, waiting for an answer, a retry or a dismiss); the rest of the queue
+    /// without them: ``attention=false``. Each with what it imports (title, cover, counts),
+    /// its progress, what it is stuck on and the job a queued one waits for.
     ///
     /// - Remark: HTTP `GET /imports`.
     /// - Remark: Generated from `#/paths//imports/get(list_import_jobs)`.
@@ -1853,6 +1897,26 @@ extension APIProtocol {
         headers: Operations.RemoveReleaseGroupExternalId.Input.Headers = .init()
     ) async throws -> Operations.RemoveReleaseGroupExternalId.Output {
         try await removeReleaseGroupExternalId(Operations.RemoveReleaseGroupExternalId.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// List Release Group Links
+    ///
+    /// The release group's links to other services, asked from MusicBrainz for it and
+    /// its release (``release_mbid``; cached for a day): Wikipedia (through Wikidata),
+    /// official homepage, Bandcamp, Spotify, Apple Music, YouTube, Discogs, AllMusic, and
+    /// MusicBrainz itself, in that order, at most one of each. Empty for a release group
+    /// without MBID. 502 if MusicBrainz cannot be asked; without Wikipedia if only Wikidata
+    /// cannot.
+    ///
+    /// - Remark: HTTP `GET /release-groups/{id}/links`.
+    /// - Remark: Generated from `#/paths//release-groups/{id}/links/get(list_release_group_links)`.
+    public func listReleaseGroupLinks(
+        path: Operations.ListReleaseGroupLinks.Input.Path,
+        headers: Operations.ListReleaseGroupLinks.Input.Headers = .init()
+    ) async throws -> Operations.ListReleaseGroupLinks.Output {
+        try await listReleaseGroupLinks(Operations.ListReleaseGroupLinks.Input(
             path: path,
             headers: headers
         ))

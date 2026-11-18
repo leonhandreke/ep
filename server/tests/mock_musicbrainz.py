@@ -17,6 +17,9 @@ The fixtures are real responses, recorded once (minified):
 - ``search_release_neighborhoods`` (``release:"Neighborhoods" AND artist:"Ernest
   Hood"``, answering release searches mentioning "neighborhoods") and
   ``release_neighborhoods``: Ernest Hood, "Neighborhoods" (8 tracks, digital release)
+- ``url_rels_artist_floating_points``, ``url_rels_release_group_promises`` and
+  ``url_rels_release_promises``: lookups with ``inc=url-rels`` (2026-11-18), answering
+  every ``inc=url-rels`` lookup of these MBIDs (others: 404)
 - ``search_recording_empty``: a recording search without hits (``recording:"salt
   echoes" AND artist:"aedis"``), answering recording searches that do not mention
   "movement"
@@ -61,8 +64,17 @@ def fixture(name: str) -> bytes:
     return (FIXTURES / f"{name}.json").read_bytes()
 
 
+URL_RELS = {
+    f"/ws/2/artist/{FLOATING_POINTS}": "url_rels_artist_floating_points",
+    f"/ws/2/release-group/{PROMISES_RELEASE_GROUP}": "url_rels_release_group_promises",
+    f"/ws/2/release/{PROMISES_RELEASE}": "url_rels_release_promises",
+}
+
+
 def fixture_name(request: httpx2.Request) -> str | None:
     path, params = request.url.path, request.url.params
+    if params.get("inc") == "url-rels":
+        return URL_RELS.get(path)
     if path == "/ws/2/url":
         return "url_promises" if params.get("resource") == PROMISES_BANDCAMP else None
     if path == "/ws/2/recording":

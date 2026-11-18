@@ -1,12 +1,11 @@
 """MusicBrainz search, and adding artists, releases and recordings from it (metadata
 only): entities created by hand while writing a note, or imports tried by hand."""
 
-from collections.abc import Iterator
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, status
 
-from ep.api.deps import SessionDep
+from ep.api.deps import MusicBrainzDep, SessionDep
 from ep.api.entities import entity_reads
 from ep.api.errors import BAD_GATEWAY, CONFLICT, NOT_FOUND
 from ep.api.schemas import (
@@ -22,7 +21,6 @@ from ep.importers.musicbrainz import (
     import_release,
 )
 from ep.metadata.musicbrainz import (
-    MusicBrainz,
     MusicBrainzError,
     MusicBrainzNotFound,
     escape_lucene,
@@ -31,15 +29,6 @@ from ep.metadata.musicbrainz import (
 from ep.models import Artist, Recording, ReleaseGroup
 
 router = APIRouter(prefix="/musicbrainz", tags=["musicbrainz"])
-
-
-def get_musicbrainz() -> Iterator[MusicBrainz]:
-    """FastAPI dependency: a MusicBrainz client for the request."""
-    with MusicBrainz() as client:
-        yield client
-
-
-MusicBrainzDep = Annotated[MusicBrainz, Depends(get_musicbrainz)]
 
 
 @router.get("/search", responses=BAD_GATEWAY)

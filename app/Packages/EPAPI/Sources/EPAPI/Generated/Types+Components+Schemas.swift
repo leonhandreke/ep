@@ -888,6 +888,8 @@ extension Components {
             public var bitDepth: Swift.Int?
             /// - Remark: Generated from `#/components/schemas/FileRead/bit_rate`.
             public var bitRate: Swift.Int?
+            /// - Remark: Generated from `#/components/schemas/FileRead/channels`.
+            public var channels: Swift.Int?
             /// - Remark: Generated from `#/components/schemas/FileRead/codec`.
             public var codec: Swift.String?
             /// - Remark: Generated from `#/components/schemas/FileRead/duration_ms`.
@@ -902,6 +904,8 @@ extension Components {
             public var path: Swift.String
             /// - Remark: Generated from `#/components/schemas/FileRead/sample_rate`.
             public var sampleRate: Swift.Int?
+            /// - Remark: Generated from `#/components/schemas/FileRead/size`.
+            public var size: Swift.Int?
             /// - Remark: Generated from `#/components/schemas/FileRead/source_id`.
             public var sourceId: Swift.String
             /// Creates a new `FileRead`.
@@ -909,6 +913,7 @@ extension Components {
             /// - Parameters:
             ///   - bitDepth:
             ///   - bitRate:
+            ///   - channels:
             ///   - codec:
             ///   - durationMs:
             ///   - exists:
@@ -916,10 +921,12 @@ extension Components {
             ///   - mediaType:
             ///   - path:
             ///   - sampleRate:
+            ///   - size:
             ///   - sourceId:
             public init(
                 bitDepth: Swift.Int? = nil,
                 bitRate: Swift.Int? = nil,
+                channels: Swift.Int? = nil,
                 codec: Swift.String? = nil,
                 durationMs: Swift.Int? = nil,
                 exists: Swift.Bool,
@@ -927,10 +934,12 @@ extension Components {
                 mediaType: Swift.String,
                 path: Swift.String,
                 sampleRate: Swift.Int? = nil,
+                size: Swift.Int? = nil,
                 sourceId: Swift.String
             ) {
                 self.bitDepth = bitDepth
                 self.bitRate = bitRate
+                self.channels = channels
                 self.codec = codec
                 self.durationMs = durationMs
                 self.exists = exists
@@ -938,11 +947,13 @@ extension Components {
                 self.mediaType = mediaType
                 self.path = path
                 self.sampleRate = sampleRate
+                self.size = size
                 self.sourceId = sourceId
             }
             public enum CodingKeys: String, CodingKey {
                 case bitDepth = "bit_depth"
                 case bitRate = "bit_rate"
+                case channels
                 case codec
                 case durationMs = "duration_ms"
                 case exists
@@ -950,6 +961,7 @@ extension Components {
                 case mediaType = "media_type"
                 case path
                 case sampleRate = "sample_rate"
+                case size
                 case sourceId = "source_id"
             }
         }
@@ -2501,6 +2513,20 @@ extension Components {
                 case sourceId = "source_id"
                 case url
             }
+        }
+        /// Services, in the order links are listed.
+        ///
+        /// - Remark: Generated from `#/components/schemas/LinkService`.
+        @frozen public enum LinkService: String, Codable, Hashable, Sendable, CaseIterable {
+            case wikipedia = "wikipedia"
+            case officialHomepage = "official_homepage"
+            case bandcamp = "bandcamp"
+            case spotify = "spotify"
+            case appleMusic = "apple_music"
+            case youtube = "youtube"
+            case discogs = "discogs"
+            case allmusic = "allmusic"
+            case musicbrainz = "musicbrainz"
         }
         /// - Remark: Generated from `#/components/schemas/LogEntry`.
         public struct LogEntry: Codable, Hashable, Sendable {
@@ -4296,6 +4322,8 @@ extension Components {
             public var ancestors: [Components.Schemas.SourceRead]
             /// - Remark: Generated from `#/components/schemas/RecordingSourceRead/file`.
             public var file: Components.Schemas.FileRead?
+            /// - Remark: Generated from `#/components/schemas/RecordingSourceRead/imported_by`.
+            public var importedBy: Components.Schemas.SourceImportRead?
             /// - Remark: Generated from `#/components/schemas/RecordingSourceRead/playable`.
             public var playable: Swift.Bool
             /// - Remark: Generated from `#/components/schemas/RecordingSourceRead/preferred`.
@@ -4313,6 +4341,7 @@ extension Components {
             /// - Parameters:
             ///   - ancestors:
             ///   - file:
+            ///   - importedBy:
             ///   - playable:
             ///   - preferred:
             ///   - radio:
@@ -4322,6 +4351,7 @@ extension Components {
             public init(
                 ancestors: [Components.Schemas.SourceRead],
                 file: Components.Schemas.FileRead? = nil,
+                importedBy: Components.Schemas.SourceImportRead? = nil,
                 playable: Swift.Bool,
                 preferred: Swift.Bool,
                 radio: Components.Schemas.RadioSliceRead? = nil,
@@ -4331,6 +4361,7 @@ extension Components {
             ) {
                 self.ancestors = ancestors
                 self.file = file
+                self.importedBy = importedBy
                 self.playable = playable
                 self.preferred = preferred
                 self.radio = radio
@@ -4341,6 +4372,7 @@ extension Components {
             public enum CodingKeys: String, CodingKey {
                 case ancestors
                 case file
+                case importedBy = "imported_by"
                 case playable
                 case preferred
                 case radio
@@ -4974,6 +5006,37 @@ extension Components {
                 case version
             }
         }
+        /// A link of an artist or release group to another service (``LinkService``).
+        ///
+        /// - Remark: Generated from `#/components/schemas/ServiceLinkRead`.
+        public struct ServiceLinkRead: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ServiceLinkRead/label`.
+            public var label: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ServiceLinkRead/service`.
+            public var service: Components.Schemas.LinkService
+            /// - Remark: Generated from `#/components/schemas/ServiceLinkRead/url`.
+            public var url: Swift.String
+            /// Creates a new `ServiceLinkRead`.
+            ///
+            /// - Parameters:
+            ///   - label:
+            ///   - service:
+            ///   - url:
+            public init(
+                label: Swift.String? = nil,
+                service: Components.Schemas.LinkService,
+                url: Swift.String
+            ) {
+                self.label = label
+                self.service = service
+                self.url = url
+            }
+            public enum CodingKeys: String, CodingKey {
+                case label
+                case service
+                case url
+            }
+        }
         /// Not imported: the user chose to skip it, or nothing imported refers to it.
         ///
         /// - Remark: Generated from `#/components/schemas/SkipTarget`.
@@ -5100,6 +5163,67 @@ extension Components {
                 case size
                 case startMs = "start_ms"
                 case uri
+            }
+        }
+        /// The import job that added a source's file (``GET /imports/{id}`` has the rest).
+        ///
+        /// - Remark: Generated from `#/components/schemas/SourceImportRead`.
+        public struct SourceImportRead: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/SourceImportRead/created_at`.
+            public var createdAt: Foundation.Date
+            /// - Remark: Generated from `#/components/schemas/SourceImportRead/id`.
+            public var id: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SourceImportRead/input`.
+            public var input: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SourceImportRead/input_host_path`.
+            public var inputHostPath: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/SourceImportRead/kind`.
+            public var kind: Components.Schemas.ImportKind
+            /// - Remark: Generated from `#/components/schemas/SourceImportRead/state`.
+            public var state: Components.Schemas.JobState
+            /// - Remark: Generated from `#/components/schemas/SourceImportRead/updated_at`.
+            public var updatedAt: Foundation.Date
+            /// - Remark: Generated from `#/components/schemas/SourceImportRead/watch_dir_id`.
+            public var watchDirId: Swift.String?
+            /// Creates a new `SourceImportRead`.
+            ///
+            /// - Parameters:
+            ///   - createdAt:
+            ///   - id:
+            ///   - input:
+            ///   - inputHostPath:
+            ///   - kind:
+            ///   - state:
+            ///   - updatedAt:
+            ///   - watchDirId:
+            public init(
+                createdAt: Foundation.Date,
+                id: Swift.String,
+                input: Swift.String,
+                inputHostPath: Swift.String? = nil,
+                kind: Components.Schemas.ImportKind,
+                state: Components.Schemas.JobState,
+                updatedAt: Foundation.Date,
+                watchDirId: Swift.String? = nil
+            ) {
+                self.createdAt = createdAt
+                self.id = id
+                self.input = input
+                self.inputHostPath = inputHostPath
+                self.kind = kind
+                self.state = state
+                self.updatedAt = updatedAt
+                self.watchDirId = watchDirId
+            }
+            public enum CodingKeys: String, CodingKey {
+                case createdAt = "created_at"
+                case id
+                case input
+                case inputHostPath = "input_host_path"
+                case kind
+                case state
+                case updatedAt = "updated_at"
+                case watchDirId = "watch_dir_id"
             }
         }
         /// - Remark: Generated from `#/components/schemas/SourceKind`.

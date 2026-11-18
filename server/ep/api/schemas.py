@@ -42,6 +42,7 @@ from ep.models import (
 from ep.models.base import Timestamp
 from ep.notes.links import format_link
 from ep.playback import PlayState
+from ep.service_links import LinkService
 
 NonEmptyStr = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
@@ -1206,3 +1207,15 @@ class ServerRead(BaseModel):
     library_dir: ServerPathRead
     # The directories file sources and imports may point into (``EP_MEDIA_ROOTS``).
     media_roots: list[ServerPathRead]
+
+
+# Links to other services
+
+
+class ServiceLinkRead(BaseModel):
+    """A link of an artist or release group to another service (``LinkService``)."""
+
+    service: LinkService
+    url: str
+    # Wikipedia: the article's language code (``en``, ``de``, ...); null for the others.
+    label: str | None

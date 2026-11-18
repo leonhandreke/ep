@@ -174,6 +174,24 @@ class MBUrl(MBModel):
     relations: list[MBRelation] = Field(default_factory=list)
 
 
+class MBUrlTarget(MBModel):
+    resource: str
+
+
+class MBUrlRelation(MBModel):
+    """A relationship to a URL (``inc=url-rels``): ``wikidata``, ``official homepage``,
+    ``free streaming``, ``purchase for download``, ``discogs``, ..."""
+
+    type: str
+    # The link is no longer valid (an old homepage, a closed shop).
+    ended: bool = False
+    url: MBUrlTarget
+
+
+class _UrlRelations(MBModel):
+    relations: list[MBUrlRelation] = Field(default_factory=list)
+
+
 class _ArtistSearch(MBModel):
     artists: list[MBArtist]
 
@@ -329,6 +347,14 @@ class MusicBrainz:
     def get_recording(self, mbid: uuid.UUID) -> MBRecording:
         content = self._get(f"recording/{mbid}", inc="artist-credits+isrcs")
         return MBRecording.model_validate_json(content)
+
+    def get_url_relations(
+        self, entity: Literal["artist", "release-group", "release"], mbid: uuid.UUID
+    ) -> list[MBUrlRelation]:
+        """The entity's relationships to URLs (other relationships are left out)."""
+        return _UrlRelations.model_validate_json(
+            self._get(f"{entity}/{mbid}", inc="url-rels")
+        ).relations
 
     # Lookups by other identifiers
 

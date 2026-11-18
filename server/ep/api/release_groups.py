@@ -9,19 +9,22 @@ from sqlmodel.sql.expression import SelectOfScalar
 
 from ep.api.deps import (
     PAGED,
+    MusicBrainzDep,
     PageDep,
     SessionDep,
     SettingsDep,
+    WikidataDep,
     artist_credit_from_input,
     get_or_404,
 )
-from ep.api.errors import CONFLICT, NOT_FOUND, unprocessable
+from ep.api.errors import BAD_GATEWAY, CONFLICT, NOT_FOUND, unprocessable
 from ep.api.external_ids import add_external_id_routes
 from ep.api.schemas import (
     ReleaseGroupCreate,
     ReleaseGroupDetail,
     ReleaseGroupRead,
     ReleaseGroupUpdate,
+    ServiceLinkRead,
     TrackOrderWrite,
     TrackRead,
 )
@@ -29,9 +32,11 @@ from ep.api.tracks import track_reads, with_recording
 from ep.covers import remove_cover_file
 from ep.credits import delete_artist_credit_if_unused, with_credit
 from ep.external_ids import delete_external_ids
+from ep.metadata.musicbrainz import MusicBrainzError
 from ep.models import EntityType, ReleaseGroup, Track, rel
 from ep.notes.store import delete_annotations
 from ep.playback import PlayState, playabilities
+from ep.service_links import release_group_links
 
 router = APIRouter(prefix="/release-groups", tags=["release groups"])
 
@@ -161,3 +166,25 @@ def set_release_group_track_order(
 
 
 add_external_id_routes(router, ReleaseGroup, EntityType.release_group, "")
+
+
+@router.get("/{id}/links", responses=NOT_FOUND | BAD_GATEWAY)
+def list_release_group_links(
+    id: uuid.UUID, session: SessionDep, musicbrainz: MusicBrainzDep, wikidata: WikidataDep
+) -> list[ServiceLinkRead]:
+    """The release group's links to other services, asked from MusicBrainz for it and
+    its release (``release_mbid``; cached for a day): Wikipedia (through Wikidata),
+    official homepage, Bandcamp, Spotify, Apple Music, YouTube, Discogs, AllMusic, and
+    MusicBrainz itself, in that order, at most one of each. Empty for a release group
+    without MBID. 502 if MusicBrainz cannot be asked; without Wikipedia if only Wikidata
+    cannot."""
+    release_group = get_or_404(session, ReleaseGroup, id)
+    if release_group.mbid is None:
+        return []
+    try:
+        links = release_group_links(
+            musicbrainz, wikidata, release_group.mbid, release_group.release_mbid
+        )
+    except MusicBrainzError as e:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(e)) from e
+    return [ServiceLinkRead.model_validate(link, from_attributes=True) for link in links]
