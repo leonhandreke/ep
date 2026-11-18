@@ -364,11 +364,12 @@ private struct TrackEditRowView: View {
     let number: Int
 
     var body: some View {
-        HStack(spacing: 8) {
+        TextRow(spacing: 8) {
             Image(systemName: "line.3.horizontal")
                 .font(.system(size: 10))
                 .foregroundStyle(Palette.text3)
                 .frame(width: 18)
+                .centeredOnText()
                 .accessibilityHidden(true)
             Text(verbatim: "\(number)")
                 .monospacedDigit()

@@ -164,9 +164,12 @@ struct ArtistsColumn: View {
                     Button("Copy Link") { copyNoteLink(artist.link) }
                 }
             }
-            .focusedValue(\.editSelection, browser.location.artistID.map { id in
-                { presentSheet?(WindowSheet(kind: .edit(.artist(id)))) }
-            })
+            .focusedValue(
+                \.editSelection,
+                browser.location.artistID.map { id in
+                    { presentSheet?(WindowSheet(kind: .edit(.artist(id)))) }
+                }
+            )
             .task(id: RevealKey(artistID: browser.location.artistID, list: list.listVersion)) {
                 guard let id = browser.location.artistID else { return }
                 let index = await list.reveal(id)
@@ -247,7 +250,7 @@ private struct ArtistRow: View {
 
     var body: some View {
         let colors = RowForeground(emphasized: emphasized)
-        HStack(spacing: 5) {
+        TextRow(spacing: 5) {
             Text(artist.name)
                 .font(Typography.body)
                 .foregroundStyle(colors.primary)

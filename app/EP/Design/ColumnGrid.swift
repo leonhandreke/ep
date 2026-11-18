@@ -3,7 +3,9 @@ import SwiftUI
 /// Lays out its subviews side by side like the CSS grid
 /// `grid-template-columns: minmax(min₁, f₁fr) minmax(min₂, f₂fr) …; gap: g` the design uses for
 /// the lists, the detail panels and the player bar. Rows that use the same spec at the
-/// same width line up, so each detail panel sits under its column.
+/// same width line up, so each detail panel sits under its column. Cells are centred
+/// vertically (a cell that fills the height is unaffected), and the grid's first text
+/// baseline is its first cell's, so a grid of texts lines up in a `TextRow`.
 nonisolated struct ColumnGrid: Layout {
     var spec: ColumnSpec
 
@@ -20,11 +22,23 @@ nonisolated struct ColumnGrid: Layout {
         var x = bounds.minX
         for (subview, width) in zip(subviews, widths) {
             subview.place(
-                at: CGPoint(x: x, y: bounds.minY),
+                at: CGPoint(x: x, y: bounds.midY), anchor: .leading,
                 proposal: ProposedViewSize(width: width, height: bounds.height)
             )
             x += width + spec.gap
         }
+    }
+
+    func explicitAlignment(
+        of guide: VerticalAlignment, in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews,
+        cache: inout ()
+    ) -> CGFloat? {
+        guard guide == .firstTextBaseline || guide == .lastTextBaseline, let first = subviews.first else {
+            return nil
+        }
+        let width = Self.widths(total: bounds.width, spec: spec).first ?? bounds.width
+        let dimensions = first.dimensions(in: ProposedViewSize(width: width, height: bounds.height))
+        return bounds.midY - dimensions.height / 2 + dimensions[guide]
     }
 
     /// Column widths for a total width: free space is shared by fraction; a column whose

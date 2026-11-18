@@ -89,7 +89,7 @@ struct LinkSuggestionList: View {
     }
 
     private func action(_ label: Label<Text, Image>, key: String, id: String, foreground: RowForeground) -> some View {
-        HStack {
+        TextRow {
             label.font(Typography.body).foregroundStyle(foreground.primary)
             Spacer(minLength: 8)
             Text(key).font(Typography.meta).foregroundStyle(foreground.tertiary)

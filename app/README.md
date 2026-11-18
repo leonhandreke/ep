@@ -137,6 +137,10 @@ names).
   Selection and accent follow the system accent colour.
 - **Layout**: list columns, detail panels and the player bar use `ColumnGrid` with a
   `ColumnSpec` (the design's CSS `minmax(min, fr)` grids), so panels line up with columns.
+- **Row alignment** (`Design/RowAlignment.swift`): a row's texts share one baseline
+  (`TextRow`, an `HStack` on `.firstTextBaseline`); icons and small buttons in it use
+  `centeredOnText()`; covers, two-line blocks and controls are centred on the row.
+  `ColumnGrid` centres its cells and reports its first cell's baseline.
 - **Accessibility**: every interactive control gets `.accessibilityIdentifier` and a
   label (the design's aria-label text where it gives one). Identifiers are
   `area.element[.detail]` in lowerCamelCase segments: `toolbar.back`, `toolbar.section`,

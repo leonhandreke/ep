@@ -123,7 +123,7 @@ struct SettingsView: View {
 
     @ViewBuilder private var libraryLocation: some View {
         if case .connected(let server) = connection.state {
-            HStack(spacing: 6) {
+            TextRow(spacing: 6) {
                 Text(ImportFormat.abbreviatingHome(server.libraryDir.hostPath ?? server.libraryDir.path))
                     .font(Typography.mono)
                     .textSelection(.enabled)
@@ -254,18 +254,20 @@ private struct FolderRow: View {
             .labelsHidden()
             .disabled(!connected)
             .accessibilityIdentifier("settings.folder.\(folder.id).enabled")
-            Text(folder.displayPath)
-                .font(Typography.mono)
-                .foregroundStyle(folder.enabled ? Palette.text : Palette.text3)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .help(folder.hostPath ?? folder.path)
-            Spacer(minLength: 8)
-            Text(folder.statusText())
-                .font(Typography.secondary)
-                .foregroundStyle(Palette.text3)
-                .monospacedDigit()
-                .accessibilityIdentifier("settings.folder.\(folder.id).status")
+            TextRow(spacing: 10) {
+                Text(folder.displayPath)
+                    .font(Typography.mono)
+                    .foregroundStyle(folder.enabled ? Palette.text : Palette.text3)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .help(folder.hostPath ?? folder.path)
+                Spacer(minLength: 8)
+                Text(folder.statusText())
+                    .font(Typography.secondary)
+                    .foregroundStyle(Palette.text3)
+                    .monospacedDigit()
+                    .accessibilityIdentifier("settings.folder.\(folder.id).status")
+            }
         }
         .frame(minHeight: RowHeight.watchedFolder)
         .accessibilityElement(children: .contain)

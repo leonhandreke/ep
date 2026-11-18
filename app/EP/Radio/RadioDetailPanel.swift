@@ -52,18 +52,20 @@ struct RadioDetailPanel: View {
     private var header: some View {
         HStack(spacing: 8) {
             KindBadge(label: badge)
-            if let title {
-                Text(title)
-                    .font(Typography.panelTitle)
-                    .foregroundStyle(Palette.text)
-                    .lineLimit(1)
-                    .accessibilityIdentifier("\(id).title")
-            }
-            if let meta {
-                Text(meta)
-                    .font(Typography.body)
-                    .foregroundStyle(Palette.text2)
-                    .lineLimit(1)
+            TextRow(spacing: 8) {
+                if let title {
+                    Text(title)
+                        .font(Typography.panelTitle)
+                        .foregroundStyle(Palette.text)
+                        .lineLimit(1)
+                        .accessibilityIdentifier("\(id).title")
+                }
+                if let meta {
+                    Text(meta)
+                        .font(Typography.body)
+                        .foregroundStyle(Palette.text2)
+                        .lineLimit(1)
+                }
             }
             if details.ref != nil {
                 tabs.padding(.leading, 20)

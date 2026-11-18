@@ -161,7 +161,7 @@ struct ImportSheet: View {
 
     private var jobs: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack {
+            TextRow {
                 Text("Jobs").sectionLabelStyle()
                 Spacer()
                 if let watching = imports.summary?.watching, watching > 0 {
@@ -467,12 +467,12 @@ private struct JobRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 12) {
-                stateIcon.frame(width: 22)
+            TextRow(spacing: 12) {
+                stateIcon.frame(width: 22).centeredOnText()
                 Button {
                     imports.toggleLog(job.id)
                 } label: {
-                    HStack(spacing: 4) {
+                    TextRow(spacing: 4) {
                         VStack(alignment: .leading, spacing: 1) {
                             Text(job.displayTitle).font(Typography.name).lineLimit(1)
                             Text(detail.text)
@@ -484,6 +484,7 @@ private struct JobRow: View {
                         Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
                             .font(.system(size: 9, weight: .semibold))
                             .foregroundStyle(Palette.text3)
+                            .centeredOnText()
                             .accessibilityHidden(true)
                         Spacer(minLength: 0)
                     }
@@ -503,7 +504,7 @@ private struct JobRow: View {
                     .foregroundStyle(Palette.text3)
                     .lineLimit(1)
                     .frame(width: 90, alignment: .leading)
-                actions
+                actions.centeredOnText()
             }
             if isExpanded {
                 VStack(alignment: .leading, spacing: 6) {
@@ -557,7 +558,12 @@ private struct JobRow: View {
             }
         }
         .fixedSize()
+        // A fixed column, so source and time line up from row to row.
+        .frame(width: Self.actionsWidth, alignment: .trailing)
     }
+
+    /// Wide enough for Review, Show existing, Retry and Dismiss side by side.
+    private static let actionsWidth: CGFloat = 300
 
     @ViewBuilder private var stateIcon: some View {
         switch job.state.known {

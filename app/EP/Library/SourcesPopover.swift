@@ -164,7 +164,7 @@ private struct SourceOption: View {
                 .padding(.top, 1)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
+                TextRow(spacing: 6) {
                     Text(source.title).font(Typography.name)
                     if let chip = source.codecChip {
                         Text(chip)

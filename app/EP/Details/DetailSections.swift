@@ -172,7 +172,7 @@ private struct TagChip: View {
     let remove: () -> Void
 
     var body: some View {
-        HStack(spacing: 4) {
+        TextRow(spacing: 4) {
             Button {
                 show?(tag)
             } label: {
@@ -199,6 +199,7 @@ private struct TagChip: View {
                     .contentShape(Circle())
             }
             .buttonStyle(RemoveTagButtonStyle())
+            .centeredOnText()
             .accessibilityLabel("Remove tag \(tag.name)")
             .accessibilityIdentifier("\(id).remove")
         }
@@ -318,7 +319,7 @@ private struct TagSuggestionList: View {
                     .frame(height: 22, alignment: .leading)
                 ForEach(Array(model.rows.enumerated()), id: \.offset) { index, row in
                     let selected = index == model.selection
-                    HStack {
+                    TextRow {
                         switch row {
                         case .existing(let tag):
                             Text(verbatim: "#\(tag.name)").lineLimit(1)
@@ -424,7 +425,8 @@ private struct BacklinkRow: View {
 
     var body: some View {
         Button {
-            openEntity?(OpenTarget(entity: backlink.source), newWindow: NSEvent.modifierFlags.contains([.command, .option]))
+            openEntity?(
+                OpenTarget(entity: backlink.source), newWindow: NSEvent.modifierFlags.contains([.command, .option]))
         } label: {
             Group {
                 if wide {
@@ -451,7 +453,7 @@ private struct BacklinkRow: View {
     }
 
     private var name: some View {
-        HStack(spacing: 6) {
+        TextRow(spacing: 6) {
             Text(backlink.kind)
                 .font(Typography.badge)
                 .tracking(0.4)
@@ -539,7 +541,8 @@ private struct RadioAppearanceRow: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(
-                "\(appearance.heading), \(appearance.played)\(appearance.position.map { ", at \($0)" } ?? "")")
+                "\(appearance.heading), \(appearance.played)\(appearance.position.map { ", at \($0)" } ?? "")"
+            )
             .accessibilityHint("Shows the episode")
             .accessibilityIdentifier(id)
         }

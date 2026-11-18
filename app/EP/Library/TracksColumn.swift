@@ -191,7 +191,7 @@ private struct TrackRowView: View {
 
     var body: some View {
         let colors = RowForeground(emphasized: emphasized)
-        HStack(spacing: 0) {
+        TextRow(spacing: 0) {
             Button {
                 showsSources = true
             } label: {
@@ -206,48 +206,54 @@ private struct TrackRowView: View {
             .popover(isPresented: $showsSources, arrowEdge: .trailing) {
                 SourcesPopover(title: row.title, store: makeSources())
             }
-            Group {
-                if isPlaying {
-                    Image(systemName: "chart.bar.fill")
-                        .font(.system(size: 10))
-                        .accessibilityLabel("Now playing")
-                        .accessibilityIdentifier("tracks.nowPlaying")
-                } else {
-                    Text(row.number.map(String.init) ?? "")
-                        .font(Typography.body)
-                        .monospacedDigit()
+            .centeredOnText()
+            TextRow(spacing: 0) {
+                Group {
+                    if isPlaying {
+                        Image(systemName: "chart.bar.fill")
+                            .font(.system(size: 10))
+                            .centeredOnText()
+                            .accessibilityLabel("Now playing")
+                            .accessibilityIdentifier("tracks.nowPlaying")
+                    } else {
+                        Text(row.number.map(String.init) ?? "")
+                            .font(Typography.body)
+                            .monospacedDigit()
+                    }
                 }
-            }
-            .foregroundStyle(colors.tertiary)
-            .frame(width: Metrics.trackNumberColumn - 6, alignment: .trailing)
-            .padding(.trailing, 6)
-            Text(row.title)
-                .font(Typography.body)
-                .italic(row.isItalic)
-                .foregroundStyle(row.isDimmed ? colors.tertiary : colors.primary)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            Group {
-                if let note = row.note {
-                    Text(note.text)
-                        .font(note.isCredit ? Typography.secondary : Typography.meta)
-                        .foregroundStyle(
-                            emphasized
-                                ? Palette.selText
-                                : note.isDanger ? Palette.danger : note.isCredit ? Palette.text2 : Palette.text3
-                        )
-                        .lineLimit(1)
-                } else {
-                    Color.clear
-                }
-            }
-            .frame(width: Metrics.trackNoteColumn, alignment: .leading)
-            .padding(.leading, 8)
-            Text(LibraryFormat.duration(ms: row.lengthMS) ?? "")
-                .font(Typography.meta)
-                .monospacedDigit()
                 .foregroundStyle(colors.tertiary)
-                .frame(width: Metrics.trackLengthColumn, alignment: .trailing)
+                .frame(width: Metrics.trackNumberColumn - 6, alignment: .trailing)
+                .padding(.trailing, 6)
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(row.title)
+                        .font(Typography.body)
+                        .italic(row.isItalic)
+                        .foregroundStyle(row.isDimmed ? colors.tertiary : colors.primary)
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Group {
+                    if let note = row.note {
+                        Text(note.text)
+                            .font(note.isCredit ? Typography.secondary : Typography.meta)
+                            .foregroundStyle(
+                                emphasized
+                                    ? Palette.selText
+                                    : note.isDanger ? Palette.danger : note.isCredit ? Palette.text2 : Palette.text3
+                            )
+                            .lineLimit(1)
+                    } else {
+                        Text(verbatim: " ").font(Typography.meta).accessibilityHidden(true)
+                    }
+                }
+                .frame(width: Metrics.trackNoteColumn, alignment: .leading)
+                .padding(.leading, 8)
+                Text(LibraryFormat.duration(ms: row.lengthMS) ?? "")
+                    .font(Typography.meta)
+                    .monospacedDigit()
+                    .foregroundStyle(colors.tertiary)
+                    .frame(width: Metrics.trackLengthColumn, alignment: .trailing)
+            }
         }
         .padding(.horizontal, 6)
         .frame(height: RowHeight.track)

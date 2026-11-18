@@ -72,22 +72,24 @@ struct ColumnHeader<Trailing: View>: View {
     }
 
     var body: some View {
-        HStack(spacing: metaPlacement == .joined ? 0 : 8) {
-            if let title {
-                Text(title)
-                    .font(Typography.name)
-                    .foregroundStyle(Palette.text)
-                    .lineLimit(1)
-                    .layoutPriority(1)
+        HStack(spacing: 8) {
+            TextRow(spacing: metaPlacement == .joined ? 0 : 8) {
+                if let title {
+                    Text(title)
+                        .font(Typography.name)
+                        .foregroundStyle(Palette.text)
+                        .lineLimit(1)
+                        .layoutPriority(1)
+                }
+                if metaPlacement == .joined, title != nil, meta != nil {
+                    Text(verbatim: " · ")
+                        .font(Typography.secondary)
+                        .foregroundStyle(Palette.text3)
+                }
+                if metaPlacement != .trailing { metaText }
+                Spacer(minLength: 0)
+                if metaPlacement == .trailing { metaText }
             }
-            if metaPlacement == .joined, title != nil, meta != nil {
-                Text(verbatim: " · ")
-                    .font(Typography.secondary)
-                    .foregroundStyle(Palette.text3)
-            }
-            if metaPlacement != .trailing { metaText }
-            Spacer(minLength: 0)
-            if metaPlacement == .trailing { metaText }
             trailing
         }
         .padding(.horizontal, horizontalPadding)

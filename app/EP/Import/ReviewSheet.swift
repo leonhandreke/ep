@@ -241,7 +241,7 @@ private struct QuestionRow: View {
     let accepted: Bool
 
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
+        TextRow(spacing: 8) {
             Text(row.time.map { (row.timeIsEstimate ? "~" : "") + $0 } ?? "")
                 .font(Typography.body.monospacedDigit())
                 .italic(row.timeIsEstimate)
@@ -438,9 +438,10 @@ private struct OptionView: View {
 
     var body: some View {
         Button(action: choose) {
-            HStack(spacing: 8) {
+            TextRow(spacing: 8) {
                 Image(systemName: chosen ? "largecircle.fill.circle" : "circle")
                     .foregroundStyle(chosen ? Palette.sel : Palette.text3)
+                    .centeredOnText()
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 1) {
                     HStack(spacing: 4) {
@@ -456,7 +457,7 @@ private struct OptionView: View {
                     }
                 }
                 Spacer(minLength: 8)
-                if let key = option.key { KeyCap(key) }
+                if let key = option.key { KeyCap(key).centeredOnText() }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
