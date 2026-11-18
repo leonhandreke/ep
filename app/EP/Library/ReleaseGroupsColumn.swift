@@ -161,6 +161,9 @@ private struct ReleaseGroupRow: View {
                 .lineLimit(1)
             }
             Spacer(minLength: 0)
+            if group.hasNote {
+                NoteIndicator(emphasized: emphasized).padding(.trailing, 4)
+            }
         }
         .frame(height: RowHeight.releaseGroup)
         .contentShape(Rectangle())

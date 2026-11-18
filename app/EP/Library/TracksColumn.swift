@@ -230,6 +230,9 @@ private struct TrackRowView: View {
                         .italic(row.isItalic)
                         .foregroundStyle(row.isDimmed ? colors.tertiary : colors.primary)
                         .lineLimit(1)
+                    if row.hasNote {
+                        NoteIndicator(emphasized: emphasized).centeredOnText()
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 Group {

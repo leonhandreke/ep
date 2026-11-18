@@ -23,6 +23,8 @@ struct TrackRow: Identifiable, Hashable {
     let note: Note?
     /// The note link to the recording ("Copy Link").
     let link: String
+    /// The recording has a note (the note icon after the title).
+    let hasNote: Bool
 
     struct Note: Hashable {
         var text: String
@@ -44,6 +46,7 @@ struct TrackRow: Identifiable, Hashable {
         artistName = recording.artistCredit.name
         self.artistID = recording.artistCredit.names.first?.artistId
         link = recording.link
+        hasNote = recording.hasNote
         let credit = recording.artistCredit
         note = Self.note(
             for: track.playability,
@@ -63,6 +66,7 @@ struct TrackRow: Identifiable, Hashable {
         artistName = recording.artistCredit.name
         self.artistID = recording.artistCredit.names.first?.artistId
         link = recording.link
+        hasNote = recording.hasNote
         let names = recording.artistCredit.names
         let differs = names.count != 1 || names.first?.artistId != artistID
         note = Self.note(for: recording.playability, credit: differs ? recording.artistCredit.name : nil)
@@ -81,6 +85,7 @@ struct TrackRow: Identifiable, Hashable {
         artistName = recording.artistCredit.name
         self.artistID = recording.artistCredit.names.first?.artistId
         link = recording.link
+        hasNote = recording.hasNote
         note = Self.note(for: recording.playability, credit: nil)
     }
 

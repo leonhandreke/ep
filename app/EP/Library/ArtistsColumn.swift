@@ -260,7 +260,12 @@ private struct ArtistRow: View {
                     .font(Typography.meta)
                     .foregroundStyle(colors.tertiary)
             }
+            if artist.hasNote {
+                Spacer(minLength: 4)
+                NoteIndicator(emphasized: emphasized).centeredOnText()
+            }
         }
+        .padding(.trailing, artist.hasNote ? Metrics.rowPadding : 0)
         .lineLimit(1)
         .truncationMode(.tail)
         .frame(maxWidth: .infinity, minHeight: RowHeight.artist, maxHeight: RowHeight.artist, alignment: .leading)
