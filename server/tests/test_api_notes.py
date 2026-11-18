@@ -207,6 +207,42 @@ def test_track_notes_are_recording_notes(client: TestClient) -> None:
     assert get_note(client, "recording", song["id"])["body"] == "Every time."
 
 
+def test_rows_say_whether_they_have_a_note(client: TestClient) -> None:
+    """Artist, release group and recording reads carry ``has_note`` in every list the
+    rows come from (a track's: its recording's); a note saved empty is no note."""
+    nina, other = make_artist(client), make_artist(client, "Other")
+    album = make_release_group(client, nina)
+    guest = make_release_group(client, other, "Guest Album")
+    song, quiet = make_recording(client, nina), make_recording(client, nina, "Quiet")
+    make_track(client, album, song, 1)
+    make_track(client, album, quiet, 2)
+    make_track(client, guest, song)  # nina appears on it
+    write(client, "artist", nina["id"], "Pianist.")
+    write(client, "release_group", album["id"], "1965.")
+    write(client, "recording", song["id"], "Ten minutes.")
+    write(client, "artist", other["id"], "Draft")
+    write(client, "artist", other["id"], "  \n")  # deleted again
+
+    def flags(path: str, key: str = "id", nested: str | None = None) -> dict[str, bool]:
+        rows = client.get(path).json()
+        rows = [row[nested] for row in rows] if nested else rows
+        return {row[key]: row["has_note"] for row in rows}
+
+    assert flags("/artists") == {nina["id"]: True, other["id"]: False}
+    assert flags(f"/artists/{nina['id']}/release-groups") == {album["id"]: True}
+    assert flags(f"/artists/{nina['id']}/appearances") == {guest["id"]: False}
+    assert flags(f"/artists/{nina['id']}/recordings") == {song["id"]: True, quiet["id"]: False}
+    tracks = f"/release-groups/{album['id']}/tracks"
+    assert flags(tracks, nested="recording") == {song["id"]: True, quiet["id"]: False}
+    # Single reads too.
+    assert client.get(f"/artists/{nina['id']}").json()["has_note"] is True
+    assert client.get(f"/release-groups/{guest['id']}").json()["has_note"] is False
+    assert client.get(f"/recordings/{song['id']}").json()["has_note"] is True
+
+    write(client, "recording", song["id"], "")
+    assert flags(tracks, nested="recording")[song["id"]] is False
+
+
 def test_radio_notes(client: TestClient, session: Session) -> None:
     show, episode = radio(session)
     note = write(client, "radio_episode", str(episode.id), f"From [[radio_show:{show.id}]]")

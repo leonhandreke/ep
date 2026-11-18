@@ -6331,6 +6331,10 @@
             "type": "string",
             "title": "Disambiguation"
           },
+          "has_note": {
+            "type": "boolean",
+            "title": "Has Note"
+          },
           "type": {
             "anyOf": [
               {
@@ -6364,6 +6368,7 @@
           "name",
           "sort_name",
           "disambiguation",
+          "has_note",
           "type",
           "counts",
           "radio_only",
@@ -6438,6 +6443,10 @@
             "type": "string",
             "title": "Disambiguation"
           },
+          "has_note": {
+            "type": "boolean",
+            "title": "Has Note"
+          },
           "type": {
             "anyOf": [
               {
@@ -6464,6 +6473,7 @@
           "name",
           "sort_name",
           "disambiguation",
+          "has_note",
           "type",
           "link"
         ],
@@ -9363,6 +9373,10 @@
             ],
             "title": "Preferred Source Id"
           },
+          "has_note": {
+            "type": "boolean",
+            "title": "Has Note"
+          },
           "playability": {
             "$ref": "#/components/schemas/PlayabilityRead"
           },
@@ -9383,6 +9397,7 @@
           "artist_credit",
           "length_ms",
           "preferred_source_id",
+          "has_note",
           "playability",
           "link"
         ],
@@ -10493,6 +10508,10 @@
             ],
             "title": "Preferred Source Id"
           },
+          "has_note": {
+            "type": "boolean",
+            "title": "Has Note"
+          },
           "playability": {
             "$ref": "#/components/schemas/PlayabilityRead"
           },
@@ -10520,6 +10539,7 @@
           "artist_credit",
           "length_ms",
           "preferred_source_id",
+          "has_note",
           "playability",
           "tracks",
           "link"
@@ -10585,6 +10605,10 @@
             ],
             "title": "Preferred Source Id"
           },
+          "has_note": {
+            "type": "boolean",
+            "title": "Has Note"
+          },
           "link": {
             "type": "string",
             "title": "Link",
@@ -10602,6 +10626,7 @@
           "artist_credit",
           "length_ms",
           "preferred_source_id",
+          "has_note",
           "link"
         ],
         "title": "RecordingRead"
@@ -11038,6 +11063,10 @@
             ],
             "title": "Barcode"
           },
+          "has_note": {
+            "type": "boolean",
+            "title": "Has Note"
+          },
           "track_count": {
             "type": "integer",
             "title": "Track Count"
@@ -11092,6 +11121,7 @@
           "type",
           "date",
           "barcode",
+          "has_note",
           "track_count",
           "disc_count",
           "length_ms",
@@ -11175,6 +11205,10 @@
             ],
             "title": "Barcode"
           },
+          "has_note": {
+            "type": "boolean",
+            "title": "Has Note"
+          },
           "cover_url": {
             "anyOf": [
               {
@@ -11207,6 +11241,7 @@
           "type",
           "date",
           "barcode",
+          "has_note",
           "cover_url",
           "link"
         ],

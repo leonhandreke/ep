@@ -161,6 +161,8 @@ class ArtistRead(Read):
     name: str
     sort_name: str
     disambiguation: str
+    # It has a note (``GET /notes/...``).
+    has_note: bool
     type: ArtistType | None
 
     @computed_field
@@ -229,6 +231,8 @@ class ReleaseGroupRead(Read):
     type: ReleaseGroupType
     date: str | None
     barcode: str | None
+    # It has a note (``GET /notes/...``).
+    has_note: bool
     cover_path: str | None = Field(exclude=True)
 
     @computed_field
@@ -300,6 +304,8 @@ class RecordingRead(Read):
     # The source chosen to play (``PUT /recordings/{id}/preferred-source``); null: the
     # default choice.
     preferred_source_id: uuid.UUID | None
+    # It has a note (``GET /notes/...``) (a track's note is its recording's).
+    has_note: bool
 
     @computed_field
     @property

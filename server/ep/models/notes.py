@@ -13,6 +13,12 @@ Notes are searched with Postgres full-text search: an expression GIN index on
 ``to_tsvector('ep_notes', ep_note_text(body))`` (migration 0010: ``ep_note_text`` shows
 links as their display text, the ``ep_notes`` configuration is ``simple`` with
 ``unaccent``). Tag names are unique ignoring case (an index on ``lower(name)``).
+
+``Artist.has_note``, ``ReleaseGroup.has_note`` and ``Recording.has_note`` (a track's
+note is its recording's) are column properties: a correlated ``EXISTS`` on
+``note(entity_type, entity_id)`` (its unique index) in the statement that loads the
+row, so lists get them without a query more. A saved note is never blank (an empty
+body deletes it, ``ep.notes.store.save_note``).
 """
 
 import uuid
@@ -20,10 +26,11 @@ from typing import Any
 
 import sqlalchemy as sa
 from sqlalchemy import func
-from sqlmodel import Field, Relationship
+from sqlalchemy.orm import column_property
+from sqlmodel import Field, Relationship, col
 
 from ep.models.base import Base
-from ep.models.catalogue import EntityType, enum_column
+from ep.models.catalogue import Artist, EntityType, Recording, ReleaseGroup, enum_column
 
 # The text search configuration of notes (migration 0010).
 NOTE_SEARCH_CONFIG = "ep_notes"
@@ -105,3 +112,16 @@ class EntityTag(Base, table=True):
     entity_id: uuid.UUID
 
     tag: Tag = Relationship()
+
+
+def _has_note(model: type[Artist | ReleaseGroup | Recording], entity_type: EntityType) -> None:
+    has_note = sa.exists().where(
+        col(Note.entity_type) == entity_type, col(Note.entity_id) == col(model.id)
+    )
+    # Declarative mapping: a property assigned to the class is mapped.
+    setattr(model, "has_note", column_property(has_note))  # noqa: B010
+
+
+_has_note(Artist, EntityType.artist)
+_has_note(ReleaseGroup, EntityType.release_group)
+_has_note(Recording, EntityType.recording)

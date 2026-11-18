@@ -543,6 +543,9 @@ docker rm -f ep-harness-db && rm -rf "$D"     # tear down
   (omitted or null: from an empty note): if the note changed since and the body
   differs, 409 `NoteConflictRead` with the current note (the row is locked; of two
   concurrent first saves one wins, the other is a 409: `tests/test_note_concurrency.py`).
+- `ArtistRead`, `ReleaseGroupRead` and `RecordingRead` (and what extends them: every
+  artist, album and track row) have `has_note`: a column property of the models (a
+  correlated `EXISTS` on `note`, in the statement that loads the row: no query more).
 - `GET /backlinks/{type}/{id}`: notes linking to exactly this entity, newest edit first,
   each with its entity and the line around each link (links shown as display text or
   title, long lines cut, highlight range).
