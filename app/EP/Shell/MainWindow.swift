@@ -2,7 +2,7 @@ import EPAPI
 import SwiftUI
 
 /// The two views of the main window, switched in the toolbar.
-enum AppSection: String, CaseIterable, Identifiable {
+nonisolated enum AppSection: String, CaseIterable, Identifiable {
     case library, radio
 
     var id: Self { self }
@@ -37,14 +37,17 @@ struct MainWindow: View {
     @Environment(Player.self) private var player
     @Environment(ImportStore.self) private var imports
     @Environment(\.appearsActive) private var appearsActive
-    /// This window's Library: its artist list (filter, toggle) and its selection and history.
+    /// This window's one navigation history, across the Library and the Radio view: the
+    /// view shown and where each is.
+    @State private var navigation: WindowNavigation
+    /// This window's Library: its artist list (filter, toggle) and its selection.
     @State private var artists: ArtistList
     @State private var browser: LibraryBrowser
     /// The three detail panels (artist, album, track), following the selection.
     @State private var artistDetails: EntityDetails
     @State private var albumDetails: EntityDetails
     @State private var trackDetails: EntityDetails
-    /// This window's Radio view: shows, episodes, tracklist, history; its tabbed panel.
+    /// This window's Radio view: shows, episodes, tracklist; its tabbed panel.
     @State private var radio: RadioBrowser
     @State private var radioDetails: EntityDetails
     /// The search palette (⌘K, ⌘F) while open; it keeps what was typed while closed.
@@ -57,13 +60,16 @@ struct MainWindow: View {
     /// Tells this window apart for the import toast, which shows in the active window only.
     @State private var windowID = UUID()
     @Environment(\.openWindow) private var openWindow
-    @SceneStorage("section") private var section = AppSection.library
+    /// The view shown, kept for window restoration (the history holds it while open).
+    @SceneStorage("section") private var storedSection = AppSection.library
     @SceneStorage("detailPanelsCollapsed") private var detailPanelsCollapsed = false
     /// Detail panel height in points; 0 until first laid out (then half the space).
     @SceneStorage("detailPanelsHeight") private var detailPanelsHeight: Double = 0
 
     init(connection: ServerConnection, player: Player, initialTarget: OpenTarget? = nil) {
-        let browser = LibraryBrowser(connection: connection)
+        let navigation = WindowNavigation()
+        _navigation = State(initialValue: navigation)
+        let browser = LibraryBrowser(connection: connection, navigation: navigation)
         browser.onPlay = { [weak player] in player?.play($0) }
         _artists = State(initialValue: ArtistList(connection: connection))
         _browser = State(initialValue: browser)
@@ -83,7 +89,7 @@ struct MainWindow: View {
         _artistDetails = State(initialValue: artist)
         _albumDetails = State(initialValue: album)
         _trackDetails = State(initialValue: track)
-        let radio = RadioBrowser(connection: connection)
+        let radio = RadioBrowser(connection: connection, navigation: navigation)
         radio.onPlay = { [weak player] episode, entry in player?.playEpisode(episode, from: entry) }
         _radio = State(initialValue: radio)
         _radioDetails = State(initialValue: EntityDetails(connection: connection))
@@ -91,9 +97,12 @@ struct MainWindow: View {
         _pendingTarget = State(initialValue: initialTarget)
     }
 
-    /// The history Back / Forward act on: the shown view's.
-    private var history: any HistoryNavigating {
-        section == .radio ? radio : browser
+    /// The view shown: part of the window's location.
+    private var section: AppSection { navigation.location.section }
+
+    /// The toolbar's and the View menu's view switch: a navigation of its own.
+    private var sectionBinding: Binding<AppSection> {
+        Binding(get: { navigation.location.section }, set: { navigation.show(section: $0) })
     }
 
     var body: some View {
@@ -113,6 +122,9 @@ struct MainWindow: View {
             .background(Palette.bg)
             .frame(minWidth: WindowMetrics.minimumWidth, minHeight: WindowMetrics.minimumHeight)
             .navigationTitle("EP")
+            // The restored window's view; afterwards the history's view is the one kept.
+            .onAppear { navigation.restore(section: storedSection) }
+            .onChange(of: navigation.location.section) { _, section in storedSection = section }
     }
 
     @ViewBuilder private var toast: some View {
@@ -188,16 +200,16 @@ struct MainWindow: View {
             }
             .toolbar {
                 MainToolbar(
-                    section: $section, history: history, search: { openSearch(tag: nil) },
+                    section: sectionBinding, history: navigation, search: { openSearch(tag: nil) },
                     importer: { openImport(link: nil) })
             }
             .toolbarBackground(Palette.bar, for: .windowToolbar)
             .focusedSceneValue(\.detailPanelsCollapsed, $detailPanelsCollapsed)
-            .focusedSceneValue(\.history, history)
+            .focusedSceneValue(\.history, navigation)
             .focusedSceneValue(\.showPlaying, showPlaying)
             .focusedSceneValue(\.openSearch) { openSearch(tag: nil) }
             .focusedSceneValue(\.newEntity) { kind in newEntity(kind) }
-            .focusedSceneValue(\.section, $section)
+            .focusedSceneValue(\.section, sectionBinding)
             .focusedSceneValue(\.importClipboardLink) {
                 if let link = PasteLinkMonitor.MonitorView.link(on: .general) { openImport(link: link) }
             }
@@ -322,13 +334,12 @@ struct MainWindow: View {
     }
 
     /// "Show playing" (⌘L, the player's title): an episode played from the Radio view in
-    /// the Radio view at the entry playing; anything else in the Library.
+    /// the Radio view at the entry playing; anything else in the Library. The view switches
+    /// with the navigation, as one history entry.
     private func showPlaying() {
         if let target = player.radioTarget {
-            section = .radio
             radio.navigate(to: target)
         } else if let target = player.libraryTarget {
-            section = .library
             browser.navigate(to: target)
         }
     }
@@ -344,16 +355,15 @@ struct MainWindow: View {
         radioDetails.reload()
     }
 
-    /// Opens a link, backlink or radio appearance target (`OpenEntityAction`): here, or in
-    /// a new main window with its own history (⌥⌘-click, decision 13).
+    /// Opens a link, backlink or radio appearance target (`OpenEntityAction`): here (the
+    /// view switches with the navigation, one entry of the window's history), or in a new
+    /// main window with its own history (⌥⌘-click, decision 13).
     private func open(_ target: OpenTarget, newWindow: Bool) {
         if newWindow {
             openWindow(id: "main", value: WindowTarget(target: target))
         } else if let entity = target.entity.libraryEntity {
-            section = .library
             browser.navigate(to: entity)
         } else {
-            section = .radio
             radio.navigate(to: target)
         }
     }

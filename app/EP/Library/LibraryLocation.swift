@@ -12,8 +12,8 @@ nonisolated enum AlbumSelection: Hashable {
     }
 }
 
-/// Where the Library view is: the selected artist → album → track, left to right. One
-/// entry of the navigation history. `trackID` is a track's ID in an album and a
+/// Where the Library view is: the selected artist → album → track, left to right. Part
+/// of an entry of the window's navigation history (`WindowLocation`). `trackID` is a track's ID in an album and a
 /// recording's ID among loose tracks (the rows are recordings there).
 nonisolated struct LibraryLocation: Hashable {
     var artistID: String?
@@ -47,8 +47,8 @@ enum NavigationColumn {
     static let artist = first, album = second, track = third
 }
 
-/// A view with a navigation history: what the toolbar's Back / Forward and ⌘[ / ⌘] act
-/// on (the Library's or the Radio view's, whichever the window shows).
+/// A navigation history: what the toolbar's Back / Forward and ⌘[ / ⌘] act on (the
+/// window's `WindowNavigation`, across both views).
 protocol HistoryNavigating: AnyObject {
     var canGoBack: Bool { get }
     var canGoForward: Bool { get }
@@ -59,7 +59,7 @@ protocol HistoryNavigating: AnyObject {
 /// Back/forward through the locations a window's view has shown (⌘[ / ⌘]). Holding an
 /// arrow key in one column would otherwise fill it with every row passed: a change in the
 /// same column as the previous one, within `coalescing`, replaces that entry instead.
-/// The Library and the Radio view each have one.
+/// Each window has one (`WindowNavigation`), for both views.
 struct NavigationHistory<Location: NavigationLocation> {
     typealias Column = NavigationColumn
 

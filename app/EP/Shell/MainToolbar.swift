@@ -4,7 +4,7 @@ import SwiftUI
 /// switch centred; the search field on the right.
 struct MainToolbar: ToolbarContent {
     @Binding var section: AppSection
-    /// The shown view's history (Library or Radio).
+    /// The window's one history (both views).
     let history: any HistoryNavigating
     /// Opens the search palette.
     let search: () -> Void

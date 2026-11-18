@@ -3,8 +3,9 @@ import Foundation
 import Observation
 
 /// One window's Library selection and what it shows (§3.3–3.4): the selected artist with
-/// its release groups (and those it appears on), the selected album (or loose tracks) with its tracks, and the
-/// window's navigation history (decision 13: each window has its own).
+/// its release groups (and those it appears on), the selected album (or loose tracks) with its tracks. Its
+/// location is the Library's part of the window's one navigation history (`WindowNavigation`,
+/// shared with the Radio view; decision 13: each window has its own).
 ///
 /// Selection flows left to right: choosing an artist clears the album and track,
 /// choosing an album clears the track. Everything that changes the location goes through
@@ -24,8 +25,9 @@ final class LibraryBrowser: HistoryNavigating {
         case album(String)
     }
 
-    private(set) var history = NavigationHistory<LibraryLocation>()
-    var location: LibraryLocation { history.current }
+    /// The window's history, which holds where the Library is.
+    let navigation: WindowNavigation
+    var location: LibraryLocation { navigation.location.library }
 
     private(set) var artist: Components.Schemas.ArtistDetail?
     private(set) var releaseGroups: [Components.Schemas.ReleaseGroupRead] = []
@@ -47,14 +49,18 @@ final class LibraryBrowser: HistoryNavigating {
     @ObservationIgnored var onPlay: ((PlayRequest) -> Void)?
 
     @ObservationIgnored private let connection: ServerConnection
-    @ObservationIgnored private let clock: () -> ContinuousClock.Instant
     @ObservationIgnored private var artistTask: Task<Void, Never>?
     @ObservationIgnored private var albumTask: Task<Void, Never>?
     @ObservationIgnored private var navigateTask: Task<Void, Never>?
 
-    init(connection: ServerConnection, clock: @escaping () -> ContinuousClock.Instant = { .now }) {
+    /// `navigation`: the window's history (one of its own when nil, for tests).
+    init(
+        connection: ServerConnection, navigation: WindowNavigation? = nil,
+        clock: @escaping () -> ContinuousClock.Instant = { .now }
+    ) {
         self.connection = connection
-        self.clock = clock
+        self.navigation = navigation ?? WindowNavigation(clock: clock)
+        self.navigation.library = self
     }
 
     // MARK: - Selection (user actions in the columns)
@@ -74,27 +80,15 @@ final class LibraryBrowser: HistoryNavigating {
     /// Selecting a track changes the current history entry, it does not add one.
     func select(track id: String?) {
         guard id != location.trackID else { return }
-        var location = location
-        location.trackID = id
-        history.replaceCurrent(location)
+        navigation.replaceCurrent { $0.library.trackID = id }
     }
 
-    // MARK: - History
+    // MARK: - History (the window's)
 
-    var canGoBack: Bool { history.canGoBack }
-    var canGoForward: Bool { history.canGoForward }
-
-    func goBack() {
-        let before = location
-        guard history.back() != nil else { return }
-        show(from: before)
-    }
-
-    func goForward() {
-        let before = location
-        guard history.forward() != nil else { return }
-        show(from: before)
-    }
+    var canGoBack: Bool { navigation.canGoBack }
+    var canGoForward: Bool { navigation.canGoForward }
+    func goBack() { navigation.goBack() }
+    func goForward() { navigation.goForward() }
 
     // MARK: - Navigation entry point
 
@@ -175,14 +169,15 @@ final class LibraryBrowser: HistoryNavigating {
         onPlay?(request)
     }
 
+    /// Records `target` as the window's location, showing the Library, and loads it.
     private func go(to target: LibraryLocation, column: NavigationColumn) {
         let before = location
-        history.push(target, column: column, at: clock())
-        show(from: before)
+        navigation.go(to: .library, column: column) { $0.library = target }
+        showChanges(from: before)
     }
 
     /// Loads what changed between `before` and the current location.
-    private func show(from before: LibraryLocation) {
+    func showChanges(from before: LibraryLocation) {
         if location.artistID != before.artistID {
             artist = nil
             releaseGroups = []

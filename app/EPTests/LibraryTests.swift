@@ -281,6 +281,31 @@ struct LibraryBrowserTests {
         #expect(!browser.canGoForward)
     }
 
+    /// One history per window across both views: Back from the Library after following a
+    /// link out of the Radio view returns to the Radio view where it was.
+    @Test func backReturnsToTheRadioViewALinkWasFollowedFrom() async throws {
+        let connection = connection(routed(Self.routes))
+        let navigation = WindowNavigation()
+        let browser = LibraryBrowser(connection: connection, navigation: navigation)
+        let radio = RadioBrowser(connection: connection, navigation: navigation)
+
+        navigation.show(section: .radio)
+        radio.select(show: "s1")
+        radio.select(entry: "e1")
+        browser.navigate(to: .artist("a1"))
+        await browser.settle()
+        #expect(navigation.location.section == .library && browser.location.artistID == "a1")
+
+        navigation.goBack()
+        #expect(navigation.location.section == .radio)
+        #expect(radio.location == RadioLocation(showID: "s1", entryID: "e1"))
+        navigation.goBack()
+        navigation.goBack()
+        #expect(navigation.location.section == .library && !navigation.canGoBack)
+        navigation.goForward()
+        #expect(navigation.location.section == .radio && radio.location.showID == nil)
+    }
+
     @Test func quickChangesInOneColumnCoalesce() {
         var history = NavigationHistory<LibraryLocation>()
         let start = ContinuousClock.now

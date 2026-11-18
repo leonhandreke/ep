@@ -197,12 +197,15 @@ the review sheet `review` (`.sheet`, `.title`, `.headline`, `.filter`, `.questio
   only; ranges are UTF-16 (`NSRange`), as the API counts. A track's note and tags are its
   recording's. `NoteDocument` saves 1 s after the last edit with `base_updated_at`; a 409
   keeps the edit and asks (Keep Mine / Use Theirs); notes are read-only while unreachable.
-- **Navigation**: anything that shows an entity in the Library (links, search results,
-  "Show playing") calls `LibraryBrowser.navigate(to:)`, which resolves the artist →
-  album → track path and records it in the window's Back/Forward history. The Radio
-  view has its own history (`NavigationHistory<RadioLocation>`); Back/Forward act on
-  the view shown. "Show playing" shows an episode played from the Radio view there, at
-  the entry playing, and anything else in the Library. Playing goes
+- **Navigation**: each window has one history across both views (`WindowNavigation`,
+  `Shell/`): an entry is the view shown plus where the Library and the Radio view are, so
+  Back after following a tracklist link returns to the Radio view at that entry, and
+  switching views is an entry too. Anything that shows an entity in the Library (links,
+  search results, the player's title, artist and album) calls
+  `LibraryBrowser.navigate(to:)`, which resolves the artist → album → track path and
+  records it; radio shows, episodes and entries go through `RadioBrowser.navigate(to:)`.
+  The player's title (and ⌘L) shows an episode played from the Radio view there, at the
+  entry playing, and anything else in the Library. Playing goes
   through `LibraryBrowser.play(_:)` (`onPlay`, set by the player).
 - **Imports**: `ImportStore` polls `GET /imports/summary` only while a job is queued or
   running (and once on connect, window activation and after a start, review or action),

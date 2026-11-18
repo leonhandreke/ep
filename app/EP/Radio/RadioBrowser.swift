@@ -2,8 +2,8 @@ import EPAPI
 import Foundation
 import Observation
 
-/// Where the Radio view is: the selected show → episode → tracklist entry. One entry of
-/// the Radio view's navigation history.
+/// Where the Radio view is: the selected show → episode → tracklist entry. Part of an
+/// entry of the window's navigation history (`WindowLocation`).
 nonisolated struct RadioLocation: NavigationLocation {
     var showID: String?
     var episodeID: String?
@@ -11,15 +11,17 @@ nonisolated struct RadioLocation: NavigationLocation {
 }
 
 /// One window's Radio view (§6): the shows, the selected show's episodes, the selected
-/// episode with its tracklist, and the view's navigation history. Selection flows left
+/// episode with its tracklist; its location is in the window's one history
+/// (`WindowNavigation`, shared with the Library). Selection flows left
 /// to right like the Library's (`LibraryBrowser`); `navigate(to:)` shows a show, an
 /// episode or an entry from anywhere else (links, backlinks, search, "Show playing").
 @Observable
 final class RadioBrowser: HistoryNavigating {
     typealias Phase = LibraryBrowser.Phase
 
-    private(set) var history = NavigationHistory<RadioLocation>()
-    var location: RadioLocation { history.current }
+    /// The window's history, which holds where the Radio view is.
+    let navigation: WindowNavigation
+    var location: RadioLocation { navigation.location.radio }
 
     private(set) var shows: [Components.Schemas.RadioShowRead] = []
     private(set) var showsPhase = Phase.idle
@@ -45,16 +47,20 @@ final class RadioBrowser: HistoryNavigating {
     @ObservationIgnored var onPlay: ((Components.Schemas.RadioEpisodeDetail, String?) -> Void)?
 
     @ObservationIgnored private let connection: ServerConnection
-    @ObservationIgnored private let clock: () -> ContinuousClock.Instant
     @ObservationIgnored private var showsTask: Task<Void, Never>?
     @ObservationIgnored private var showTask: Task<Void, Never>?
     @ObservationIgnored private var episodeTask: Task<Void, Never>?
     @ObservationIgnored private var navigateTask: Task<Void, Never>?
     @ObservationIgnored private var entryTask: Task<Void, Never>?
 
-    init(connection: ServerConnection, clock: @escaping () -> ContinuousClock.Instant = { .now }) {
+    /// `navigation`: the window's history (one of its own when nil, for tests).
+    init(
+        connection: ServerConnection, navigation: WindowNavigation? = nil,
+        clock: @escaping () -> ContinuousClock.Instant = { .now }
+    ) {
         self.connection = connection
-        self.clock = clock
+        self.navigation = navigation ?? WindowNavigation(clock: clock)
+        self.navigation.radio = self
     }
 
     // MARK: - Selection
@@ -74,27 +80,15 @@ final class RadioBrowser: HistoryNavigating {
     /// Selecting an entry changes the current history entry, it does not add one.
     func select(entry id: String?) {
         guard id != location.entryID else { return }
-        var location = location
-        location.entryID = id
-        history.replaceCurrent(location)
+        navigation.replaceCurrent { $0.radio.entryID = id }
     }
 
-    // MARK: - History
+    // MARK: - History (the window's)
 
-    var canGoBack: Bool { history.canGoBack }
-    var canGoForward: Bool { history.canGoForward }
-
-    func goBack() {
-        let before = location
-        guard history.back() != nil else { return }
-        show(from: before)
-    }
-
-    func goForward() {
-        let before = location
-        guard history.forward() != nil else { return }
-        show(from: before)
-    }
+    var canGoBack: Bool { navigation.canGoBack }
+    var canGoForward: Bool { navigation.canGoForward }
+    func goBack() { navigation.goBack() }
+    func goForward() { navigation.goForward() }
 
     // MARK: - Navigation entry point
 
@@ -185,13 +179,15 @@ final class RadioBrowser: HistoryNavigating {
         await episodeTask?.value
     }
 
+    /// Records `target` as the window's location, showing the Radio view, and loads it.
     private func go(to target: RadioLocation, column: NavigationColumn) {
         let before = location
-        history.push(target, column: column, at: clock())
-        show(from: before)
+        navigation.go(to: .radio, column: column) { $0.radio = target }
+        showChanges(from: before)
     }
 
-    private func show(from before: RadioLocation) {
+    /// Loads what changed between `before` and the current location.
+    func showChanges(from before: RadioLocation) {
         if location.showID != before.showID {
             show = nil
             episodes = []
