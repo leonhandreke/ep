@@ -54,21 +54,21 @@ nonisolated enum LibraryFixtures {
     }
 
     static func artist(_ id: String, _ name: String) -> String {
-        #"{"id": "\#(id)", \#(stamp), "mbid": null, "name": "\#(name)", "sort_name": "\#(name)", "disambiguation": "", "type": null, "link": "[[artist:\#(id)|\#(name)]]"}"#
+        #"{"id": "\#(id)", \#(stamp), "mbid": null, "name": "\#(name)", "sort_name": "\#(name)", "disambiguation": "", "type": null, "has_note": false, "link": "[[artist:\#(id)|\#(name)]]"}"#
     }
 
     static func artistDetail(
         _ id: String, _ name: String, releaseGroups: Int = 1, loose: Int = 0, appearances: Int = 0
     ) -> String {
-        #"{"id": "\#(id)", \#(stamp), "mbid": null, "name": "\#(name)", "sort_name": "\#(name)", "disambiguation": "", "type": null, "counts": {"release_groups": \#(releaseGroups), "loose_recordings": \#(loose), "appearances": \#(appearances), "radio_episodes": 0}, "radio_only": false, "link": "l"}"#
+        #"{"id": "\#(id)", \#(stamp), "mbid": null, "name": "\#(name)", "sort_name": "\#(name)", "disambiguation": "", "type": null, "counts": {"release_groups": \#(releaseGroups), "loose_recordings": \#(loose), "appearances": \#(appearances), "radio_episodes": 0}, "radio_only": false, "has_note": false, "link": "l"}"#
     }
 
     static func releaseGroup(_ id: String, _ title: String, artist: String) -> String {
-        #"{"id": "\#(id)", \#(stamp), "mbid": null, "release_mbid": null, "title": "\#(title)", "artist_credit": \#(credit("c-" + artist, "A", artists: [artist])), "type": "album", "date": "1997-09-22", "barcode": null, "cover_url": null, "link": "l"}"#
+        #"{"id": "\#(id)", \#(stamp), "mbid": null, "release_mbid": null, "title": "\#(title)", "artist_credit": \#(credit("c-" + artist, "A", artists: [artist])), "type": "album", "date": "1997-09-22", "barcode": null, "cover_url": null, "has_note": false, "link": "l"}"#
     }
 
     static func releaseGroupDetail(_ id: String, _ title: String, artist: String) -> String {
-        #"{"id": "\#(id)", \#(stamp), "mbid": null, "release_mbid": null, "title": "\#(title)", "artist_credit": \#(credit("c-" + artist, "A", artists: [artist])), "type": "album", "date": "1997-09-22", "barcode": null, "track_count": 1, "disc_count": 1, "length_ms": 4000, "play_states": {"file": 1, "slice": 0, "radio_excerpt": 0, "file_missing": 0, "link_only": 0, "no_source": 0}, "link_kinds": [], "cover_url": null, "link": "l"}"#
+        #"{"id": "\#(id)", \#(stamp), "mbid": null, "release_mbid": null, "title": "\#(title)", "artist_credit": \#(credit("c-" + artist, "A", artists: [artist])), "type": "album", "date": "1997-09-22", "barcode": null, "track_count": 1, "disc_count": 1, "length_ms": 4000, "play_states": {"file": 1, "slice": 0, "radio_excerpt": 0, "file_missing": 0, "link_only": 0, "no_source": 0}, "link_kinds": [], "cover_url": null, "has_note": false, "link": "l"}"#
     }
 
     static func playability(_ state: String, link: String? = nil) -> String {
@@ -78,7 +78,7 @@ nonisolated enum LibraryFixtures {
     }
 
     static func recording(_ id: String, _ title: String, credit: String) -> String {
-        #"{"id": "\#(id)", \#(stamp), "mbid": null, "title": "\#(title)", "artist_credit": \#(credit), "length_ms": 245000, "preferred_source_id": null, "link": "[[recording:\#(id)|\#(title)]]"}"#
+        #"{"id": "\#(id)", \#(stamp), "mbid": null, "title": "\#(title)", "artist_credit": \#(credit), "length_ms": 245000, "preferred_source_id": null, "has_note": false, "link": "[[recording:\#(id)|\#(title)]]"}"#
     }
 
     static func track(
@@ -279,6 +279,24 @@ struct LibraryBrowserTests {
         #expect(!browser.canGoBack)
         browser.select(artist: "a2")
         #expect(!browser.canGoForward)
+    }
+
+    /// A note saved or deleted in a panel flips the icon of the rows that show it.
+    @Test func aSavedNoteShowsOnItsRowsWithoutAReload() async throws {
+        let transport = routed(Self.routes)
+        let browser = LibraryBrowser(connection: connection(transport))
+        browser.select(artist: "a1")
+        browser.select(album: .releaseGroup("g1"))
+        await browser.settle()
+        let requests = transport.requests.count
+        let row = try #require(browser.tracks.first)
+        #expect(!row.hasNote)
+
+        browser.setHasNote(true, for: EntityRef(type: .recording, id: row.recordingID))
+        browser.setHasNote(true, for: EntityRef(type: .releaseGroup, id: "g1"))
+        #expect(browser.tracks.first?.hasNote == true)
+        #expect(browser.releaseGroups.first { $0.id == "g1" }?.hasNote == true)
+        #expect(transport.requests.count == requests)
     }
 
     /// One history per window across both views: Back from the Library after following a

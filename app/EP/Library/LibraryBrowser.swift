@@ -148,6 +148,26 @@ final class LibraryBrowser: HistoryNavigating {
         }
     }
 
+    /// A note in a detail panel was saved or deleted: the album and track rows showing
+    /// that entity get the note icon, or lose it, without a reload (artists: `ArtistList`).
+    func setHasNote(_ hasNote: Bool, for ref: EntityRef) {
+        switch ref.type {
+        case .releaseGroup:
+            for index in releaseGroups.indices where releaseGroups[index].id == ref.id {
+                releaseGroups[index].hasNote = hasNote
+            }
+            for index in appearances.indices where appearances[index].id == ref.id {
+                appearances[index].hasNote = hasNote
+            }
+        case .recording:
+            for index in tracks.indices where tracks[index].recordingID == ref.id {
+                tracks[index].hasNote = hasNote
+            }
+        default:
+            break
+        }
+    }
+
     // MARK: - Loading
 
     /// Reloads what is shown (window activation, reconnect); content stays meanwhile.

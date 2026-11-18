@@ -11,14 +11,14 @@ nonisolated enum EditFixtures {
     static let credit = #"{"id": "c1", "name": "Björk feat. Robert Wyatt", "names": [{"artist_id": "a1", "credited_name": "Björk", "join_phrase": " feat. "}, {"artist_id": "a2", "credited_name": "Robert Wyatt", "join_phrase": ""}]}"#
 
     static let group =
-        #"{"id": "g1", \#(F.stamp), "mbid": "3c1c0000-0000-0000-0000-00000000a92e", "release_mbid": null, "title": "Medúlla", "artist_credit": \#(F.credit("c0", "Björk", artists: ["a1"])), "type": "album", "date": "2004-08-30", "barcode": null, "track_count": 2, "disc_count": 1, "length_ms": 8000, "play_states": {"file": 2, "slice": 0, "radio_excerpt": 0, "file_missing": 0, "link_only": 0, "no_source": 0}, "link_kinds": [], "cover_url": null, "link": "l"}"#
+        #"{"id": "g1", \#(F.stamp), "mbid": "3c1c0000-0000-0000-0000-00000000a92e", "release_mbid": null, "title": "Medúlla", "artist_credit": \#(F.credit("c0", "Björk", artists: ["a1"])), "type": "album", "date": "2004-08-30", "barcode": null, "track_count": 2, "disc_count": 1, "length_ms": 8000, "play_states": {"file": 2, "slice": 0, "radio_excerpt": 0, "file_missing": 0, "link_only": 0, "no_source": 0}, "link_kinds": [], "cover_url": null, "has_note": false, "link": "l"}"#
 
     static func track(_ id: String, _ title: String, position: Int, credit: String = F.credit("c0", "Björk", artists: ["a1"])) -> String {
         #"{"id": "\#(id)", \#(F.stamp), "release_group_id": "g1", "disc": 1, "position": \#(position), "title": null, "recording": \#(F.recording("r-" + id, title, credit: credit)), "playability": \#(F.playability("file"))}"#
     }
 
     static let artist =
-        #"{"id": "a1", \#(F.stamp), "mbid": "11111111-0000-0000-0000-000000000001", "name": "Björk", "sort_name": "Björk", "disambiguation": "", "type": "person", "counts": {"release_groups": 1, "loose_recordings": 0, "appearances": 0, "radio_episodes": 0}, "radio_only": false, "link": "l"}"#
+        #"{"id": "a1", \#(F.stamp), "mbid": "11111111-0000-0000-0000-000000000001", "name": "Björk", "sort_name": "Björk", "disambiguation": "", "type": "person", "counts": {"release_groups": 1, "loose_recordings": 0, "appearances": 0, "radio_episodes": 0}, "radio_only": false, "has_note": false, "link": "l"}"#
 
     static func decode<T: Decodable>(_ type: T.Type, _ json: String) throws -> T {
         try JSONDecoder.iso8601Fractional.decode(type, from: Data(json.utf8))

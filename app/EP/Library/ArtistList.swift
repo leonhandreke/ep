@@ -83,6 +83,14 @@ final class ArtistList {
         start(debounced: false)
     }
 
+    /// An artist's note was saved or deleted: its row's note icon follows, without a reload.
+    func setHasNote(_ hasNote: Bool, artistID: String) {
+        for (number, page) in pages {
+            guard let index = page.firstIndex(where: { $0.id == artistID }) else { continue }
+            pages[number]?[index].hasNote = hasNote
+        }
+    }
+
     /// Loads the loaded pages again (window activation, reconnect). Rows stay visible
     /// until the answer replaces them.
     func reload() {

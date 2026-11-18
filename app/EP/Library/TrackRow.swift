@@ -24,7 +24,7 @@ struct TrackRow: Identifiable, Hashable {
     /// The note link to the recording ("Copy Link").
     let link: String
     /// The recording has a note (the note icon after the title).
-    let hasNote: Bool
+    var hasNote: Bool
 
     struct Note: Hashable {
         var text: String

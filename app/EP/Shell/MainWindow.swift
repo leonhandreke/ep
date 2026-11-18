@@ -71,7 +71,6 @@ struct MainWindow: View {
         _navigation = State(initialValue: navigation)
         let browser = LibraryBrowser(connection: connection, navigation: navigation)
         browser.onPlay = { [weak player] in player?.play($0) }
-        _artists = State(initialValue: ArtistList(connection: connection))
         _browser = State(initialValue: browser)
         let artist = EntityDetails(connection: connection)
         let album = EntityDetails(connection: connection)
@@ -85,6 +84,15 @@ struct MainWindow: View {
         }
         track.onNoteSaved = { [weak artist, weak album] in
             artist?.reload(); album?.reload()
+        }
+        // A note saved or deleted: the note icons of the rows that show it.
+        let artistList = ArtistList(connection: connection)
+        _artists = State(initialValue: artistList)
+        for details in [artist, album, track] {
+            details.onHasNoteChanged = { [weak artistList, weak browser] ref, hasNote in
+                if ref.type == .artist { artistList?.setHasNote(hasNote, artistID: ref.id) }
+                browser?.setHasNote(hasNote, for: ref)
+            }
         }
         _artistDetails = State(initialValue: artist)
         _albumDetails = State(initialValue: album)

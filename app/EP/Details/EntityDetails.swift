@@ -28,6 +28,8 @@ final class EntityDetails {
 
     /// Called after this panel's note was saved (other panels may now be linked from it).
     @ObservationIgnored var onNoteSaved: (() -> Void)?
+    /// A saved note now exists or not (an empty body deletes it): the lists' note icons follow.
+    @ObservationIgnored var onHasNoteChanged: ((EntityRef, Bool) -> Void)?
 
     @ObservationIgnored private let connection: ServerConnection
     @ObservationIgnored private let noteDebounce: Duration
@@ -107,7 +109,13 @@ final class EntityDetails {
                 document = NoteDocument(details.note, ref: ref, connection: connection, debounce: noteDebounce)
             }
             document.isShown = true
-            document.onSaved = { [weak self] in self?.onNoteSaved?() }
+            document.onSaved = { [weak self, weak document] in
+                self?.onNoteSaved?()
+                if let document {
+                    let hasNote = !document.savedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    self?.onHasNoteChanged?(document.ref, hasNote)
+                }
+            }
             note = document
         }
     }

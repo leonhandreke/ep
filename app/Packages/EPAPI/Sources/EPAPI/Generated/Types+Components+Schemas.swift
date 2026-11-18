@@ -214,6 +214,8 @@ extension Components {
             public var createdAt: Foundation.Date
             /// - Remark: Generated from `#/components/schemas/ArtistDetail/disambiguation`.
             public var disambiguation: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ArtistDetail/has_note`.
+            public var hasNote: Swift.Bool
             /// - Remark: Generated from `#/components/schemas/ArtistDetail/id`.
             public var id: Swift.String
             /// The note link to this artist, with its name as display text.
@@ -238,6 +240,7 @@ extension Components {
             ///   - counts:
             ///   - createdAt:
             ///   - disambiguation:
+            ///   - hasNote:
             ///   - id:
             ///   - link: The note link to this artist, with its name as display text.
             ///   - mbid:
@@ -250,6 +253,7 @@ extension Components {
                 counts: Components.Schemas.ArtistCountsRead,
                 createdAt: Foundation.Date,
                 disambiguation: Swift.String,
+                hasNote: Swift.Bool,
                 id: Swift.String,
                 link: Swift.String,
                 mbid: Swift.String? = nil,
@@ -262,6 +266,7 @@ extension Components {
                 self.counts = counts
                 self.createdAt = createdAt
                 self.disambiguation = disambiguation
+                self.hasNote = hasNote
                 self.id = id
                 self.link = link
                 self.mbid = mbid
@@ -275,6 +280,7 @@ extension Components {
                 case counts
                 case createdAt = "created_at"
                 case disambiguation
+                case hasNote = "has_note"
                 case id
                 case link
                 case mbid
@@ -314,6 +320,8 @@ extension Components {
             public var createdAt: Foundation.Date
             /// - Remark: Generated from `#/components/schemas/ArtistRead/disambiguation`.
             public var disambiguation: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ArtistRead/has_note`.
+            public var hasNote: Swift.Bool
             /// - Remark: Generated from `#/components/schemas/ArtistRead/id`.
             public var id: Swift.String
             /// The note link to this artist, with its name as display text.
@@ -335,6 +343,7 @@ extension Components {
             /// - Parameters:
             ///   - createdAt:
             ///   - disambiguation:
+            ///   - hasNote:
             ///   - id:
             ///   - link: The note link to this artist, with its name as display text.
             ///   - mbid:
@@ -345,6 +354,7 @@ extension Components {
             public init(
                 createdAt: Foundation.Date,
                 disambiguation: Swift.String,
+                hasNote: Swift.Bool,
                 id: Swift.String,
                 link: Swift.String,
                 mbid: Swift.String? = nil,
@@ -355,6 +365,7 @@ extension Components {
             ) {
                 self.createdAt = createdAt
                 self.disambiguation = disambiguation
+                self.hasNote = hasNote
                 self.id = id
                 self.link = link
                 self.mbid = mbid
@@ -366,6 +377,7 @@ extension Components {
             public enum CodingKeys: String, CodingKey {
                 case createdAt = "created_at"
                 case disambiguation
+                case hasNote = "has_note"
                 case id
                 case link
                 case mbid
@@ -3028,6 +3040,8 @@ extension Components {
             public var artistCredit: Components.Schemas.ArtistCreditRead
             /// - Remark: Generated from `#/components/schemas/PlayableRecordingRead/created_at`.
             public var createdAt: Foundation.Date
+            /// - Remark: Generated from `#/components/schemas/PlayableRecordingRead/has_note`.
+            public var hasNote: Swift.Bool
             /// - Remark: Generated from `#/components/schemas/PlayableRecordingRead/id`.
             public var id: Swift.String
             /// - Remark: Generated from `#/components/schemas/PlayableRecordingRead/length_ms`.
@@ -3051,6 +3065,7 @@ extension Components {
             /// - Parameters:
             ///   - artistCredit:
             ///   - createdAt:
+            ///   - hasNote:
             ///   - id:
             ///   - lengthMs:
             ///   - link: The note link to this recording, with its title as display text.
@@ -3062,6 +3077,7 @@ extension Components {
             public init(
                 artistCredit: Components.Schemas.ArtistCreditRead,
                 createdAt: Foundation.Date,
+                hasNote: Swift.Bool,
                 id: Swift.String,
                 lengthMs: Swift.Int? = nil,
                 link: Swift.String,
@@ -3073,6 +3089,7 @@ extension Components {
             ) {
                 self.artistCredit = artistCredit
                 self.createdAt = createdAt
+                self.hasNote = hasNote
                 self.id = id
                 self.lengthMs = lengthMs
                 self.link = link
@@ -3085,6 +3102,7 @@ extension Components {
             public enum CodingKeys: String, CodingKey {
                 case artistCredit = "artist_credit"
                 case createdAt = "created_at"
+                case hasNote = "has_note"
                 case id
                 case lengthMs = "length_ms"
                 case link
@@ -4101,6 +4119,8 @@ extension Components {
             public var artistCredit: Components.Schemas.ArtistCreditRead
             /// - Remark: Generated from `#/components/schemas/RecordingDetail/created_at`.
             public var createdAt: Foundation.Date
+            /// - Remark: Generated from `#/components/schemas/RecordingDetail/has_note`.
+            public var hasNote: Swift.Bool
             /// - Remark: Generated from `#/components/schemas/RecordingDetail/id`.
             public var id: Swift.String
             /// - Remark: Generated from `#/components/schemas/RecordingDetail/length_ms`.
@@ -4126,6 +4146,7 @@ extension Components {
             /// - Parameters:
             ///   - artistCredit:
             ///   - createdAt:
+            ///   - hasNote:
             ///   - id:
             ///   - lengthMs:
             ///   - link: The note link to this recording, with its title as display text.
@@ -4138,6 +4159,7 @@ extension Components {
             public init(
                 artistCredit: Components.Schemas.ArtistCreditRead,
                 createdAt: Foundation.Date,
+                hasNote: Swift.Bool,
                 id: Swift.String,
                 lengthMs: Swift.Int? = nil,
                 link: Swift.String,
@@ -4150,6 +4172,7 @@ extension Components {
             ) {
                 self.artistCredit = artistCredit
                 self.createdAt = createdAt
+                self.hasNote = hasNote
                 self.id = id
                 self.lengthMs = lengthMs
                 self.link = link
@@ -4163,6 +4186,7 @@ extension Components {
             public enum CodingKeys: String, CodingKey {
                 case artistCredit = "artist_credit"
                 case createdAt = "created_at"
+                case hasNote = "has_note"
                 case id
                 case lengthMs = "length_ms"
                 case link
@@ -4180,6 +4204,8 @@ extension Components {
             public var artistCredit: Components.Schemas.ArtistCreditRead
             /// - Remark: Generated from `#/components/schemas/RecordingRead/created_at`.
             public var createdAt: Foundation.Date
+            /// - Remark: Generated from `#/components/schemas/RecordingRead/has_note`.
+            public var hasNote: Swift.Bool
             /// - Remark: Generated from `#/components/schemas/RecordingRead/id`.
             public var id: Swift.String
             /// - Remark: Generated from `#/components/schemas/RecordingRead/length_ms`.
@@ -4201,6 +4227,7 @@ extension Components {
             /// - Parameters:
             ///   - artistCredit:
             ///   - createdAt:
+            ///   - hasNote:
             ///   - id:
             ///   - lengthMs:
             ///   - link: The note link to this recording, with its title as display text.
@@ -4211,6 +4238,7 @@ extension Components {
             public init(
                 artistCredit: Components.Schemas.ArtistCreditRead,
                 createdAt: Foundation.Date,
+                hasNote: Swift.Bool,
                 id: Swift.String,
                 lengthMs: Swift.Int? = nil,
                 link: Swift.String,
@@ -4221,6 +4249,7 @@ extension Components {
             ) {
                 self.artistCredit = artistCredit
                 self.createdAt = createdAt
+                self.hasNote = hasNote
                 self.id = id
                 self.lengthMs = lengthMs
                 self.link = link
@@ -4232,6 +4261,7 @@ extension Components {
             public enum CodingKeys: String, CodingKey {
                 case artistCredit = "artist_credit"
                 case createdAt = "created_at"
+                case hasNote = "has_note"
                 case id
                 case lengthMs = "length_ms"
                 case link
@@ -4543,6 +4573,8 @@ extension Components {
             public var date: Swift.String?
             /// - Remark: Generated from `#/components/schemas/ReleaseGroupDetail/disc_count`.
             public var discCount: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/ReleaseGroupDetail/has_note`.
+            public var hasNote: Swift.Bool
             /// - Remark: Generated from `#/components/schemas/ReleaseGroupDetail/id`.
             public var id: Swift.String
             /// - Remark: Generated from `#/components/schemas/ReleaseGroupDetail/length_ms`.
@@ -4576,6 +4608,7 @@ extension Components {
             ///   - createdAt:
             ///   - date:
             ///   - discCount:
+            ///   - hasNote:
             ///   - id:
             ///   - lengthMs:
             ///   - link: The note link to this release group, with its title as display text.
@@ -4594,6 +4627,7 @@ extension Components {
                 createdAt: Foundation.Date,
                 date: Swift.String? = nil,
                 discCount: Swift.Int,
+                hasNote: Swift.Bool,
                 id: Swift.String,
                 lengthMs: Swift.Int,
                 link: Swift.String,
@@ -4612,6 +4646,7 @@ extension Components {
                 self.createdAt = createdAt
                 self.date = date
                 self.discCount = discCount
+                self.hasNote = hasNote
                 self.id = id
                 self.lengthMs = lengthMs
                 self.link = link
@@ -4631,6 +4666,7 @@ extension Components {
                 case createdAt = "created_at"
                 case date
                 case discCount = "disc_count"
+                case hasNote = "has_note"
                 case id
                 case lengthMs = "length_ms"
                 case link
@@ -4659,6 +4695,8 @@ extension Components {
             public var createdAt: Foundation.Date
             /// - Remark: Generated from `#/components/schemas/ReleaseGroupRead/date`.
             public var date: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ReleaseGroupRead/has_note`.
+            public var hasNote: Swift.Bool
             /// - Remark: Generated from `#/components/schemas/ReleaseGroupRead/id`.
             public var id: Swift.String
             /// The note link to this release group, with its title as display text.
@@ -4683,6 +4721,7 @@ extension Components {
             ///   - coverUrl: Path of the cover image (``GET /covers/release-group/{id}``, with a version
             ///   - createdAt:
             ///   - date:
+            ///   - hasNote:
             ///   - id:
             ///   - link: The note link to this release group, with its title as display text.
             ///   - mbid:
@@ -4696,6 +4735,7 @@ extension Components {
                 coverUrl: Swift.String? = nil,
                 createdAt: Foundation.Date,
                 date: Swift.String? = nil,
+                hasNote: Swift.Bool,
                 id: Swift.String,
                 link: Swift.String,
                 mbid: Swift.String? = nil,
@@ -4709,6 +4749,7 @@ extension Components {
                 self.coverUrl = coverUrl
                 self.createdAt = createdAt
                 self.date = date
+                self.hasNote = hasNote
                 self.id = id
                 self.link = link
                 self.mbid = mbid
@@ -4723,6 +4764,7 @@ extension Components {
                 case coverUrl = "cover_url"
                 case createdAt = "created_at"
                 case date
+                case hasNote = "has_note"
                 case id
                 case link
                 case mbid
