@@ -15,7 +15,7 @@ from sqlmodel import Session, SQLModel, func, select
 
 from ep.importers import resolve
 from ep.importers.folder import FolderImporter, cover_art_url
-from ep.importers.resolve import without_edition
+from ep.importers.resolve import catalog_number_in, search_titles
 from ep.metadata.musicbrainz import MBRelease
 from ep.models import (
     Artist,
@@ -227,7 +227,7 @@ def test_reimport_links_album_to_musicbrainz(
     recordings, which gain the MBIDs; the title stays; no file imported again."""
     album = deluxe_promises(music / "Promises (Deluxe Edition)")
     with monkeypatch.context() as patch:  # as before the search without edition
-        patch.setattr(resolve, "without_edition", lambda title: None)
+        patch.setattr(resolve, "search_titles", lambda title: [title])
         job = post_import(client, album)
         assert run() == {uuid.UUID(job["id"]): JobState.done}
     rg = release_group(session)
@@ -297,16 +297,49 @@ def test_reimport_raises_no_issue_for_album_in_library(
 
 
 @pytest.mark.parametrize(
-    ("title", "stripped"),
+    ("title", "fallbacks"),
     [
-        ("Midnights (3am Edition)", "Midnights"),
-        ("Abbey Road [Super Deluxe Edition] (Remastered)", "Abbey Road (Remastered)"),
-        ("Editions of You", None),
-        ("(Deluxe Edition)", None),
+        ("Midnights (3am Edition)", ["Midnights"]),
+        ("Abbey Road [Super Deluxe Edition] (Remastered)", ["Abbey Road"]),
+        ("Sgt. Pepper - 2017 Remaster", ["Sgt. Pepper"]),
+        (
+            "The Dark Side Of The Moon [Toshiba-EMI Black Triangle CP35-3017]",
+            ["The Dark Side Of The Moon"],
+        ),
+        ("Kind of Blue (Legacy Edition) [CK 64935]", ["Kind of Blue [CK 64935]", "Kind of Blue"]),
+        ("(What's the Story) Morning Glory?", []),
+        ("Editions of You", []),
+        ("(Deluxe Edition)", []),
     ],
 )
-def test_without_edition(title: str, stripped: str | None) -> None:
-    assert without_edition(title) == stripped
+def test_search_titles(title: str, fallbacks: list[str]) -> None:
+    assert search_titles(title) == [title, *fallbacks]
+
+
+def test_catalog_number_in_title() -> None:
+    def release(*numbers: str) -> MBRelease:
+        return MBRelease.model_validate(
+            {"id": str(uuid.uuid4()), "title": "x",
+             "label-info": [{"catalog-number": n} for n in numbers]}
+        )  # fmt: skip
+
+    title = "The Dark Side Of The Moon [Toshiba-EMI Black Triangle CP35-3017]"
+    assert catalog_number_in(release("SHVL-804", "CP35-3017"), title)
+    assert not catalog_number_in(release("CP35-301"), title)  # whole words only
+    assert not catalog_number_in(release(), title)
+
+
+def test_folder_cover_in_artwork_folder(
+    client: TestClient, session: Session, music: Path, run: Any, cover_png: Path
+) -> None:
+    album = sine_waves(music / "Sine Waves")
+    (album / "Artwork").mkdir()
+    shutil.copy(cover_png, album / "Artwork" / "Front.png")
+    (album / "Artwork" / "Disc.png").write_bytes(png_bytes())
+    post_import(client, album)
+    run()
+    cover_path = release_group(session).cover_path
+    assert cover_path and digest(Path(cover_path)) == digest(cover_png)
 
 
 @pytest.mark.parametrize("choice", ["keep_as_entered"])

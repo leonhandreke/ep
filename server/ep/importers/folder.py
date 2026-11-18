@@ -19,10 +19,10 @@ Input: a directory under the media roots. The importer
    exact: an ``uncertain_metadata`` issue.
 
 Matching and applying are the framework's (``ep.importers.framework``). The cover is an
-image file named cover/folder/front next to the files, else the only image file in the
-album folder, else the embedded picture, else (for an album found in MusicBrainz) the
-release's front cover from the Cover Art Archive; it is stored by ``ep.covers`` in the
-managed library.
+image file named cover/folder/front next to the files (or in an artwork subfolder:
+"Artwork/Front.png"), else the only image file in the album folder, else the embedded
+picture, else (for an album found in MusicBrainz) the release's front cover from the
+Cover Art Archive; it is stored by ``ep.covers`` in the managed library.
 
 Re-importing a folder also completes the albums already imported from it (their files
 are not imported again):
@@ -100,6 +100,8 @@ AUDIO_EXTENSIONS = frozenset(
 )  # fmt: skip
 COVER_NAMES = ("cover", "folder", "front")
 COVER_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp")
+# Subfolders of an album folder that hold its artwork ("Artwork/Front.png").
+ARTWORK_FOLDERS = ("artwork", "art", "covers", "scans", "images")
 VARIOUS_ARTISTS = "Various Artists"
 # MusicBrainz's special purpose artist for compilations of several artists.
 VARIOUS_ARTISTS_MBID = uuid.UUID("89ad4ac3-39f7-470e-963a-56509c546377")
@@ -634,9 +636,17 @@ def _images(folder: Path) -> list[Path]:
 
 def _cover_file(directory: Path, files: Iterable[Path]) -> Path | None:
     """An image file named cover/folder/front in the album folder (or, for a multi-disc
-    album, in a disc folder), else the only image file in the album folder (scans in
-    subfolders do not count)."""
-    folders = [directory, *sorted({path.parent for path in files})]
+    album, in a disc folder, or in an artwork subfolder: "Artwork/Front.png"), else the
+    only image file in the album folder (other scans in subfolders do not count)."""
+    artwork = sorted(
+        (
+            path
+            for path in directory.iterdir()
+            if path.name.casefold() in ARTWORK_FOLDERS and path.is_dir()
+        ),
+        key=lambda p: p.name,
+    )
+    folders = [directory, *sorted({path.parent for path in files}), *artwork]
     for folder in dict.fromkeys(folders):
         for path in _images(folder):
             if path.stem.casefold() in COVER_NAMES:

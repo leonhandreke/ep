@@ -6,11 +6,12 @@ and lengths) and asks MusicBrainz which release that is:
 - ``search_release``: a release search (title, artist, track count); up to
   ``MAX_RELEASE_LOOKUPS`` candidates are fetched in full and the first whose tracks fit
   (``align`` and ``durations_fit``) is used. Candidates that are otherwise exact but do
-  not fit raise an ``uncertain_metadata`` issue. A title with an edition in brackets
-  ("Midnights (3am Edition)", "X [Deluxe Edition]") is searched again without it as a
-  fallback, since MusicBrainz keeps editions in the disambiguation; its candidates come
-  after those of the full title. Nothing found is a normal outcome: the release is
-  imported as entered;
+  not fit raise an ``uncertain_metadata`` issue. A title with an edition or pressing in
+  it ("Midnights (3am Edition)", "X [Toshiba-EMI CP35-3017]") is searched again as a
+  fallback (``search_titles``): without editions, then without trailing brackets, since
+  MusicBrainz keeps both out of titles; their candidates come after those of the full
+  title. Hits with a catalog number the title mentions are tried first. Nothing found is
+  a normal outcome: the release is imported as entered;
 - ``first_fitting``: the first of some releases (from a URL or barcode lookup) whose
   tracks fit;
 - ``use_musicbrainz``: takes a fitting release's metadata (titles, credits, MBIDs) into
@@ -46,7 +47,7 @@ from ep.importers.proposal import (
     issue_id,
 )
 from ep.matching.match import AUTO_MATCH_SCORE, DURATION_TOLERANCE_MS, text_score
-from ep.matching.normalize import normalize_title
+from ep.matching.normalize import normalize, normalize_title, strip_edition
 from ep.metadata.musicbrainz import (
     MBRelease,
     MBTrack,
@@ -63,14 +64,30 @@ MIN_SEARCH_SCORE = 90
 MAX_RELEASE_LOOKUPS = 3
 # Candidates shown in an uncertain_metadata issue.
 MAX_METADATA_CANDIDATES = 5
-# A bracketed edition in a release title: "(3am Edition)", "[Deluxe Edition]".
-_EDITION = re.compile(r"\s*[(\[][^()\[\]]*\bedition\b[^()\[\]]*[)\]]", re.IGNORECASE)
+# Bracketed parts at the end of a title: " [Toshiba-EMI CP35-3017] (1983)".
+_TRAILING_BRACKETS = re.compile(r"(?:\s*[(\[][^()\[\]]*[)\]])+\s*$")
 
 
-def without_edition(title: str) -> str | None:
-    """The title without bracketed editions, or None if it has none (or is only that)."""
-    stripped = _EDITION.sub("", title).strip()
-    return stripped if stripped and stripped != title else None
+def search_titles(title: str) -> list[str]:
+    """The release titles to search for, in order: the title, then without editions
+    ("(3am Edition)", "[Deluxe Edition]", " - 2011 Remaster"), then without trailing
+    brackets (a pressing: "[Toshiba-EMI Black Triangle CP35-3017]")."""
+    titles = [title]
+    for fallback in (strip_edition(title), _TRAILING_BRACKETS.sub("", title)):
+        fallback = " ".join(fallback.split())
+        if fallback and fallback not in titles:
+            titles.append(fallback)
+    return titles
+
+
+def catalog_number_in(hit: MBRelease, title: str) -> bool:
+    """Whether the title mentions one of the release's catalog numbers ("CP35-3017")."""
+    words = f" {normalize(title)} "
+    return any(
+        f" {normalize(info.catalog_number)} " in words
+        for info in hit.label_info
+        if info.catalog_number and normalize(info.catalog_number)
+    )
 
 
 def skip_release(release: IncomingRelease) -> None:
@@ -101,9 +118,7 @@ def search_release(
     release already in the library.
     """
     fits = fits or _fits_by_position
-    titles = [release.title]
-    if (stripped := without_edition(release.title)) is not None:
-        titles.append(stripped)
+    titles = search_titles(release.title)
     # One candidate list per searched title, the full title first.
     groups: list[list[MBRelease]] = []
     seen: set[uuid.UUID] = set()
@@ -185,6 +200,7 @@ def _search_candidates(
         ),
         key=lambda hit: (
             hit.id in known,
+            catalog_number_in(hit, release.title),
             hit.score or 0,
             any(m.format == "Digital Media" for m in hit.media),
             hit.country == "XW",

@@ -141,6 +141,10 @@ class MBMedium(MBModel):
     tracks: list[MBTrack] = Field(default_factory=list)
 
 
+class MBLabelInfo(MBModel):
+    catalog_number: EmptyIsNone = None
+
+
 class MBRelease(MBModel):
     id: uuid.UUID
     title: str
@@ -152,6 +156,7 @@ class MBRelease(MBModel):
     artist_credit: list[MBArtistCreditPart] = Field(default_factory=list)
     release_group: MBReleaseGroup | None = None
     media: list[MBMedium] = Field(default_factory=list)
+    label_info: list[MBLabelInfo] = Field(default_factory=list)
     # Lookups only (``inc=genres``).
     genres: list[MBGenre] = Field(default_factory=list)
     score: int | None = None
