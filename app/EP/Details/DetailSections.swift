@@ -1,9 +1,9 @@
 import EPAPI
 import SwiftUI
 
-/// The body of a detail panel (§3.7): Note, Tags and Linked from stacked, 22 pt apart,
-/// scrolling together. `id` prefixes the identifiers (`detail.artist`, …). The Radio view
-/// (stage 7) hosts the same three sections in tabs.
+/// The body of a detail panel (§3.7): Note, Tags (a track: Sources) and Linked from
+/// stacked, 22 pt apart, scrolling together. `id` prefixes the identifiers
+/// (`detail.artist`, …). The Radio view (stage 7) hosts the same three sections in tabs.
 struct DetailPanelBody: View {
     let details: EntityDetails
     let id: String
@@ -22,6 +22,9 @@ struct DetailPanelBody: View {
                 VStack(alignment: .leading, spacing: Metrics.sectionSpacing) {
                     NoteSection(details: details, id: id)
                     TagsSection(details: details, id: id)
+                    if case .track = kind, let ref = details.ref, ref.type == .recording {
+                        SourcesSection(recordingID: ref.id, id: id)
+                    }
                     LinkedFromSection(details: details, id: id, kind: kind)
                 }
                 .padding(.top, 14)
