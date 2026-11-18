@@ -1,10 +1,10 @@
 import EPAPI
 import SwiftUI
 
-/// The body of a detail panel (§3.7): Note, Tags (an artist or album: Links; a track:
-/// Sources) and Linked from stacked, 22 pt apart, scrolling together. `id` prefixes the
-/// identifiers (`detail.artist`, …). The Radio view (stage 7) hosts Note, Tags and Linked
-/// from in tabs.
+/// The body of a detail panel (§3.7): Note, Tags (an artist or album: Links), Linked from
+/// and, for a track, Sources at the bottom, stacked 22 pt apart, scrolling together. `id`
+/// prefixes the identifiers (`detail.artist`, …). The Radio view (stage 7) hosts Note,
+/// Tags and Linked from in tabs.
 struct DetailPanelBody: View {
     let details: EntityDetails
     let id: String
@@ -26,10 +26,10 @@ struct DetailPanelBody: View {
                     if let ref = details.ref, ref.type == .artist || ref.type == .releaseGroup {
                         LinksSection(ref: ref, id: id)
                     }
+                    LinkedFromSection(details: details, id: id, kind: kind)
                     if case .track = kind, let ref = details.ref, ref.type == .recording {
                         SourcesSection(recordingID: ref.id, id: id)
                     }
-                    LinkedFromSection(details: details, id: id, kind: kind)
                 }
                 .padding(.top, 14)
                 .padding(.horizontal, 18)
