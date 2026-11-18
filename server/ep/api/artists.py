@@ -3,8 +3,9 @@ from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, status
 from fastapi.exceptions import RequestValidationError
-from sqlalchemy import ColumnElement, exists, literal, tuple_
+from sqlalchemy import ColumnElement, and_, exists, literal, tuple_
 from sqlalchemy import select as sa_select
+from sqlalchemy.orm import aliased
 from sqlmodel import col, func, select
 
 from ep.api.deps import PAGED, PageDep, SessionDep, get_or_404
@@ -67,6 +68,22 @@ def _appearances(artist_id: uuid.UUID) -> list[ColumnElement[bool]]:
     return [~col(ReleaseGroup.artist_credit_id).in_(credits), credited_track]
 
 
+def _appearances_only() -> ColumnElement[bool]:
+    """Condition on ``Artist``: credited on no release group, and all of its (at least
+    one) recordings are tracks of release groups: it only appears on others' albums."""
+    credits = (
+        select(ArtistCreditName.artist_credit_id)
+        .where(col(ArtistCreditName.artist_id) == col(Artist.id))
+        .correlate_except(ArtistCreditName)  # nested in EXISTS: correlate to the artist
+    )
+    recording = aliased(Recording)
+    is_track = exists().where(col(Track.recording_id) == col(recording.id))
+    has_release_group = exists().where(col(ReleaseGroup.artist_credit_id).in_(credits))
+    on_album = exists().where(col(recording.artist_credit_id).in_(credits), is_track)
+    off_album = exists().where(col(recording.artist_credit_id).in_(credits), ~is_track)
+    return and_(~has_release_group, on_album, ~off_album)
+
+
 # The order of ``GET /artists``.
 _ARTIST_ORDER = (col(Artist.sort_name), col(Artist.name), col(Artist.id))
 
@@ -75,7 +92,7 @@ ArtistFilter = Annotated[str | None, Query(min_length=1)]
 
 def _listed_artists(include_radio_only: bool, q: str | None) -> list[ColumnElement[bool]]:
     """The conditions of ``GET /artists`` with these parameters."""
-    where = []
+    where = [~_appearances_only()]
     if (visible := visible_artists(include_radio_only)) is not None:
         where.append(visible)
     if q is not None:
@@ -94,8 +111,11 @@ def list_artists(
     include_radio_only: bool = False,
     q: ArtistFilter = None,
 ) -> list[ArtistRead]:
-    """Artists by sort name. Artists only known from radio tracklists (no release group,
-    only radio-only recordings, see ``ep.radio``) are left out unless
+    """Artists by sort name. Artists that only appear on others' albums (credited on no
+    release group, all their recordings tracks of release groups: the featured artist of
+    "Bonobo feat. Rhye") are left out; their page lists the albums under
+    ``/artists/{id}/appearances``. Artists only known from radio tracklists (no release
+    group, only radio-only recordings, see ``ep.radio``) are left out unless
     ``include_radio_only``. ``q`` filters (still by sort name): artists whose name or
     sort name contains it, ignoring case, accents and punctuation (index-backed; for
     ranked fuzzy matching use ``/search``). Where an artist or a typed name is in this

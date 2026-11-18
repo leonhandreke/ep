@@ -209,3 +209,34 @@ def test_list_artist_appearances(client: TestClient) -> None:
     assert rhye_counts["appearances"] == 1
     assert rhye_counts["release_groups"] == 1
     assert client.get(f"/artists/{uuid.uuid4()}/appearances").status_code == 404
+
+
+def test_list_artists_leaves_out_artists_that_only_appear(client: TestClient) -> None:
+    """An artist only featured on others' albums is not in the list (nor has a position
+    in it); one with an album or a recording of its own is, and so is one without any."""
+    bonobo = make_artist(client, "Bonobo")
+    rhye = make_artist(client, "Rhye")
+    loose = make_artist(client, "Loose")
+    make_artist(client, "Empty")
+    migration = make_release_group(client, bonobo, "Migration")
+    featured = post(
+        client, "/recordings", {"title": "Break Apart", "artist_credit": credit(bonobo, rhye)}
+    )
+    make_track(client, migration, featured, 1)
+    duet = post(client, "/recordings", {"title": "Duet", "artist_credit": credit(bonobo, loose)})
+    make_track(client, migration, duet, 2)
+    make_recording(client, loose, "Single")  # a track of its own, on no album
+
+    def names(**params: str) -> list[str]:
+        response = client.get("/artists", params=params)
+        assert response.status_code == 200, response.text
+        return [artist["name"] for artist in response.json()]
+
+    assert names() == ["Bonobo", "Empty", "Loose"]
+    assert names(q="rhye") == []
+    position = client.get("/artists/position", params={"id": rhye["id"]})
+    assert position.status_code == 404
+    assert client.get(f"/artists/{rhye['id']}").status_code == 200  # still has a page
+
+    make_release_group(client, rhye, "Woman")
+    assert names() == ["Bonobo", "Empty", "Loose", "Rhye"]

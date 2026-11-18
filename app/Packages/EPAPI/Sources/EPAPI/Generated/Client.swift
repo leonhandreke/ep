@@ -38,8 +38,11 @@ public struct Client: APIProtocol {
     }
     /// List Artists
     ///
-    /// Artists by sort name. Artists only known from radio tracklists (no release group,
-    /// only radio-only recordings, see ``ep.radio``) are left out unless
+    /// Artists by sort name. Artists that only appear on others' albums (credited on no
+    /// release group, all their recordings tracks of release groups: the featured artist of
+    /// "Bonobo feat. Rhye") are left out; their page lists the albums under
+    /// ``/artists/{id}/appearances``. Artists only known from radio tracklists (no release
+    /// group, only radio-only recordings, see ``ep.radio``) are left out unless
     /// ``include_radio_only``. ``q`` filters (still by sort name): artists whose name or
     /// sort name contains it, ignoring case, accents and punctuation (index-backed; for
     /// ranked fuzzy matching use ``/search``). Where an artist or a typed name is in this
