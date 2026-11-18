@@ -258,7 +258,7 @@ private struct EpisodeRow: View {
 
 /// Header "14 Mar 2025 — Homage to the night shift" / "31 entries · 2:00:00 · 22 matched";
 /// 26 pt rows on the grid `64 1fr 1.3fr 120`: time, artist, title, state. Matched entries'
-/// artist and title are links into the Library. Double-click or Return plays the episode
+/// artist and title have a link icon each that shows them in the Library. Double-click or Return plays the episode
 /// from the entry; the entry playing now shows the bars.
 private struct TracklistColumn: View {
     var focus: FocusState<RadioColumn?>.Binding
@@ -394,11 +394,12 @@ private struct TracklistRow: View {
     var body: some View {
         let colors = RowForeground(emphasized: emphasized)
         let recording = entry.recording
-        HStack(spacing: 8) {
-            HStack(spacing: 4) {
+        TextRow(spacing: 8) {
+            TextRow(spacing: 4) {
                 if isPlaying {
                     Image(systemName: "chart.bar.fill")
                         .font(.system(size: 9))
+                        .centeredOnText()
                         .accessibilityHidden(true)
                 }
                 Text(RadioFormat.time(entry))
@@ -409,20 +410,17 @@ private struct TracklistRow: View {
             .foregroundStyle(colors.tertiary)
             .frame(width: 64, alignment: .leading)
             ColumnGrid(spec: Self.textColumns) {
-                link(
+                cell(
                     recording?.artistCredit.name ?? entry.artistText,
                     to: recording?.artistCredit.names.first.map { EntityRef(type: .artist, id: $0.artistId) },
-                    colors: colors, id: "tracklist.row.\(entry.id).artist"
+                    colors: colors, id: "tracklist.row.\(entry.id).artist", label: String(localized: "Show artist")
                 )
-                .frame(maxWidth: .infinity, alignment: .leading)
-                link(
+                cell(
                     recording?.title ?? entry.titleText,
                     to: recording.map { EntityRef(type: .recording, id: $0.id) }, colors: colors,
-                    id: "tracklist.row.\(entry.id).title"
+                    id: "tracklist.row.\(entry.id).title", label: String(localized: "Show track")
                 )
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(height: RowHeight.tracklistEntry)
             Text(RadioFormat.state(entry))
                 .font(Typography.meta)
                 .foregroundStyle(
@@ -453,29 +451,35 @@ private struct TracklistRow: View {
         openEntity?(OpenTarget(entity: ref), newWindow: false)
     }
 
-    /// A matched entry's artist or title: an `--accent` link into the Library; unmatched
-    /// text is plain `--text2`.
-    @ViewBuilder private func link(_ text: String, to ref: EntityRef?, colors: RowForeground, id: String)
+    /// An entry's artist or title, as text; a matched one is followed by a small link icon
+    /// that shows it in the Library (⌥⌘-click: in a new window). Unmatched text is `--text2`.
+    private func cell(_ text: String, to ref: EntityRef?, colors: RowForeground, id: String, label: String)
         -> some View
     {
-        if let ref {
-            Button {
-                openEntity?(OpenTarget(entity: ref), newWindow: NSEvent.modifierFlags.contains([.command, .option]))
-            } label: {
-                Text(text)
-                    .font(Typography.body)
-                    .foregroundStyle(emphasized ? Palette.selText : Palette.accent)
-                    .underline()
-                    .lineLimit(1)
-            }
-            .buttonStyle(.plain)
-            .pointerStyle(.link)
-            .accessibilityIdentifier(id)
-        } else {
+        TextRow(spacing: 4) {
             Text(text)
                 .font(Typography.body)
-                .foregroundStyle(colors.secondary)
+                .foregroundStyle(ref == nil ? colors.secondary : colors.primary)
                 .lineLimit(1)
+            if let ref {
+                Button {
+                    openEntity?(
+                        OpenTarget(entity: ref), newWindow: NSEvent.modifierFlags.contains([.command, .option]))
+                } label: {
+                    Image(systemName: "link")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(emphasized ? Palette.selText : Palette.accent)
+                        .frame(width: 16, height: 16)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .pointerStyle(.link)
+                .help(label)
+                .accessibilityLabel("\(label): \(text)")
+                .accessibilityIdentifier(id)
+                .centeredOnText()
+            }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
