@@ -173,3 +173,13 @@ struct TagSuggestionsTests {
         #expect(!model.rows.contains(.create("Strings")))  // "strings" exists, ignoring case
     }
 }
+
+struct ServiceLinkTests {
+    @Test func wikipediaNamesItsLanguageUnlessEnglish() {
+        typealias Link = Components.Schemas.ServiceLinkRead
+        #expect(Link(label: "de", service: .wikipedia, url: "https://de.wikipedia.org/x").title == "Wikipedia (de)")
+        #expect(Link(label: "en", service: .wikipedia, url: "https://en.wikipedia.org/x").title == "Wikipedia")
+        #expect(Link(service: .officialHomepage, url: "https://example.org").title == "Homepage")
+        #expect(Link(service: .musicbrainz, url: "https://musicbrainz.org/x").title == "MusicBrainz")
+    }
+}
