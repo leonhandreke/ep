@@ -351,6 +351,9 @@ class Issue(Model):
     subject: Subject
     # Best first; empty for kinds without candidates.
     candidates: list[IssueCandidate] = Field(default_factory=list)
+    # Most likely first: clients pre-select the first. For an uncertain match,
+    # ``pick_candidate`` (meaning the best candidate) comes first only if that is a
+    # likely match, else ``create_new`` does (``ep.importers.framework.issue_choices``).
     choices: list[Choice]
     # The user's answer; null while the issue is open. Set when the answer is submitted
     # (``POST /imports/{id}/review``), before the job runs again.

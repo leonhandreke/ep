@@ -250,6 +250,8 @@ def _release_group(
             mbid=mb_release_group.id,
             release_mbid=release.id,
             barcode=release.barcode,
+            date=mb_release_group.first_release_date,
+            release_date=release.date,
         )
         release_group = result.match
     if release_group is not None:

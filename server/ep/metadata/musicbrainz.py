@@ -59,6 +59,11 @@ class MBModel(BaseModel):
     )
 
 
+class MBAlias(MBModel):
+    name: str
+    sort_name: str = ""
+
+
 class MBArtist(MBModel):
     id: uuid.UUID
     name: str
@@ -66,6 +71,8 @@ class MBArtist(MBModel):
     disambiguation: str = ""
     # Person, Group, Orchestra, Choir, Character, Other, or unknown.
     type: str | None = None
+    # Artist searches only: other names (spellings, search hints, legal names).
+    aliases: list[MBAlias] = Field(default_factory=list)
     # Search results only: relevance 0-100.
     score: int | None = None
 

@@ -670,7 +670,8 @@ def test_uncertain_release_group_and_recording(
 ) -> None:
     artist = make_artist(client, "The Oscillators")
     first = make_release_group(client, artist, "Sine Waves", date="2019")
-    make_release_group(client, artist, "Sine Waves", date="2020")
+    # Same year: either could be it (another year would decide it, see test_matching).
+    make_release_group(client, artist, "Sine Waves", date="2019-11")
     loose = [make_recording(client, artist, "Sine One") for _ in range(2)]
     sine_waves(music / "Sine Waves")
     job = post_import(client, music / "Sine Waves")
@@ -678,7 +679,7 @@ def test_uncertain_release_group_and_recording(
     [issue] = get_job(client, job["id"])["proposal"]["issues"]
     assert issue["kind"] == "uncertain_release_group"
     assert issue["choices"] == ["pick_candidate", "create_new", "skip"]
-    assert {c["detail"] for c in issue["candidates"]} == {"2019", "2020"}
+    assert {c["detail"] for c in issue["candidates"]} == {"2019", "2019-11"}
 
     # Into an empty release group: its tracks are matched one by one.
     review(

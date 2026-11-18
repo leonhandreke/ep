@@ -7,7 +7,13 @@ framework does the rest, identically for every kind:
 - ``match_proposal``: maps incoming release groups, tracks and artists to the library
   with ``ep.matching`` (auto match, new, or an issue for the user). Releases resolved to
   MusicBrainz are matched too: by MBID, else against library rows without an MBID
-  (which gain it on apply), and so are their artists;
+  (which gain it on apply), and so are their artists. An incoming artist without an
+  MBID is first looked up in MusicBrainz (``ep.importers.artist_lookup``, by a title
+  it is credited on): found, it takes the MBID, so it matches the library by MBID (or
+  a row without MBID by name, which gains it) and never a homonym with another MBID.
+  Lookups are cached for the run; a MusicBrainz error is logged and ends lookups for
+  the run, and the artists are matched by name. An issue offers its choices most
+  likely first (``issue_choices``);
 - ``run_job``: the job state machine. A job with open (blocking) issues stops at
   ``needs_review``; answers (``record_answers``) re-run it from the start, each stage
   consulting the answers by issue id, until nothing is open. Then it downloads and
@@ -50,12 +56,14 @@ from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path, PurePath
 
+from pydantic import ValidationError
 from sqlalchemy import event, update
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, col, select
 
 from ep import covers
 from ep.credits import CreditPart, get_or_create_artist_credit
+from ep.importers.artist_lookup import find_mb_artist
 from ep.importers.musicbrainz import (
     add_isrcs,
     artist_type,
@@ -97,7 +105,8 @@ from ep.importers.proposal import (
     issue_id,
 )
 from ep.matching import Decision, MatchResult, match_artist, match_recording, match_release_group
-from ep.matching.normalize import normalize
+from ep.matching.match import likely
+from ep.matching.normalize import normalize, normalize_artist
 from ep.media_roots import is_within_media_roots
 from ep.metadata import web
 from ep.metadata.musicbrainz import (
@@ -105,6 +114,7 @@ from ep.metadata.musicbrainz import (
     MBArtistCreditPart,
     MBRelease,
     MusicBrainz,
+    MusicBrainzError,
     render_artist_credit,
 )
 from ep.metadata.web import WebError
@@ -209,6 +219,10 @@ class JobContext:
         self.issues: list[Issue] = []
         # MusicBrainz releases fetched in this run, by release MBID.
         self.mb_releases: dict[uuid.UUID, MBRelease] = {}
+        # MusicBrainz artists looked up for incoming artists without MBID in this run,
+        # by normalised name (None: not found); no more lookups once one failed.
+        self.mb_artists: dict[str, MBArtist | None] = {}
+        self.mb_artist_lookups = True
         self.in_transaction = False
         # Undo actions for files written in the apply transaction (run if it fails).
         self.rollback_actions: list[Callable[[], None]] = []
@@ -775,11 +789,7 @@ def decide[T: Base](
             message=f"Is {subject.label!r} one of these {what}s in the library, or new?",
             subject=subject,
             candidates=[_issue_candidate(c.entity, c.score) for c in result.candidates],
-            choices=[
-                Choice.pick_candidate,
-                Choice.create_new,
-                *([Choice.skip] if can_skip else []),
-            ],
+            choices=[*issue_choices(result), *([Choice.skip] if can_skip else [])],
             blocking=blocking,
         )
         answer = ctx.raise_issue(issue)
@@ -799,6 +809,17 @@ def decide[T: Base](
     if taken is not None and isinstance(target, ExistingTarget):
         taken.add(target.id)
     return target
+
+
+def issue_choices[T: Base](result: MatchResult[T]) -> list[Choice]:
+    """``pick_candidate`` and ``create_new``, the more likely first (``Issue.choices``):
+    picking the best candidate if it is a likely match (``ep.matching.match.likely``:
+    an artist of the same normalised name, a recording or release group scoring at
+    least ``LIKELY_MATCH_SCORE``), else a new entity. Most incoming items that need
+    review are new: look-alikes are rarely the same."""
+    if likely(result.candidates):
+        return [Choice.pick_candidate, Choice.create_new]
+    return [Choice.create_new, Choice.pick_candidate]
 
 
 def credit_name(parts: Sequence[IncomingCreditPart]) -> str:
@@ -926,6 +947,8 @@ def _match_artists(ctx: JobContext, proposal: Proposal) -> None:
         if artist.key not in used:
             artist.target = SKIP
         elif artist.target.kind is TargetKind.undecided:
+            if artist.mbid is None:
+                _identify_artist(ctx, proposal, artist)
             label = artist.name + (f" ({artist.disambiguation})" if artist.disambiguation else "")
             artist.target = decide(
                 ctx,
@@ -937,6 +960,43 @@ def _match_artists(ctx: JobContext, proposal: Proposal) -> None:
                 blocking=not used[artist.key],
             )
         ctx.advance()
+
+
+def _identify_artist(ctx: JobContext, proposal: Proposal, artist: IncomingArtist) -> None:
+    """Give an incoming artist without MBID the MBID of its MusicBrainz artist, if
+    ``find_mb_artist`` is sure, with the titles it is credited on as context; it also
+    takes MusicBrainz's sort name, disambiguation and type where it has none, and
+    keeps its name."""
+    key = normalize_artist(artist.name)
+    if not key or not ctx.mb_artist_lookups:
+        return
+    if key not in ctx.mb_artists:
+
+        def credits(item: IncomingRelease | IncomingTrack) -> bool:
+            return any(part.artist_key == artist.key for part in item.credit)
+
+        try:
+            ctx.mb_artists[key] = find_mb_artist(
+                ctx.musicbrainz,
+                artist.name,
+                release_titles=[r.title for r in proposal.releases if credits(r)],
+                recording_titles=[t.title for t in proposal.all_tracks() if credits(t)],
+            )
+        except (MusicBrainzError, ValidationError) as e:
+            ctx.mb_artist_lookups = False
+            ctx.log(
+                f"MusicBrainz artist lookup failed, matching artists by name: {e}",
+                LogLevel.warning,
+            )
+            return
+    found = ctx.mb_artists[key]
+    if found is None:
+        return
+    artist.mbid = found.id
+    artist.sort_name = artist.sort_name or found.sort_name
+    artist.disambiguation = artist.disambiguation or found.disambiguation
+    artist.type = artist.type or artist_type(found)
+    ctx.log(f"artist {artist.name!r} is MusicBrainz artist {found.name!r} ({found.id})")
 
 
 def _mb_or_new(mbid: uuid.UUID | None, label: str | None = None) -> Target:
@@ -987,6 +1047,8 @@ def _match_mb_release(
             mbid=release.mbid,
             release_mbid=release.release_mbid,
             barcode=release.barcode,
+            date=release.date,
+            release_date=mb_release.date,
         )
         release.target = decide(
             ctx,
@@ -1089,6 +1151,7 @@ def _match_release_group(ctx: JobContext, proposal: Proposal, release: IncomingR
         artist_names=_artist_names(proposal, release.credit),
         mbid=release.mbid,
         barcode=release.barcode,
+        date=release.date,
     )
     release.target = decide(
         ctx,

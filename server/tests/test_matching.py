@@ -6,6 +6,14 @@ from sqlmodel import Session
 
 from ep.credits import CreditPart, get_or_create_artist_credit
 from ep.matching import Decision, MatchMethod, match_artist, match_recording, match_release_group
+from ep.matching.match import (
+    AUTO_MATCH_SCORE,
+    LIKELY_MATCH_SCORE,
+    REVIEW_SCORE,
+    likely,
+    name_edit_budget,
+    name_edits,
+)
 from ep.matching.normalize import normalize, normalize_artist, normalize_title
 from ep.models import Artist, EntityType, ExternalId, Recording, ReleaseGroup, ReleaseGroupType
 
@@ -144,6 +152,80 @@ def test_match_artist_new_and_by_mbid(session: Session) -> None:
     assert match_artist(session, "Aphex Twin", mbid=uuid.uuid4()).match is plain
 
 
+@pytest.mark.parametrize(
+    ("library", "incoming"),
+    [
+        ("The Beatles", "Beatles"),
+        ("Sigur Rós", "Sigur Ros"),
+        ("Godspeed You! Black Emperor", "Godspeed You Black Emperor"),
+    ],
+)
+def test_match_artist_same_normalised_name(session: Session, library: str, incoming: str) -> None:
+    row = artist(session, library)
+    session.flush()
+    result = match_artist(session, incoming)
+    assert result.match is row
+    assert result.candidates[0].score == 100
+
+
+@pytest.mark.parametrize(
+    ("library", "incoming"),
+    [
+        ("Godspeed You! Black Emperor", "Godspeed You Black Emporer"),  # two edits, long name
+        ("Sigur Rós", "Sigur Ross"),  # one edit
+        ("Jozef Van Wissem & SQÜRL", "Jozef Van Wissem/SQÜRL"),  # a joining "and"
+    ],
+)
+def test_match_artist_close_name_is_asked(session: Session, library: str, incoming: str) -> None:
+    row = artist(session, library)
+    session.flush()
+    result = match_artist(session, incoming)
+    assert result.decision is Decision.needs_review
+    assert [c.entity for c in result.candidates] == [row]
+    assert REVIEW_SCORE <= result.candidates[0].score < LIKELY_MATCH_SCORE
+    assert not likely(result.candidates)
+
+
+@pytest.mark.parametrize(
+    ("library", "incoming"),
+    [
+        # Real issues from the fuzzy matcher, all answered "new".
+        ("Sandy Denny", "Martin Denny"),
+        ("Jeanette", "Jetty"),
+        ("The Replacements", "Spacemen 3"),
+        ("Pink Floyd", "Pink Turns Blue"),
+        ('"Blue" Gene Tyranny', "Pink Turns Blue"),
+        ("Turnstile", "Pink Turns Blue"),
+        # Another word, another number, one letter in a short name.
+        ("Tord Gustavsen Quartet", "Tord Gustavsen Trio"),
+        ("Spacemen 2", "Spacemen 3"),
+        ("Lou", "Low"),
+    ],
+)
+def test_match_artist_look_alikes_are_new(session: Session, library: str, incoming: str) -> None:
+    artist(session, library)
+    session.flush()
+    result = match_artist(session, incoming)
+    assert result.decision is Decision.new
+    assert result.candidates == []
+
+
+def test_match_artist_exact_wins_over_close(session: Session) -> None:
+    sigur_ros = artist(session, "Sigur Rós")
+    artist(session, "Sigur Ross")
+    session.flush()
+    result = match_artist(session, "Sigur Ros")
+    assert result.decision is Decision.auto_match
+    assert result.match is sigur_ros
+
+
+def test_name_edit_budget() -> None:
+    assert [name_edit_budget(n) for n in (1, 5, 6, 10, 11, 30)] == [0, 0, 1, 1, 2, 2]
+    assert name_edits("tord gustavsen trio", "tord gustavsen quartet") is None
+    assert name_edits("godspeed you black emperor", "godspeed you black emporer") == 2
+    assert name_edits("jozef van wissem and squrl", "jozef van wissem squrl") == 0
+
+
 # Recordings
 
 
@@ -279,6 +361,37 @@ def test_match_release_group(session: Session) -> None:
     assert result.match is abbey_road
     without_artist = match_release_group(session, "Abbey Road")
     assert without_artist.decision is Decision.needs_review
+
+
+def test_match_release_group_year(session: Session) -> None:
+    nina = artist(session, "Nina Simone")
+    pastel = release_group(session, "Pastel Blues", nina, date="1965-10")
+    same = match_release_group(session, "Pastel Blues", artist="Nina Simone", date="1965")
+    assert same.match is pastel
+    # A year off: asked, but likely the same.
+    near = match_release_group(session, "Pastel Blues", artist="Nina Simone", date="1966-01-01")
+    assert near.decision is Decision.needs_review
+    assert near.candidates[0].score == AUTO_MATCH_SCORE - 1
+    assert likely(near.candidates)
+    # A reissue: another release group.
+    reissue = match_release_group(session, "Pastel Blues", artist="Nina Simone", date="2004")
+    assert (reissue.decision, reissue.candidates) == (Decision.new, [])
+    # The closer of the release group's and the release's dates counts.
+    resolved = match_release_group(
+        session, "Pastel Blues", artist="Nina Simone", date="2004", release_date="1965"
+    )
+    assert resolved.match is pastel
+    # Unknown on either side: not compared.
+    assert match_release_group(session, "Pastel Blues", artist="Nina Simone").match is pastel
+    undated = release_group(session, "Wild Is the Wind", nina)
+    assert (
+        match_release_group(session, "Wild Is the Wind", artist="Nina Simone", date="1966").match
+        is undated
+    )
+    # Exact identifiers are not affected.
+    pastel.barcode = "0680899009720"
+    session.flush()
+    assert match_release_group(session, barcode="0680899009720", date="2004").match is pastel
 
 
 def test_match_release_group_by_ids(session: Session) -> None:

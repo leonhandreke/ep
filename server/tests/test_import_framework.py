@@ -39,6 +39,7 @@ from ep.importers.proposal import (
 )
 from ep.jobs.queue import create_import, defer_app
 from ep.jobs.tasks import recover_interrupted_jobs
+from ep.metadata.musicbrainz import MBRelease, MusicBrainzError
 from ep.models import (
     Artist,
     ImportJob,
@@ -52,6 +53,7 @@ from ep.models import (
 from ep.settings import Settings
 from tests.helpers import make_artist
 from tests.imports import get_job, review, run_queued
+from tests.mock_musicbrainz import MockMusicBrainz
 
 
 def count(session: Session, model: type[SQLModel]) -> int:
@@ -542,3 +544,84 @@ def test_worker_start_with_queued_jobs_on_postgres(session: Session) -> None:
             {"lock": str(lost.id)},
         )
         assert recover_interrupted_jobs(session) == [lost.id]
+
+
+# Incoming artists without MBID: MusicBrainz first, then strict names
+
+
+class ArtistSearchMusicBrainz(MockMusicBrainz):
+    """Finds Nina Simone (``NINA``) on a "Pastel Blues" release; or fails."""
+
+    def __init__(self, fail: bool = False) -> None:
+        super().__init__()
+        self.fail = fail
+        self.searches = 0
+
+    def search_releases(self, query: str, limit: int = 25) -> list[MBRelease]:
+        self.searches += 1
+        if self.fail:
+            raise MusicBrainzError("MusicBrainz request failed: timed out")
+        nina = {"id": str(NINA), "name": "Nina Simone", "sort-name": "Simone, Nina"}
+        hit = {
+            "id": str(uuid.uuid4()),
+            "title": "Pastel Blues",
+            "score": 100,
+            "artist-credit": [{"name": "Nina Simone", "artist": nina}],
+        }
+        return [MBRelease.model_validate(hit)]
+
+
+NINA = uuid.UUID("af8e4cc5-ef54-458d-a194-7b210acf638f")
+
+
+def test_musicbrainz_tells_homonyms_apart(
+    client: TestClient,
+    session: Session,
+    job: ImportJob,
+    fake: FakeImporter,
+    settings: Settings,
+    job_queue: InMemoryConnector,
+) -> None:
+    """The artist is MusicBrainz's Nina Simone: the homonym with another MBID is not a
+    candidate, the one without MBID matches by name and gains the MBID."""
+    make_artist(client, disambiguation="someone else", mbid=str(uuid.uuid4()))
+    plain = make_artist(client)
+    mb = ArtistSearchMusicBrainz()
+    states = run_queued(session, job_queue, settings, mb, importers={ImportKind.youtube: fake})
+    assert states == {job.id: JobState.done}
+    read = get_job(client, str(job.id))
+    assert read["proposal"]["issues"] == []
+    assert read["proposal"]["artists"][0]["target"]["id"] == plain["id"]
+    assert session.get_one(Artist, uuid.UUID(plain["id"])).mbid == NINA
+    assert mb.searches == 1
+
+
+def test_musicbrainz_errors_fall_back_to_names(
+    client: TestClient,
+    session: Session,
+    job: ImportJob,
+    fake: FakeImporter,
+    settings: Settings,
+    job_queue: InMemoryConnector,
+) -> None:
+    make_artist(client, disambiguation="a")
+    make_artist(client, disambiguation="b")
+    mb = ArtistSearchMusicBrainz(fail=True)
+    states = run_queued(session, job_queue, settings, mb, importers={ImportKind.youtube: fake})
+    assert states == {job.id: JobState.needs_review}
+    read = get_job(client, str(job.id))
+    [issue] = read["proposal"]["issues"]
+    assert issue["kind"] == "uncertain_artist"
+    assert any("artist lookup failed" in entry["message"] for entry in read["log"])
+
+
+def test_close_name_offers_new_first(
+    client: TestClient, session: Session, job: ImportJob, run: Any
+) -> None:
+    """A name within the edit budget is asked, but "new" is the likelier answer: first."""
+    make_artist(client, "Nina Simon")
+    assert run() == {job.id: JobState.needs_review}
+    [issue] = get_job(client, str(job.id))["proposal"]["issues"]
+    assert issue["kind"] == "uncertain_artist"
+    assert issue["choices"] == ["create_new", "pick_candidate"]
+    assert issue["candidates"][0]["score"] < 85

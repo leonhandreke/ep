@@ -1,19 +1,32 @@
 """Matching artists, release groups and recordings against the local library.
 
 Each entry point takes whatever the caller knows (names, MBIDs, external IDs, a
-duration) and tries, in order:
+duration, a date) and tries, in order:
 
 1. MBID: a local row with that MBID is an automatic match.
 2. External IDs (ISRC, barcode, Deezer, ...): one row with any of them is an automatic
    match; several need review.
-3. Fuzzy: candidates by Postgres trigram word similarity of the normalised query to
-   the normalised title or name (``ep.matching.sql``, index-backed), re-scored with
-   rapidfuzz on normalised strings (``ep.matching.normalize``), which also strips
-   featured artists and edition suffixes. A recording or release group scores
-   ``title score * artist score / 100``, so the same title by another artist scores
-   low. Recordings whose duration differs by more than ``DURATION_TOLERANCE_MS`` are
-   dropped when both durations are known. Titles with different numbers ("Movement 1"
-   and "Movement 2", "Part II" and "Part III") are never matched automatically.
+3. Text: candidates by Postgres trigram word similarity of the normalised query to
+   the normalised title or name (``ep.matching.sql``, index-backed), then filtered and
+   scored on normalised strings (``ep.matching.normalize``), which also strips
+   featured artists and edition suffixes:
+
+   - Artists (``name_score``): look-alike names are almost never the same artist
+     ("Martin Denny" and "Sandy Denny", "Tord Gustavsen Trio" and "Tord Gustavsen
+     Quartet"), so there is no similarity score. A name (or sort name) equal to the
+     query after ``normalize_artist`` (case, accents, "&"/"and", "The") scores 100;
+     one within a small edit budget (``name_edits``: a typo, a stray "and") scores
+     below ``AUTO_MATCH_SCORE``, so it is asked; anything else is not a candidate.
+     One equal name is an automatic match, several (homonyms) need review.
+   - Recordings and release groups: rapidfuzz on the normalised strings, scoring
+     ``title score * artist score / 100``, so the same title by another artist scores
+     low. Recordings whose duration differs by more than ``DURATION_TOLERANCE_MS`` are
+     dropped when both durations are known. Release groups whose years differ by more
+     than one are dropped when both are known (a reissue is another release group);
+     one year apart (a release date against a first release date) costs
+     ``YEAR_PENALTY`` and is never matched automatically. Titles with different
+     numbers ("Movement 1" and "Movement 2", "Part II" and "Part III") are never
+     matched automatically.
 
 When the caller knows an MBID, rows with a *different* MBID are never candidates in
 steps 2 and 3: they are known to be other entities.
@@ -22,10 +35,13 @@ Candidates are rows whose value contains (most of) the query: word similarity of
 query to the best-matching part of the value. The other way round (a short value
 within a long query) is not indexable and not needed: a value covering less than
 about 40% of the query cannot reach ``REVIEW_SCORE`` with rapidfuzz, and one covering
-more has a word similarity above ``CANDIDATE_MIN_SIMILARITY`` anyway.
+more has a word similarity above ``CANDIDATE_MIN_SIMILARITY`` anyway; an artist name
+within the edit budget is far above it.
 
 The result lists candidates, best first, and a decision: ``auto_match`` (use
 ``result.match``), ``needs_review`` (ask the user) or ``new`` (create an entity).
+``LIKELY_MATCH_SCORE`` tells the caller whether the best candidate of a review is
+more likely the entity than a new one (the order of an issue's choices).
 """
 
 import re
@@ -35,6 +51,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from rapidfuzz import fuzz
+from rapidfuzz.distance import Levenshtein
 from sqlalchemy import ColumnElement, and_, func, or_, true
 from sqlalchemy.orm import Mapped, selectinload
 from sqlalchemy.orm.interfaces import ORMOption
@@ -61,6 +78,11 @@ AUTO_MATCH_SCORE = 90.0
 AUTO_MATCH_MARGIN = 5.0
 # At least this: ask the user. Below: treat as new.
 REVIEW_SCORE = 60.0
+# At least this: the candidate is more likely the entity than a new one, so a review
+# offers it first. An artist with an equal normalised name (100) is likely, one within
+# the edit budget (at most ``CLOSE_NAME_SCORE``) is not; a release group one year off
+# with an equal title and artist (``AUTO_MATCH_SCORE - 1``) is.
+LIKELY_MATCH_SCORE = 85.0
 # Candidates scoring lower are not returned at all.
 MIN_CANDIDATE_SCORE = 40.0
 # Candidates returned, best first.
@@ -71,6 +93,12 @@ DURATION_TOLERANCE_MS = 10_000
 # rapidfuzz.
 CANDIDATE_MIN_SIMILARITY = 0.3
 CANDIDATE_LIMIT = 50
+# An artist name within the edit budget: this, less CLOSE_NAME_EDIT_PENALTY per edit.
+# Below LIKELY_MATCH_SCORE and above REVIEW_SCORE: always asked, "new" offered first.
+CLOSE_NAME_SCORE = 80.0
+CLOSE_NAME_EDIT_PENALTY = 5.0
+# Release groups one year apart (both years known): this much less, and never automatic.
+YEAR_PENALTY = 5.0
 
 
 class Decision(StrEnum):
@@ -122,6 +150,83 @@ _NUMBER = re.compile(r"^(?:\d+|(?=[ivx])x{0,3}(?:ix|iv|v?i{0,3}))$")
 def numbers(normalized: str) -> list[str]:
     """The numbers in a normalised title, in order: "part ii 2" -> ["ii", "2"]."""
     return [word for word in normalized.split() if _NUMBER.match(word)]
+
+
+def name_edit_budget(length: int) -> int:
+    """Character edits allowed between two normalised artist names of this length (the
+    shorter one's).
+
+    Short names are words, where one letter makes another name ("Low" and "Lou",
+    "Jetty" and "Jeanette" are further still): none. Up to ten characters, one (a typo
+    in "Sigur Ross"). Longer, two (a transposed pair is two edits: "Emporer").
+    """
+    return 0 if length <= 5 else 1 if length <= 10 else 2
+
+
+def _without_and(normalized: str) -> str:
+    # "Jozef Van Wissem & SQÜRL" and "Jozef Van Wissem/SQÜRL": a joining "and" is no
+    # part of the names.
+    return " ".join(word for word in normalized.split() if word != "and")
+
+
+def name_edits(query: str, name: str) -> int | None:
+    """Edits (Levenshtein, ignoring a joining "and") between two normalised artist
+    names that may be the same artist, or None if they are not close enough.
+
+    Within ``name_edit_budget``, and the edits must not change what tells artists apart:
+    the words pair up one to one (no word added or dropped: "Spacemen 3" and "The
+    Replacements"), each pair is itself alike (at most a third of the longer word
+    changed: not "Trio" for "Quartet", "Martin" for "Sandy") and the numbers agree
+    ("Spacemen 3" and "Spacemen 2").
+    """
+    a, b = _without_and(query), _without_and(name)
+    if not a or not b:
+        return None
+    words_a, words_b = a.split(), b.split()
+    if len(words_a) != len(words_b) or numbers(a) != numbers(b):
+        return None
+    for x, y in zip(words_a, words_b, strict=True):
+        if x != y and Levenshtein.distance(x, y) > max(len(x), len(y)) // 3:
+            return None
+    distance = Levenshtein.distance(a, b)
+    return distance if distance <= name_edit_budget(min(len(a), len(b))) else None
+
+
+def names_fit(query: str, name: str) -> bool:
+    """Whether a normalised artist name is the query or within its edit budget."""
+    return query == name or name_edits(query, name) is not None
+
+
+def name_score(query: str, names: Iterable[str]) -> float | None:
+    """How well an artist's names (name, sort name; normalised) match a normalised query:
+    100 if one is equal, ``CLOSE_NAME_SCORE`` less a penalty per edit if one is within
+    the edit budget, else None (not a candidate)."""
+    names = set(names)
+    if query in names:
+        return 100.0
+    edits = [e for name in names if (e := name_edits(query, name)) is not None]
+    return CLOSE_NAME_SCORE - CLOSE_NAME_EDIT_PENALTY * min(edits) if edits else None
+
+
+def likely[T: Base](candidates: Sequence[Candidate[T]]) -> bool:
+    """Whether the best candidate is more likely the entity than a new one."""
+    return bool(candidates) and candidates[0].score >= LIKELY_MATCH_SCORE
+
+
+_YEAR = re.compile(r"^(\d{4})")
+
+
+def year(date: str | None) -> int | None:
+    """The year of a partial date ``YYYY[-MM[-DD]]``."""
+    return int(match[1]) if date and (match := _YEAR.match(date)) else None
+
+
+def year_distance(years: Iterable[int], date: str | None) -> int | None:
+    """Years between a row's date and the closest of the incoming years; None if either
+    is unknown."""
+    row_year = year(date)
+    distances = [abs(row_year - y) for y in years] if row_year is not None else []
+    return min(distances) if distances else None
 
 
 def credit_score(artist: str, credit: ArtistCredit, artist_names: Sequence[str] = ()) -> float:
@@ -244,7 +349,8 @@ def match_artist(
     mbid: uuid.UUID | None = None,
     external_ids: ExternalIds = (),
 ) -> MatchResult[Artist]:
-    """Match an artist by MBID, external IDs, then name (or sort name)."""
+    """Match an artist by MBID, external IDs, then name or sort name: equal after
+    normalisation, or within the edit budget (``name_score``)."""
     if mbid and (result := _by_mbid(session, Artist, col(Artist.mbid), mbid)):
         return result
     compatible = _mbid_compatible(col(Artist.mbid), mbid)
@@ -252,6 +358,7 @@ def match_artist(
         return result
     if not name or not (query := normalize_artist(name)):
         return MatchResult(Decision.new, [])
+    # The trigram index only narrows the rows down; the edit budget decides.
     [sql_query] = trigram_queries(session, CANDIDATE_MIN_SIMILARITY, query)
     similarity = func.greatest(
         _similarity(sql_query, col(Artist.name_normalized)),
@@ -268,14 +375,14 @@ def match_artist(
         .limit(CANDIDATE_LIMIT)
     )
     return _result(
-        (
-            artist,
-            max(
-                text_score(query, normalize_artist(artist.name)),
-                text_score(query, normalize_artist(artist.sort_name)),
-            ),
-        )
+        (artist, score)
         for artist in artists
+        if (
+            score := name_score(
+                query, (normalize_artist(artist.name), normalize_artist(artist.sort_name))
+            )
+        )
+        is not None
     )
 
 
@@ -289,10 +396,19 @@ def match_release_group(
     release_mbid: uuid.UUID | None = None,
     barcode: str | None = None,
     external_ids: ExternalIds = (),
+    date: str | None = None,
+    release_date: str | None = None,
 ) -> MatchResult[ReleaseGroup]:
     """Match a release group by MBID (its own or its release's), barcode and external IDs,
-    then title and artist credit text. Without artist text, fuzzy matches need review.
-    ``artist_names``: the individual artists of the credit, if known (see ``credit_score``).
+    then title, artist credit text and year. Without artist text, fuzzy matches need
+    review. ``artist_names``: the individual artists of the credit, if known (see
+    ``credit_score``).
+
+    ``date`` (the release group's first release) and ``release_date`` (the release's
+    own, e.g. of a reissue resolved to MusicBrainz), partial dates ``YYYY[-MM[-DD]]``:
+    a candidate's year is compared to the closer of the two (a library row from tags
+    may carry either). More than a year apart: not a candidate; one year: see
+    ``YEAR_PENALTY``.
     """
     if mbid and (result := _by_mbid(session, ReleaseGroup, col(ReleaseGroup.mbid), mbid)):
         return result
@@ -325,13 +441,19 @@ def match_release_group(
         artist,
         compatible,
     )
-    return _result(
-        (
-            (rg, _title_artist_score(query, rg.title, artist, artist_names, rg.artist_credit))
-            for rg in rows
-        ),
-        allow_auto=bool(artist),
-    )
+    years = [y for y in (year(date), year(release_date)) if y is not None]
+    scored = []
+    for rg in rows:
+        score = _title_artist_score(query, rg.title, artist, artist_names, rg.artist_credit)
+        match year_distance(years, rg.date):
+            case None | 0:
+                pass
+            case 1:
+                score = min(score - YEAR_PENALTY, AUTO_MATCH_SCORE - 1)
+            case _:
+                continue  # a reissue, or another album of the same title
+        scored.append((rg, score))
+    return _result(scored, allow_auto=bool(artist))
 
 
 def match_recording(
