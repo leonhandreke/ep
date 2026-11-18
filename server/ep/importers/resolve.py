@@ -6,8 +6,11 @@ and lengths) and asks MusicBrainz which release that is:
 - ``search_release``: a release search (title, artist, track count); up to
   ``MAX_RELEASE_LOOKUPS`` candidates are fetched in full and the first whose tracks fit
   (``align`` and ``durations_fit``) is used. Candidates that are otherwise exact but do
-  not fit raise an ``uncertain_metadata`` issue. Nothing found is a normal outcome: the
-  release is imported as entered;
+  not fit raise an ``uncertain_metadata`` issue. A title with an edition in brackets
+  ("Midnights (3am Edition)", "X [Deluxe Edition]") is searched again without it as a
+  fallback, since MusicBrainz keeps editions in the disambiguation; its candidates come
+  after those of the full title. Nothing found is a normal outcome: the release is
+  imported as entered;
 - ``first_fitting``: the first of some releases (from a URL or barcode lookup) whose
   tracks fit;
 - ``use_musicbrainz``: takes a fitting release's metadata (titles, credits, MBIDs) into
@@ -19,6 +22,7 @@ matcher's tolerance where both are known. ``align_by_title`` instead pairs track
 title, for inputs whose order means nothing (a playlist).
 """
 
+import re
 import uuid
 from collections import Counter
 from collections.abc import Callable, Iterable
@@ -59,6 +63,14 @@ MIN_SEARCH_SCORE = 90
 MAX_RELEASE_LOOKUPS = 3
 # Candidates shown in an uncertain_metadata issue.
 MAX_METADATA_CANDIDATES = 5
+# A bracketed edition in a release title: "(3am Edition)", "[Deluxe Edition]".
+_EDITION = re.compile(r"\s*[(\[][^()\[\]]*\bedition\b[^()\[\]]*[)\]]", re.IGNORECASE)
+
+
+def without_edition(title: str) -> str | None:
+    """The title without bracketed editions, or None if it has none (or is only that)."""
+    stripped = _EDITION.sub("", title).strip()
+    return stripped if stripped and stripped != title else None
 
 
 def skip_release(release: IncomingRelease) -> None:
@@ -76,6 +88,7 @@ def search_release(
     track_count: bool = True,
     fits: Callable[[IncomingRelease, MBRelease], bool] | None = None,
     entered: str = "tags",
+    ask: bool = True,
 ) -> MBRelease | None:
     """The MusicBrainz release this one is, by search (see the module docstring), or
     None (also when the user answered "keep as entered", or skipped the release).
@@ -84,12 +97,74 @@ def search_release(
     ``artist``: the credit to search for (None: any). ``track_count``: require the
     same number of tracks. ``fits``: decides whether a fetched candidate fits (default:
     ``align`` and ``durations_fit``). ``entered``: what "as entered" is, for messages.
+    ``ask``: False raises no issue (candidates that do not fit: None, logged), for a
+    release already in the library.
     """
     fits = fits or _fits_by_position
-    count = len(release.tracks)
-    query = lucene_query(
-        release=release.title, artist=artist, tracks=str(count) if track_count else None
+    titles = [release.title]
+    if (stripped := without_edition(release.title)) is not None:
+        titles.append(stripped)
+    # One candidate list per searched title, the full title first.
+    groups: list[list[MBRelease]] = []
+    seen: set[uuid.UUID] = set()
+    for title in titles:
+        group = [
+            hit
+            for hit in _search_candidates(ctx, release, title, artist, track_count)
+            if hit.id not in seen
+        ]
+        seen.update(hit.id for hit in group)
+        groups.append(group)
+    candidates = [hit for group in groups for hit in group]
+    issue = Issue(
+        id=issue_id(IssueKind.uncertain_metadata, release.key),
+        kind=IssueKind.uncertain_metadata,
+        message=(
+            f"MusicBrainz has releases like {release_label(release)!r}, but their tracks "
+            f"do not fit. Use one, or import the {entered} as entered."
+        ),
+        subject=subject,
+        candidates=[mb_candidate(hit) for hit in candidates[:MAX_METADATA_CANDIDATES]],
+        choices=[Choice.pick_candidate, Choice.keep_as_entered, Choice.skip],
     )
+    answer = ctx.answers.get(issue.id) if ask else None
+    if answer is not None and answer_fits(issue, answer):
+        ctx.raise_issue(issue)
+        match answer.choice:
+            case Choice.pick_candidate:
+                assert answer.candidate_id is not None
+                return _lookup(ctx, answer.candidate_id)
+            case Choice.skip:
+                skip_release(release)
+        return None
+    for title, group in zip(titles, groups, strict=True):
+        for hit in group[:MAX_RELEASE_LOOKUPS]:
+            try:
+                mb_release = _lookup(ctx, hit.id)
+            except MusicBrainzNotFound:
+                continue
+            if fits(release, mb_release):
+                by = "" if title == release.title else f" (searched as {title!r})"
+                ctx.log(f"found in MusicBrainz{by}: {mb_label(mb_release)} ({mb_release.id})")
+                return mb_release
+    if ask and any(group and group[0].score == 100 for group in groups):
+        ctx.raise_issue(issue)  # open: matching waits for the answer
+        return None
+    outcome = f"importing the {entered} as entered" if ask else "left as it is"
+    ctx.log(f"{release_label(release)!r} not found in MusicBrainz; {outcome}")
+    return None
+
+
+def _search_candidates(
+    ctx: JobContext,
+    release: IncomingRelease,
+    title: str,
+    artist: str | None,
+    track_count: bool,
+) -> list[MBRelease]:
+    """Search hits for this title worth a look, best first."""
+    count = len(release.tracks)
+    query = lucene_query(release=title, artist=artist, tracks=str(count) if track_count else None)
     try:
         hits = ctx.musicbrainz.search_releases(query, limit=25)
     except MusicBrainzError as e:
@@ -101,7 +176,7 @@ def search_release(
             )
         )
     )
-    candidates = sorted(
+    return sorted(
         (
             hit
             for hit in hits
@@ -117,42 +192,6 @@ def search_release(
         ),
         reverse=True,
     )
-    issue = Issue(
-        id=issue_id(IssueKind.uncertain_metadata, release.key),
-        kind=IssueKind.uncertain_metadata,
-        message=(
-            f"MusicBrainz has releases like {release_label(release)!r}, but their tracks "
-            f"do not fit. Use one, or import the {entered} as entered."
-        ),
-        subject=subject,
-        candidates=[mb_candidate(hit) for hit in candidates[:MAX_METADATA_CANDIDATES]],
-        choices=[Choice.pick_candidate, Choice.keep_as_entered, Choice.skip],
-    )
-    answer = ctx.answers.get(issue.id)
-    if answer is not None and answer_fits(issue, answer):
-        ctx.raise_issue(issue)
-        match answer.choice:
-            case Choice.pick_candidate:
-                assert answer.candidate_id is not None
-                return _lookup(ctx, answer.candidate_id)
-            case Choice.skip:
-                skip_release(release)
-        return None
-    for hit in candidates[:MAX_RELEASE_LOOKUPS]:
-        try:
-            mb_release = _lookup(ctx, hit.id)
-        except MusicBrainzNotFound:
-            continue
-        if fits(release, mb_release):
-            ctx.log(f"found in MusicBrainz: {mb_label(mb_release)} ({mb_release.id})")
-            return mb_release
-    if candidates and candidates[0].score == 100:
-        ctx.raise_issue(issue)  # open: matching waits for the answer
-        return None
-    ctx.log(
-        f"{release_label(release)!r} not found in MusicBrainz; importing the {entered} as entered"
-    )
-    return None
 
 
 def first_fitting(

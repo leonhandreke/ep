@@ -9,13 +9,20 @@ from fastapi.testclient import TestClient
 from procrastinate.testing import InMemoryConnector
 from sqlmodel import Session
 
+from ep.importers.folder import FolderImporter
 from ep.importers.framework import Importer, run_job
 from ep.jobs.queue import RUN_IMPORT
 from ep.jobs.tasks import IMPORTERS
 from ep.models import ImportKind, JobState
 from ep.settings import Settings
-from tests.fakes import ffmpeg_output
+from tests.fakes import ffmpeg_output, web_transport
 from tests.mock_musicbrainz import MockMusicBrainz
+
+# The worker's importers, but no folder import fetches from the real Cover Art Archive.
+TEST_IMPORTERS: dict[ImportKind, Importer] = {
+    **IMPORTERS,
+    ImportKind.folder: FolderImporter(web_transport()),
+}
 
 
 def write_audio(
@@ -40,7 +47,7 @@ def run_queued(
     job_queue: InMemoryConnector,
     settings: Settings,
     musicbrainz: MockMusicBrainz | None = None,
-    importers: dict[ImportKind, Importer] = IMPORTERS,
+    importers: dict[ImportKind, Importer] = TEST_IMPORTERS,
 ) -> dict[uuid.UUID, JobState | None]:
     """Run every queued "run import" job, as the worker would, until none is left."""
     musicbrainz = musicbrainz or MockMusicBrainz()

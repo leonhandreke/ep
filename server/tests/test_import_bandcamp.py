@@ -55,7 +55,7 @@ def ytdlp() -> FakeYtDlp:
 def importers(ytdlp: FakeYtDlp) -> dict[ImportKind, Importer]:
     transport = web_transport()
     return {
-        ImportKind.folder: FolderImporter(),
+        ImportKind.folder: FolderImporter(transport),
         ImportKind.bandcamp: BandcampImporter(ytdlp, transport),
         ImportKind.youtube: YouTubeImporter(ytdlp, transport),
     }

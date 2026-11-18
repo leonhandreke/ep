@@ -12,8 +12,8 @@ The fixtures are real responses, recorded once (minified):
   searches for artists ("bjork"), releases and recordings
 - ``search_release_promises_tracks``: a release search by title, artist and track count
   (``release:"Promises" AND artist:"Floating Points" AND tracks:"9"``), answering every
-  such search mentioning "promises"; ``search_release_empty`` (no hits) answers the
-  others
+  such search mentioning "promises" (but no "edition", like MusicBrainz, which keeps
+  editions out of titles); ``search_release_empty`` (no hits) answers the others
 - ``search_release_neighborhoods`` (``release:"Neighborhoods" AND artist:"Ernest
   Hood"``, answering release searches mentioning "neighborhoods") and
   ``release_neighborhoods``: Ernest Hood, "Neighborhoods" (8 tracks, digital release)
@@ -77,7 +77,7 @@ def fixture_name(request: httpx2.Request) -> str | None:
         if "tracks:" in query:  # the folder importer's search
             return (
                 "search_release_promises_tracks"
-                if "promises" in query.lower()
+                if "promises" in query.lower() and "edition" not in query.lower()
                 else ("search_release_empty")
             )
         return "search_release_promises"

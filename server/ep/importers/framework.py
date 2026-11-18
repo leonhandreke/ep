@@ -896,6 +896,14 @@ def _used_artist_keys(ctx: JobContext, proposal: Proposal) -> dict[str, bool]:
     for release in proposal.releases:
         if release.target.kind is TargetKind.skip:
             continue
+        # A MusicBrainz release into a library release group, every track a library
+        # recording: the rows keep their credits, nothing new credits its artists.
+        if (
+            release.release_mbid is not None
+            and isinstance(release.target, ExistingTarget)
+            and all(isinstance(track.target, ExistingTarget) for track in release.tracks)
+        ):
+            continue
         use(part.artist_key for part in release.credit)
         if release.release_mbid is not None and release.release_mbid in ctx.mb_releases:
             mb_release = ctx.mb_releases[release.release_mbid]
@@ -1190,8 +1198,13 @@ class _Applier:
         return self.session.exec(select(Artist).where(Artist.mbid == mbid)).first()
 
     def mb_artists(self, artists: Iterable[MBArtist]) -> dict[uuid.UUID, Artist | None]:
-        """The decided library artists for MusicBrainz artists (``import_release``)."""
-        keys = {artist.key for artist in self.proposal.artists}
+        """The decided library artists for MusicBrainz artists (``import_release``);
+        skipped ones are left to it (found or created if it needs them)."""
+        keys = {
+            artist.key
+            for artist in self.proposal.artists
+            if artist.target.kind is not TargetKind.skip
+        }
         return {
             artist.id: self.artist(mb_artist_key(artist.id))
             for artist in artists

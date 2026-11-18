@@ -163,7 +163,8 @@ def png_bytes() -> bytes:
 
 
 def web_transport(requests: list[str] | None = None) -> httpx2.MockTransport:
-    """Bandcamp pages from the fixtures (404 for others) and a PNG for image URLs."""
+    """Bandcamp pages from the fixtures (404 for others) and a PNG for image URLs
+    (Bandcamp, YouTube, Cover Art Archive)."""
 
     def handle(request: httpx2.Request) -> httpx2.Response:
         url = str(request.url)
@@ -172,7 +173,7 @@ def web_transport(requests: list[str] | None = None) -> httpx2.MockTransport:
         if url in BANDCAMP_PAGES:
             return httpx2.Response(200, content=(BANDCAMP / BANDCAMP_PAGES[url]).read_bytes())
         host = request.url.host
-        if host.endswith("bcbits.com") or host.endswith("ytimg.com"):
+        if host.endswith(("bcbits.com", "ytimg.com", "coverartarchive.org")):
             return httpx2.Response(200, content=png_bytes())
         return httpx2.Response(404, content=b"not found")
 

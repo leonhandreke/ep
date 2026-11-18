@@ -7,15 +7,20 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+import httpx2
 import pytest
 from fastapi.testclient import TestClient
 from procrastinate.testing import InMemoryConnector
 from sqlmodel import Session, SQLModel, func, select
 
+from ep.importers import resolve
+from ep.importers.folder import FolderImporter, cover_art_url
+from ep.importers.resolve import without_edition
 from ep.metadata.musicbrainz import MBRelease
 from ep.models import (
     Artist,
     ExternalId,
+    ImportKind,
     JobState,
     Recording,
     ReleaseGroup,
@@ -24,8 +29,16 @@ from ep.models import (
     Track,
 )
 from ep.settings import Settings
+from tests.fakes import png_bytes, web_transport
 from tests.helpers import make_artist, make_recording, make_release_group, post
-from tests.imports import get_job, post_import, review, run_queued, write_audio
+from tests.imports import (
+    TEST_IMPORTERS,
+    get_job,
+    post_import,
+    review,
+    run_queued,
+    write_audio,
+)
 from tests.mock_musicbrainz import PROMISES_RELEASE, PROMISES_RELEASE_GROUP, fixture
 
 PROMISES = MBRelease.model_validate_json(fixture("release_promises"))
@@ -85,8 +98,9 @@ def promises_untagged(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return directory
 
 
-def promises_tagged(directory: Path, cover: Path) -> Path:
-    """Promises tagged with MusicBrainz IDs (Picard style), short files, and cover.png."""
+def promises_tagged(directory: Path, cover: Path | None) -> Path:
+    """Promises tagged with MusicBrainz IDs (Picard style), short files, and cover.png
+    (with ``cover``)."""
     for track in PROMISES_TRACKS:
         write_audio(
             directory / f"{track.position:02d}.flac",
@@ -101,7 +115,8 @@ def promises_tagged(directory: Path, cover: Path) -> Path:
                 "MUSICBRAINZ_TRACKID": str(track.recording.id),
             },
         )
-    shutil.copy(cover, directory / "Cover.PNG")
+    if cover is not None:
+        shutil.copy(cover, directory / "Cover.PNG")
     return directory
 
 
@@ -178,6 +193,122 @@ def test_folder_found_by_musicbrainz_search(
     assert f"found in MusicBrainz: Promises — {PROMISES_ARTIST} ({PROMISES_RELEASE})" in log
 
 
+def test_folder_found_by_search_without_edition(
+    client: TestClient, session: Session, music: Path, run: Any
+) -> None:
+    album = deluxe_promises(music / "Promises (Deluxe Edition)")
+    job = post_import(client, album)
+    assert run() == {uuid.UUID(job["id"]): JobState.done}
+    assert release_group(session).release_mbid == uuid.UUID(PROMISES_RELEASE)
+    log = [entry["message"] for entry in get_job(client, job["id"])["log"]]
+    assert (
+        f"found in MusicBrainz (searched as 'Promises'): Promises — {PROMISES_ARTIST} "
+        f"({PROMISES_RELEASE})"
+    ) in log
+
+
+def deluxe_promises(album: Path) -> Path:
+    """Promises, untagged with MusicBrainz IDs, as "Promises (Deluxe Edition)"."""
+    for track in PROMISES_TRACKS:
+        write_audio(
+            album / f"{track.position:02d}.flac",
+            (track.length or 0) / 1000,
+            {"title": track.title, "album_artist": PROMISES_ARTIST,
+             "album": "Promises (Deluxe Edition)", "track": track.position},
+        )  # fmt: skip
+    return album
+
+
+def test_reimport_links_album_to_musicbrainz(
+    client: TestClient, session: Session, music: Path, run: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An album imported before as tagged (MusicBrainz search found nothing then) is
+    looked up again on re-import and linked in place: same release group and
+    recordings, which gain the MBIDs; the title stays; no file imported again."""
+    album = deluxe_promises(music / "Promises (Deluxe Edition)")
+    with monkeypatch.context() as patch:  # as before the search without edition
+        patch.setattr(resolve, "without_edition", lambda title: None)
+        job = post_import(client, album)
+        assert run() == {uuid.UUID(job["id"]): JobState.done}
+    rg = release_group(session)
+    assert (rg.title, rg.mbid, rg.release_mbid, rg.cover_path) == (
+        "Promises (Deluxe Edition)",
+        None,
+        None,
+        None,
+    )
+    recordings = {r.id for r in session.exec(select(Recording)).all()}
+    artists = count(session, Artist)
+
+    assert client.post(f"/imports/{job['id']}/retry").status_code == 200
+    assert run() == {uuid.UUID(job["id"]): JobState.done}
+    session.expire_all()
+    rg = release_group(session)
+    assert (rg.title, rg.mbid, rg.release_mbid) == (
+        "Promises (Deluxe Edition)",
+        uuid.UUID(PROMISES_RELEASE_GROUP),
+        uuid.UUID(PROMISES_RELEASE),
+    )
+    assert rg.cover_path  # from the Cover Art Archive
+    by_title = {r.title: r for r in session.exec(select(Recording)).all()}
+    assert set(r.id for r in by_title.values()) == recordings
+    assert [by_title[t.recording.title].mbid for t in PROMISES_TRACKS] == [
+        t.recording.id for t in PROMISES_TRACKS
+    ]
+    assert (count(session, Track), count(session, Source)) == (9, 9)
+    # The release's other artists credit nothing in the library: not added.
+    assert count(session, Artist) == artists
+    read = get_job(client, job["id"])
+    assert read["proposal"]["issues"] == []
+    log = [entry["message"] for entry in read["log"]]
+    assert "1 album(s) imported before have no MusicBrainz release; looking them up again" in log
+    assert (
+        f"found in MusicBrainz (searched as 'Promises'): Promises — {PROMISES_ARTIST} "
+        f"({PROMISES_RELEASE})"
+    ) in log
+
+
+def test_reimport_raises_no_issue_for_album_in_library(
+    client: TestClient, session: Session, music: Path, run: Any
+) -> None:
+    """Candidates that do not fit an album imported before: it stays as it is, without
+    asking again."""
+    for n, track in enumerate(PROMISES_TRACKS, start=1):
+        write_audio(
+            music / "Promises" / f"{n}.flac",
+            1,  # far shorter than on MusicBrainz
+            {"title": track.title, "album_artist": "Floating Points", "album": "Promises",
+             "track": n},
+        )  # fmt: skip
+    job = post_import(client, music / "Promises")
+    assert run() == {uuid.UUID(job["id"]): JobState.needs_review}
+    [issue] = get_job(client, job["id"])["proposal"]["issues"]
+    review(client, job["id"], {"issue_id": issue["id"], "choice": "keep_as_entered"})
+    assert run() == {uuid.UUID(job["id"]): JobState.done}
+
+    again = post_import(client, music / "Promises")
+    assert run() == {uuid.UUID(again["id"]): JobState.done}
+    read = get_job(client, again["id"])
+    assert read["proposal"]["issues"] == []
+    assert "'Promises — Floating Points' not found in MusicBrainz; left as it is" in [
+        entry["message"] for entry in read["log"]
+    ]
+    assert release_group(session).release_mbid is None
+
+
+@pytest.mark.parametrize(
+    ("title", "stripped"),
+    [
+        ("Midnights (3am Edition)", "Midnights"),
+        ("Abbey Road [Super Deluxe Edition] (Remastered)", "Abbey Road (Remastered)"),
+        ("Editions of You", None),
+        ("(Deluxe Edition)", None),
+    ],
+)
+def test_without_edition(title: str, stripped: str | None) -> None:
+    assert without_edition(title) == stripped
+
+
 @pytest.mark.parametrize("choice", ["keep_as_entered"])
 def test_musicbrainz_candidates_that_do_not_fit(
     client: TestClient, session: Session, music: Path, run: Any, choice: str
@@ -222,6 +353,156 @@ def test_musicbrainz_candidates_that_do_not_fit(
         PROMISES_ARTIST if choice == "pick_candidate" else "Floating Points"
     )
     assert count(session, Source) == 9
+
+
+def test_folder_cover_only_image(
+    client: TestClient, session: Session, music: Path, run: Any, cover_png: Path
+) -> None:
+    """Without a cover/folder/front image, the only image in the album folder is the
+    cover; images in a subfolder (scans) do not count."""
+    album = sine_waves(music / "Sine Waves")
+    shutil.copy(cover_png, album / "The Oscillators - Sine Waves.png")
+    (album / "scans").mkdir()
+    shutil.copy(cover_png, album / "scans" / "back.png")
+    job = post_import(client, album)
+    assert run() == {uuid.UUID(job["id"]): JobState.done}
+    rg = release_group(session)
+    assert rg.cover_path and digest(Path(rg.cover_path)) == digest(cover_png)
+
+
+def test_folder_cover_from_cover_art_archive(
+    client: TestClient,
+    session: Session,
+    music: Path,
+    cover_png: Path,
+    job_queue: InMemoryConnector,
+    settings: Settings,
+) -> None:
+    """No cover in the folder (two images that could be anything): an album found in
+    MusicBrainz gets its release's front cover from the Cover Art Archive."""
+    album = promises_tagged(music / "Promises", cover=None)
+    shutil.copy(cover_png, album / "back.png")
+    shutil.copy(cover_png, album / "inlay.png")
+    requests: list[str] = []
+    importers = {**TEST_IMPORTERS, ImportKind.folder: FolderImporter(web_transport(requests))}
+    job = post_import(client, album)
+    assert run_queued(session, job_queue, settings, importers=importers) == {
+        uuid.UUID(job["id"]): JobState.done
+    }
+    assert requests == [cover_art_url(uuid.UUID(PROMISES_RELEASE))]
+    rg = release_group(session)
+    assert rg.cover_path and Path(rg.cover_path).read_bytes() == png_bytes()
+
+
+def test_folder_cover_not_in_cover_art_archive(
+    client: TestClient,
+    session: Session,
+    music: Path,
+    job_queue: InMemoryConnector,
+    settings: Settings,
+) -> None:
+    """The Cover Art Archive has no cover for the release: imported without one."""
+    album = promises_tagged(music / "Promises", cover=None)
+
+    def not_found(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(404)
+
+    transport = httpx2.MockTransport(not_found)
+    importers = {**TEST_IMPORTERS, ImportKind.folder: FolderImporter(transport)}
+    job = post_import(client, album)
+    assert run_queued(session, job_queue, settings, importers=importers) == {
+        uuid.UUID(job["id"]): JobState.done
+    }
+    assert release_group(session).cover_path is None
+    assert any("cover not fetched" in e["message"] for e in get_job(client, job["id"])["log"])
+
+
+def test_reimport_adds_missing_cover(
+    client: TestClient, session: Session, music: Path, run: Any, cover_png: Path
+) -> None:
+    """Re-importing a folder (a retry of a done job) gives an album imported from it
+    without a cover the cover found now; one with a cover keeps it."""
+    album = sine_waves(music / "Sine Waves")
+    job = post_import(client, album)
+    run()
+    assert release_group(session).cover_path is None
+
+    shutil.copy(cover_png, album / "Sine Waves.png")
+    assert client.post(f"/imports/{job['id']}/retry").status_code == 200
+    assert run() == {uuid.UUID(job["id"]): JobState.done}
+    rg = release_group(session)
+    session.refresh(rg)
+    cover_path = release_group(session).cover_path
+    assert cover_path and digest(Path(cover_path)) == digest(cover_png)
+    log = [entry["message"] for entry in get_job(client, job["id"])["log"]]
+    assert "cover added to Sine Waves" in log
+    assert count(session, ReleaseGroup) == 1 and count(session, Source) == 3
+
+    cover_path = rg.cover_path
+    (album / "Sine Waves.png").unlink()
+    shutil.copy(cover_png, album / "cover.png")
+    assert client.post(f"/imports/{job['id']}/retry").status_code == 200
+    run()
+    session.refresh(rg)
+    assert rg.cover_path == cover_path
+
+
+def test_reimport_adds_cover_from_cover_art_archive(
+    client: TestClient,
+    session: Session,
+    music: Path,
+    job_queue: InMemoryConnector,
+    settings: Settings,
+) -> None:
+    """An album matched to MusicBrainz, imported while the Cover Art Archive had no
+    cover: a re-import fetches it."""
+    album = promises_tagged(music / "Promises", cover=None)
+
+    def not_found(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(404)
+
+    job = post_import(client, album)
+    no_covers = FolderImporter(httpx2.MockTransport(not_found))
+    importers = {**TEST_IMPORTERS, ImportKind.folder: no_covers}
+    run_queued(session, job_queue, settings, importers=importers)
+    rg = release_group(session)
+    assert rg.cover_path is None
+
+    requests: list[str] = []
+    importers = {**TEST_IMPORTERS, ImportKind.folder: FolderImporter(web_transport(requests))}
+    assert client.post(f"/imports/{job['id']}/retry").status_code == 200
+    assert run_queued(session, job_queue, settings, importers=importers) == {
+        uuid.UUID(job["id"]): JobState.done
+    }
+    assert requests == [cover_art_url(uuid.UUID(PROMISES_RELEASE))]
+    session.refresh(rg)
+    cover_path = release_group(session).cover_path
+    assert cover_path and Path(cover_path).read_bytes() == png_bytes()
+
+
+def test_reimport_adds_cover_to_cue_sheet_album(
+    client: TestClient, session: Session, music: Path, run: Any, cover_png: Path
+) -> None:
+    """A cue sheet album: its tracks are slices of one file source."""
+    album = music / "Live"
+    write_audio(album / "live.flac", 4)
+    (album / "live.cue").write_text(
+        'PERFORMER "The Oscillators"\nTITLE "Live at the Lab"\nFILE "live.flac" WAVE\n'
+        '  TRACK 01 AUDIO\n    TITLE "Warm Up"\n    INDEX 01 00:00:00\n'
+        '  TRACK 02 AUDIO\n    TITLE "Encore"\n    INDEX 01 00:02:00\n',
+        encoding="utf-8",
+    )
+    job = post_import(client, album)
+    run()
+    rg = release_group(session)
+    assert rg.title == "Live at the Lab" and rg.cover_path is None
+
+    shutil.copy(cover_png, album / "The Oscillators - Live.png")
+    assert client.post(f"/imports/{job['id']}/retry").status_code == 200
+    assert run() == {uuid.UUID(job["id"]): JobState.done}
+    session.refresh(rg)
+    cover_path = release_group(session).cover_path
+    assert cover_path and digest(Path(cover_path)) == digest(cover_png)
 
 
 def test_folder_not_in_musicbrainz(
