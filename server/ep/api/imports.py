@@ -35,6 +35,7 @@ from ep.api.schemas import (
 from ep.entities import load_entities
 from ep.host_paths import from_host, to_host
 from ep.importers.framework import (
+    ATTENTION,
     CANCELLABLE,
     DISMISSABLE,
     PICK_ANY,
@@ -350,13 +351,24 @@ def list_import_jobs(
     page: PageDep,
     state: Annotated[list[JobState] | None, Query()] = None,
     kind: ImportKind | None = None,
+    attention: Annotated[
+        bool | None,
+        Query(
+            description="true: only jobs that need attention (``needs_review``, ``failed``: "
+            "the inbox); false: only the others. Combines with ``state``."
+        ),
+    ] = None,
 ) -> list[ImportJobSummary]:
-    """Jobs, newest first. The inbox: ``state=needs_review&state=failed``. Each with
-    what it imports (title, cover, counts), its progress, what it is stuck on and the
-    job a queued one waits for."""
+    """Jobs, newest first. The inbox: ``attention=true`` (``needs_review`` and
+    ``failed`` jobs, waiting for an answer, a retry or a dismiss); the rest of the queue
+    without them: ``attention=false``. Each with what it imports (title, cover, counts),
+    its progress, what it is stuck on and the job a queued one waits for."""
     statement = select(ImportJob)
     if state:
         statement = statement.where(col(ImportJob.state).in_(state))
+    if attention is not None:
+        in_inbox = col(ImportJob.state).in_(ATTENTION)
+        statement = statement.where(in_inbox if attention else ~in_inbox)
     if kind:
         statement = statement.where(ImportJob.kind == kind)
     jobs = session.exec(

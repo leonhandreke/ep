@@ -182,6 +182,8 @@ uv run alembic revision --autogenerate -m "add catalogue"
   (a release conflict's release group), `waiting_for` (the job ahead in the queue) and
   `progress` with the user-facing `step` (metadata, matching, downloading, applying)
   and `fraction` (a running download counted partly: `import_job.progress_item`).
+  `GET /imports?attention=true` lists the jobs that wait for the user (`needs_review`,
+  `failed`: `ep.importers.framework.ATTENTION`), `attention=false` the others.
   `GET /imports/summary` is the cheap poll (counts per state, running fraction, watched
   dirs, `changed_at`). `POST /imports/{id}/cancel` stops a queued or running job (the
   worker checks on every commit of the job's progress, killing a running download; an

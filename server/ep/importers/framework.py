@@ -148,6 +148,8 @@ REVIEWABLE = frozenset({JobState.needs_review, JobState.failed})
 RETRYABLE = frozenset({JobState.needs_review, JobState.failed, JobState.done})
 DISMISSABLE = frozenset({JobState.needs_review, JobState.failed})
 CANCELLABLE = frozenset({JobState.queued, JobState.running})
+# Jobs that wait for the user (a decision, or a retry or dismiss): the inbox.
+ATTENTION = frozenset({JobState.needs_review, JobState.failed})
 
 
 def job_work_dir(library_dir: Path, job_id: uuid.UUID) -> Path:
@@ -1604,6 +1606,7 @@ def sha256_file(path: Path, chunk_size: int = 1 << 20) -> str:
 
 
 __all__ = [
+    "ATTENTION",
     "CANCELLABLE",
     "DISMISSABLE",
     "RETRYABLE",

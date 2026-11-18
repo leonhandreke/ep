@@ -363,6 +363,10 @@ def test_failed_job_stays_in_inbox_until_dismissed(
     assert read["log"][-1]["level"] == "error"
     inbox = client.get("/imports", params={"state": ["needs_review", "failed"]}).json()
     assert [j["id"] for j in inbox] == [str(job.id)]
+    assert [j["id"] for j in client.get("/imports", params={"attention": True}).json()] == [
+        str(job.id)
+    ]
+    assert client.get("/imports", params={"attention": False}).json() == []
 
     fake.fail = None
     assert client.post(f"/imports/{job.id}/retry").json()["state"] == "queued"
@@ -434,6 +438,38 @@ def test_list_import_jobs(client: TestClient, session: Session, job: ImportJob, 
     assert client.get("/imports", params={"state": "done"}).json() == []
     run()
     assert len(client.get("/imports", params={"state": "done"}).json()) == 2
+
+
+def test_list_import_jobs_by_attention(
+    client: TestClient, session: Session, job: ImportJob, run: Any, fake: FakeImporter
+) -> None:
+    """``attention=true`` lists the inbox (``needs_review``, ``failed``),
+    ``attention=false`` the others: the two never overlap and together are the list."""
+    fake.fail = ImportFailed("the page is gone")
+    assert run() == {job.id: JobState.failed}
+    jobs = {}
+    for name, state in [
+        ("done", JobState.done),
+        ("review", JobState.needs_review),
+        ("queued", JobState.queued),
+    ]:
+        jobs[name] = create_import(session, ImportKind.youtube, f"https://example.com/{name}")
+        jobs[name].state = state
+        session.commit()  # one transaction each: distinct created_at
+    review, done, queued = jobs["review"], jobs["done"], jobs["queued"]
+
+    def ids(**params: Any) -> list[str]:
+        response = client.get("/imports", params=params)
+        assert response.status_code == 200
+        return [j["id"] for j in response.json()]
+
+    assert ids(attention=True) == [str(review.id), str(job.id)]
+    assert ids(attention=False) == [str(queued.id), str(done.id)]
+    assert ids(attention=True, state="failed") == [str(job.id)]
+    assert ids(attention=False, state=["failed", "done"]) == [str(done.id)]
+    paged = client.get("/imports", params={"attention": True, "limit": 1, "offset": 1})
+    assert ([j["id"] for j in paged.json()], paged.headers["x-total-count"]) == ([str(job.id)], "2")
+    assert sorted(ids()) == sorted(ids(attention=True) + ids(attention=False))
 
 
 def test_stale_answer_is_ignored_and_asked_again(
