@@ -18,6 +18,11 @@ struct PlayItem: Identifiable, Equatable {
     /// What the title and "Show playing" navigate to when no entry says otherwise.
     var target: LibraryEntity?
     var fileSourceID: String
+    /// The second line in parts (artist, album; an episode's show), each with where a
+    /// click on it goes. An entry playing replaces the artist (`Entry.artistTarget`).
+    var subtitleLinks: [PlayerLink] = []
+    /// The album a single-file album's entries belong to.
+    var albumTarget: OpenTarget?
     /// The file's media type (`audio/ogg`, …): which engine plays it.
     var mediaType: String
     /// The scrubber's scale (`file_duration_ms`), else the recording's length.
@@ -65,6 +70,8 @@ struct PlayItem: Identifiable, Equatable {
         var target: LibraryEntity?
         /// "also in library as a file" for radio entries.
         var note: String?
+        /// Where a click on the artist goes.
+        var artistTarget: OpenTarget?
     }
 
     var isEpisode: Bool {
@@ -154,10 +161,13 @@ extension PlayItem {
         } else {
             kind = .file
         }
+        let albumTarget = album.map { OpenTarget(entity: EntityRef(type: .releaseGroup, id: $0.id)) }
         self.init(
             kind: kind, title: row.title, subtitle: Self.subtitle(artist: row.artistName, album: album?.title),
             coverPath: album?.coverUrl, target: row.libraryEntity, fileSourceID: playback.fileSourceId,
-            mediaType: playback.mediaType,
+            subtitleLinks: [PlayerLink(text: row.artistName, target: row.artistTarget)]
+                + (album.map { [PlayerLink(text: $0.title, target: albumTarget)] } ?? []),
+            albumTarget: albumTarget, mediaType: playback.mediaType,
             durationMS: playback.fileDurationMs ?? row.lengthMS, startMS: playback.startMs, endMS: playback.endMs,
             playFromMS: playback.startMs, entries: entries)
     }
@@ -172,7 +182,10 @@ extension PlayItem {
         return PlayItem(
             kind: .singleFile(album: album?.title ?? row.title, trackCount: album?.trackCount ?? trackCount),
             title: album?.title ?? row.title, subtitle: row.artistName, coverPath: album?.coverUrl,
-            target: row.libraryEntity, fileSourceID: playback.fileSourceId, mediaType: playback.mediaType,
+            target: row.libraryEntity, fileSourceID: playback.fileSourceId,
+            subtitleLinks: [PlayerLink(text: row.artistName, target: row.artistTarget)],
+            albumTarget: album.map { OpenTarget(entity: EntityRef(type: .releaseGroup, id: $0.id)) },
+            mediaType: playback.mediaType,
             durationMS: playback.fileDurationMs, startMS: entries.first?.startMS ?? playback.startMs,
             endMS: last?.endMs, playFromMS: playback.startMs, entries: entries)
     }
@@ -185,6 +198,11 @@ extension PlayItem {
         self.init(
             kind: .episode(Self.episodeInfo(episode)), title: episode.name, subtitle: episode.show.name,
             coverPath: episode.imageUrl, target: nil, fileSourceID: playback.fileSourceId,
+            subtitleLinks: [
+                PlayerLink(
+                    text: episode.show.name,
+                    target: OpenTarget(entity: EntityRef(type: .radioShow, id: episode.showId)))
+            ],
             mediaType: playback.mediaType,
             durationMS: episode.durationMs ?? playback.fileDurationMs, startMS: playback.startMs,
             endMS: playback.endMs, playFromMS: start, entries: entries)
@@ -218,7 +236,10 @@ extension PlayItem {
                 id: track.id, startMS: start, endMS: track.endMs, isEstimated: track.offsetIsEstimate,
                 title: recording?.title ?? track.titleText, artist: recording?.artistCredit.name ?? track.artistText,
                 number: track.position, target: track.state == .inLibrary ? recording.map { .recording($0.id) } : nil,
-                note: note)
+                note: note,
+                artistTarget: recording?.artistCredit.names.first.map {
+                    OpenTarget(entity: EntityRef(type: .artist, id: $0.artistId))
+                })
         }
         .sorted { $0.startMS < $1.startMS }
     }
@@ -232,11 +253,21 @@ extension PlayItem.Entry {
     init(row: TrackRow, playback: Components.Schemas.PlaybackRead) {
         self.init(
             id: row.id, startMS: playback.startMs, endMS: playback.endMs, title: row.title, artist: row.artistName,
-            number: row.number ?? 1, target: row.libraryEntity)
+            number: row.number ?? 1, target: row.libraryEntity, artistTarget: row.artistTarget)
     }
 }
 
 extension TrackRow {
     /// What the row is in the Library: a track on an album, or a loose recording.
     var libraryEntity: LibraryEntity { number == nil ? .recording(recordingID) : .track(id) }
+
+    /// The row's (first credited) artist.
+    var artistTarget: OpenTarget? { artistID.map { OpenTarget(entity: EntityRef(type: .artist, id: $0)) } }
+}
+
+/// A part of the player's second line (artist, album, show) and where a click on it goes
+/// (nil: nowhere).
+struct PlayerLink: Equatable {
+    var text: String
+    var target: OpenTarget?
 }

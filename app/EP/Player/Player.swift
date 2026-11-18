@@ -386,6 +386,22 @@ final class Player {
         }
     }
 
+    /// `subtitle` in parts, each with where a click on it goes: the artist and album (an
+    /// episode: its show; an episode entry: its artist).
+    var subtitleLinks: [PlayerLink] {
+        guard let current else { return [] }
+        guard let entry = currentEntry else { return current.subtitleLinks }
+        switch current.kind {
+        case .singleFile(let album, _):
+            return [
+                PlayerLink(text: entry.artist, target: entry.artistTarget),
+                PlayerLink(text: album, target: current.albumTarget),
+            ]
+        case .episode, .excerpt: return [PlayerLink(text: entry.artist, target: entry.artistTarget)]
+        case .file: return current.subtitleLinks
+        }
+    }
+
     /// "also in library as a file" after an episode entry's artist.
     var subtitleNote: String? { current?.isEpisode == true ? currentEntry?.note : nil }
 

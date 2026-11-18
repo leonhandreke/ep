@@ -7,7 +7,7 @@ final class PlayerFlowTests: EPUITestCase {
         let app = try launchConnected()
         let player = app.element("player.bar")
         waitFor(player.element("player.nothingPlaying"))
-        XCTAssertFalse(player.element("player.showPlaying").isEnabled)
+        XCTAssertFalse(player.element("player.title").exists)
 
         app.row("artists", id: Seed.bjork).click()
         waitFor(app.row("releaseGroups", id: Seed.homogenic)).click()

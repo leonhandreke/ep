@@ -1,12 +1,12 @@
 import SwiftUI
 
 /// The player bar (§3.8, board 3): 64 pt, 96 pt for a radio episode; `--bar`, top border,
-/// on the 1fr/2fr/1fr grid. Left: cover, context line, title (navigates), artist. Centre:
-/// transport over the scrubber with elapsed and remaining time. Right: Show playing,
+/// on the 1fr/2fr/1fr grid. Left: cover, context line, title, artist and album (each
+/// navigates). Centre: transport over the scrubber with elapsed and remaining time. Right:
 /// queue, volume. Instead of what plays it can show why a track did not play, or that
 /// nothing plays.
 struct PlayerBar: View {
-    /// Shows what plays in this window's Library (title click, Show playing, ⌘L).
+    /// Shows what plays in this window's Library (title click, ⌘L).
     let showPlaying: () -> Void
 
     @Environment(Player.self) private var player
@@ -17,7 +17,7 @@ struct PlayerBar: View {
             if let notice = player.notice {
                 HStack(spacing: 16) {
                     NoticeView(notice: notice)
-                    PlayerControls(showPlaying: showPlaying)
+                    PlayerControls()
                 }
             } else if player.current != nil {
                 ColumnGrid(spec: .playerBar) {
@@ -28,14 +28,14 @@ struct PlayerBar: View {
                         ScrubberRow()
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    PlayerControls(showPlaying: showPlaying)
+                    PlayerControls()
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
                 }
                 .padding(.bottom, isEpisode ? 12 : 0)
             } else {
                 HStack(spacing: 16) {
                     NothingPlaying()
-                    PlayerControls(showPlaying: showPlaying)
+                    PlayerControls()
                 }
             }
         }
@@ -92,10 +92,15 @@ private struct NowPlayingInfo: View {
         }
     }
 
+    /// Artist and album (an episode's show), each a link like the title.
     private var subtitle: some View {
         HStack(spacing: 0) {
-            Text(player.subtitle)
-                .foregroundStyle(Palette.text2)
+            ForEach(Array(player.subtitleLinks.enumerated()), id: \.offset) { index, link in
+                if index > 0 {
+                    Text(verbatim: " — ").foregroundStyle(Palette.text2).accessibilityHidden(true)
+                }
+                SubtitleLink(link: link, id: "player.subtitle.\(index)")
+            }
             if let note = player.subtitleNote {
                 Text(verbatim: " · \(note)")
                     .foregroundStyle(Palette.text3)
@@ -103,8 +108,37 @@ private struct NowPlayingInfo: View {
         }
         .font(Typography.secondary)
         .lineLimit(1)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(player.subtitle)
         .accessibilityIdentifier("player.subtitle")
+    }
+}
+
+/// One part of the player's second line: shows its artist, album or show when clicked
+/// (⌥⌘-click: in a new window), underlined while hovered, like the title.
+private struct SubtitleLink: View {
+    let link: PlayerLink
+    let id: String
+    @Environment(\.openEntity) private var openEntity
+    @State private var hovering = false
+
+    var body: some View {
+        let navigable = link.target != nil && openEntity != nil
+        Button {
+            guard let target = link.target else { return }
+            openEntity?(target, newWindow: NSEvent.modifierFlags.contains([.command, .option]))
+        } label: {
+            Text(link.text)
+                .foregroundStyle(Palette.text2)
+                .underline(hovering && navigable)
+        }
+        .buttonStyle(.plain)
+        .disabled(!navigable)
+        .onHover { hovering = $0 }
+        .pointerStyle(navigable ? .link : nil)
+        .help(navigable ? String(localized: "Show \(link.text)") : "")
+        .accessibilityLabel(link.text)
+        .accessibilityIdentifier(id)
     }
 }
 
@@ -312,19 +346,14 @@ private struct MarkTooltip: View {
 
 // MARK: - Right
 
-/// Show playing, the queue button and volume (plan decision 3).
+/// The queue button and volume (plan decision 3).
 private struct PlayerControls: View {
-    let showPlaying: () -> Void
     @Environment(Player.self) private var player
     @State private var showsQueue = false
 
     var body: some View {
         @Bindable var player = player
         HStack(spacing: 12) {
-            ViewThatFits(in: .horizontal) {
-                showPlayingButton(label: true)
-                showPlayingButton(label: false)
-            }
             Button {
                 showsQueue.toggle()
             } label: {
@@ -361,28 +390,6 @@ private struct PlayerControls: View {
     private var queueLabel: String {
         player.queue.count == 1
             ? String(localized: "Queue — 1 up next") : String(localized: "Queue — \(player.queue.count) up next")
-    }
-
-    private func showPlayingButton(label: Bool) -> some View {
-        Button(action: showPlaying) {
-            HStack(spacing: 5) {
-                Image(systemName: "scope").font(.system(size: 11))
-                if label { Text("Show playing").font(Typography.secondary) }
-            }
-            .foregroundStyle(player.canShowPlaying ? Palette.text : Palette.text3)
-            .padding(.horizontal, 8)
-            .frame(height: 26)
-            .background(Palette.bg, in: RoundedRectangle(cornerRadius: Radius.button))
-            .overlay(
-                RoundedRectangle(cornerRadius: Radius.button).strokeBorder(Palette.line, lineWidth: Metrics.hairline)
-            )
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(!player.canShowPlaying)
-        .help("Show playing — ⌘L")
-        .accessibilityLabel("Show what is playing (⌘L)")
-        .accessibilityIdentifier("player.showPlaying")
     }
 }
 
