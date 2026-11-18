@@ -36,8 +36,13 @@ final class ImportStore {
     }
 
     private(set) var summary: Summary?
-    /// Jobs, newest first (dismissed ones left out).
-    private(set) var jobs: [Job] = []
+    /// Jobs that need attention (needs review, failed), newest first: the import sheet's
+    /// section above the others.
+    private(set) var attentionJobs: [Job] = []
+    /// Every other job, newest first (dismissed ones left out).
+    private(set) var otherJobs: [Job] = []
+    /// All jobs listed: those needing attention, then the others.
+    var jobs: [Job] { attentionJobs + otherJobs }
     /// Logs of the jobs whose log is shown (the running job's card, expanded rows).
     private(set) var logs: [String: [Components.Schemas.LogEntry]] = [:]
     /// The answered issues of those jobs: a job queued again after review shows what was
@@ -180,12 +185,17 @@ final class ImportStore {
     /// Reloads the job list (and the logs shown) and notices which jobs moved on.
     func loadJobs() async {
         do {
-            let ok = try await connection.client.listImportJobs(
-                query: .init(state: Self.states, limit: Self.pageSize)
-            ).ok
-            let jobs = try ok.body.json
-            notice(changesFrom: self.jobs, to: jobs)
-            self.jobs = jobs
+            let client = connection.client
+            async let attention = client.listImportJobs(
+                query: .init(attention: true, limit: Self.pageSize)
+            ).ok.body.json
+            let others = try await client.listImportJobs(
+                query: .init(state: Self.states, attention: false, limit: Self.pageSize)
+            ).ok.body.json
+            let needing = try await attention
+            notice(changesFrom: jobs, to: needing + others)
+            attentionJobs = needing
+            otherJobs = others
             jobsLoaded = true
             if queueViewers > 0 { await loadLogs() }
         } catch {
@@ -282,10 +292,33 @@ final class ImportStore {
     /// A job the import sheet just started (or a review just re-queued): listed at once,
     /// and polled until it is done.
     func started(_ job: Components.Schemas.ImportJobRead) {
-        jobs.removeAll { $0.id == job.id }
-        jobs.insert(Job(job), at: 0)
+        place(Job(job))
         keep(job)
         refresh()
+    }
+
+    /// Whether a job is listed among those needing attention (as `GET /imports?attention=true`).
+    static func needsAttention(_ state: Components.Schemas.JobState) -> Bool {
+        state == .needsReview || state == .failed
+    }
+
+    /// Puts a job (new, or read again after an action) into the list its state belongs
+    /// to: in place if it stays in its list, else at the top of the other.
+    private func place(_ job: Job) {
+        let attention = Self.needsAttention(job.state)
+        if attention, let index = attentionJobs.firstIndex(where: { $0.id == job.id }) {
+            attentionJobs[index] = job
+        } else if !attention, let index = otherJobs.firstIndex(where: { $0.id == job.id }) {
+            otherJobs[index] = job
+        } else {
+            remove(job.id)
+            if attention { attentionJobs.insert(job, at: 0) } else { otherJobs.insert(job, at: 0) }
+        }
+    }
+
+    private func remove(_ id: String) {
+        attentionJobs.removeAll { $0.id == id }
+        otherJobs.removeAll { $0.id == id }
     }
 
     enum Action {
@@ -320,12 +353,12 @@ final class ImportStore {
                 }
             }
             if job.state == .dismissed {
-                jobs.removeAll { $0.id == id }
+                remove(id)
                 expanded.remove(id)
                 logs[id] = nil
                 answered[id] = nil
-            } else if let index = jobs.firstIndex(where: { $0.id == id }) {
-                jobs[index] = Job(job)
+            } else if self.job(id: id) != nil {
+                place(Job(job))
             }
         } catch {
             guard !ServerConnection.isCancellation(error) else { return }

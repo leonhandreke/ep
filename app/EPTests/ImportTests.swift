@@ -122,15 +122,29 @@ nonisolated final class SequenceTransport: @unchecked Sendable {
 
     let stub: StubTransport
 
+    /// `GET /imports` is asked twice per load (`attention=true`, then `false`): both read
+    /// the "/imports" answers in turn, each keeping the jobs of its half.
     init(_ answers: [String: [(HTTPResponse.Status, String)]]) {
-        let answers = Answers(answers)
+        var lists = answers
+        lists["/imports#attention"] = answers["/imports"]
+        let answers = Answers(lists)
         stub = StubTransport { request in
             let path = request.path?.split(separator: "?").first.map(String.init) ?? ""
-            let key = request.method == .get ? path : "\(request.method.rawValue) \(path)"
-            guard let (status, json) = answers.next(key) else {
+            let attention = request.path.flatMap { URLComponents(string: $0)?.queryItems }?
+                .first { $0.name == "attention" }?.value.map { $0 == "true" }
+            var key = request.method == .get ? path : "\(request.method.rawValue) \(path)"
+            if key == "/imports", attention == true { key = "/imports#attention" }
+            guard let (status, answer) = answers.next(key) else {
                 return (
                     HTTPResponse(status: .notFound, headerFields: [.contentType: "application/json"]), Data("{}".utf8)
                 )
+            }
+            var json = answer
+            if path == "/imports", let attention,
+                let jobs = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [[String: Any]]
+            {
+                let kept = jobs.filter { ["needs_review", "failed"].contains($0["state"] as? String) == attention }
+                json = String(decoding: try JSONSerialization.data(withJSONObject: kept), as: UTF8.self)
             }
             var fields: HTTPFields = [.contentType: "application/json"]
             if let list = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [Any] {
@@ -262,6 +276,30 @@ struct ImportStoreTests {
         await store.settle()
         #expect(store.jobs.count == 1)
         #expect(store.toast == nil && store.libraryChanges == 0)
+    }
+
+    /// Jobs needing attention (`attention=true`) are listed apart from, and above, the others.
+    @Test func jobsNeedingAttentionAreLoadedApart() async throws {
+        let transport = SequenceTransport([
+            "/server": [(.ok, Fixtures.server)],
+            "/imports/summary": [(.ok, F.summary(review: 1))],
+            "/imports": [
+                (
+                    .ok,
+                    "[\(F.job("j1", state: "queued")), \(F.job("j2", state: "needs_review", actions: ["review"])), \(F.job("j3", state: "failed"))]"
+                )
+            ],
+        ])
+        let store = await store(transport)
+        store.refresh()
+        await store.settle()
+        #expect(store.attentionJobs.map(\.id) == ["j2", "j3"])
+        #expect(store.otherJobs.map(\.id) == ["j1"])
+        #expect(store.jobs.map(\.id) == ["j2", "j3", "j1"])
+        #expect(store.firstToReview?.id == "j2")
+        let queries = transport.stub.requests.compactMap { $0.request.path }.filter { $0.hasPrefix("/imports?") }
+        #expect(queries.contains { $0.contains("attention=true") })
+        #expect(queries.contains { $0.contains("attention=false") && $0.contains("state=") })
     }
 
     @Test func retryDismissAndCancelCallTheirEndpoints() async throws {

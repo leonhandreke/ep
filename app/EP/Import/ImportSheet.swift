@@ -183,17 +183,19 @@ struct ImportSheet: View {
             }
             ScrollView {
                 LazyVStack(spacing: 0) {
-                    let running = imports.jobs.filter { ImportStore.isRunning($0.state) }
+                    if !imports.attentionJobs.isEmpty {
+                        attentionSection
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 12)
+                    }
+                    let running = imports.otherJobs.filter { ImportStore.isRunning($0.state) }
                     ForEach(running, id: \.id) { job in
                         ActiveJobCard(job: job)
                             .padding(.horizontal, 16)
                             .padding(.bottom, 8)
                     }
-                    ForEach(imports.jobs.filter { !ImportStore.isRunning($0.state) }, id: \.id) { job in
-                        JobRow(
-                            job: job, reviewIsDefault: !fieldFocused && job.id == imports.firstToReview?.id,
-                            review: { review(job.id) }, showExisting: showExisting)
-                            .padding(.horizontal, 16)
+                    ForEach(imports.otherJobs.filter { !ImportStore.isRunning($0.state) }, id: \.id) { job in
+                        row(job).padding(.horizontal, 16)
                     }
                     if imports.jobs.isEmpty {
                         Text("No imports yet.")
@@ -208,6 +210,33 @@ struct ImportSheet: View {
             .accessibilityIdentifier("import.jobs")
         }
         .frame(maxHeight: .infinity, alignment: .top)
+    }
+
+    /// Jobs waiting for a decision or failed (`attention=true`), above the others; left
+    /// out while there are none.
+    private var attentionSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Needs attention · \(imports.attentionJobs.count)")
+                .sectionLabelStyle()
+                .padding(.horizontal, 8)
+                .padding(.bottom, 2)
+                .accessibilityAddTraits(.isHeader)
+            ForEach(imports.attentionJobs, id: \.id) { job in
+                row(job)
+            }
+        }
+        .padding(.top, 10)
+        .padding(.horizontal, 4)
+        .padding(.bottom, 4)
+        .background(Palette.side, in: RoundedRectangle(cornerRadius: Radius.card))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("import.attention")
+    }
+
+    private func row(_ job: ImportStore.Job) -> some View {
+        JobRow(
+            job: job, reviewIsDefault: !fieldFocused && job.id == imports.firstToReview?.id,
+            review: { review(job.id) }, showExisting: showExisting)
     }
 
     private var footer: some View {
