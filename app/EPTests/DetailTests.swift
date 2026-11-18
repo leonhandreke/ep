@@ -33,7 +33,8 @@ nonisolated enum DetailFixtures {
             #"{"id": "s1", \#(stamp), "station": "nts", "slug": "late", "name": "Late Night Tapes", "description": "", "image_url": null, "link": "l"}"#
         let episode =
             #"{"id": "e1", \#(stamp), "show_id": "s1", "slug": "e", "name": "Homage", "description": "", "broadcast_at": "2025-03-14T22:00:00.000Z", "location": null, "url": "https://x", "source_id": null, "image_url": null, "link": "l"}"#
-        let recording = LibraryFixtures.recording("r1", "Jóga", credit: LibraryFixtures.credit("c1", "Björk", artists: ["a1"]))
+        let recording = LibraryFixtures.recording(
+            "r1", "Jóga", credit: LibraryFixtures.credit("c1", "Björk", artists: ["a1"]))
         let start = startMS.map(String.init) ?? "null"
         let playback =
             startMS == nil
@@ -154,7 +155,8 @@ struct TagSuggestionsTests {
             "/tags": (.ok, "[\(D.tag("t1", "string-quartet", count: 6)), \(D.tag("t2", "strings", count: 42))]"),
         ])
         let model = TagSuggestions(connection: await stubConnection(transport), debounce: .zero)
-        let has = try JSONDecoder().decode(Components.Schemas.TagRead.self, from: Data(D.tag("t1", "String-Quartet", count: 6).utf8))
+        let has = try JSONDecoder().decode(
+            Components.Schemas.TagRead.self, from: Data(D.tag("t1", "String-Quartet", count: 6).utf8))
 
         model.update("str", existing: [has])
         await model.settle()
@@ -179,7 +181,34 @@ struct ServiceLinkTests {
         typealias Link = Components.Schemas.ServiceLinkRead
         #expect(Link(label: "de", service: .wikipedia, url: "https://de.wikipedia.org/x").title == "Wikipedia (de)")
         #expect(Link(label: "en", service: .wikipedia, url: "https://en.wikipedia.org/x").title == "Wikipedia")
-        #expect(Link(service: .officialHomepage, url: "https://example.org").title == "Homepage")
+        #expect(Link(service: .bandcamp, url: "https://x.bandcamp.com").title == "Bandcamp")
         #expect(Link(service: .musicbrainz, url: "https://musicbrainz.org/x").title == "MusicBrainz")
+    }
+
+    /// The panel adds LINKS only when there is something to show: none for an artist
+    /// without links (no gap), the links once loaded, Retry on a 502.
+    @Test func linksAreShownOnlyWhenThereAreSome() async throws {
+        let transport = methodRouted([
+            "/server": (.ok, Fixtures.server),
+            "/artists/a1/links": (.ok, "[]"),
+            "/artists/a2/links": (
+                .ok, #"[{"service": "musicbrainz", "url": "https://musicbrainz.org/artist/x", "label": null}]"#
+            ),
+            "/release-groups/g1/links": (.badGateway, #"{"detail": "MusicBrainz is unreachable"}"#),
+        ])
+        let links = ServiceLinks(connection: await stubConnection(transport))
+        links.show(EntityRef(type: .artist, id: "a1"))
+        await links.settle()
+        #expect(!links.isShown)
+        links.show(EntityRef(type: .artist, id: "a2"))
+        await links.settle()
+        #expect(
+            links.isShown
+                && links.phase == .loaded([.init(service: .musicbrainz, url: "https://musicbrainz.org/artist/x")]))
+        links.show(EntityRef(type: .releaseGroup, id: "g1"))
+        await links.settle()
+        #expect(links.isShown && links.phase == .unreachable)
+        links.show(EntityRef(type: .recording, id: "r1"))
+        #expect(!links.isShown)
     }
 }

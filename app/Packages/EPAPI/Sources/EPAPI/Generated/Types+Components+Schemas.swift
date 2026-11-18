@@ -2531,13 +2531,8 @@ extension Components {
         /// - Remark: Generated from `#/components/schemas/LinkService`.
         @frozen public enum LinkService: String, Codable, Hashable, Sendable, CaseIterable {
             case wikipedia = "wikipedia"
-            case officialHomepage = "official_homepage"
             case bandcamp = "bandcamp"
             case spotify = "spotify"
-            case appleMusic = "apple_music"
-            case youtube = "youtube"
-            case discogs = "discogs"
-            case allmusic = "allmusic"
             case musicbrainz = "musicbrainz"
         }
         /// - Remark: Generated from `#/components/schemas/LogEntry`.

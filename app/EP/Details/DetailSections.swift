@@ -10,6 +10,11 @@ struct DetailPanelBody: View {
     let id: String
     let kind: DetailKind
 
+    @Environment(ServerConnection.self) private var connection
+    /// The artist's or album's links: the LINKS section is added only when it has
+    /// something to show.
+    @State private var links: ServiceLinks?
+
     var body: some View {
         switch details.phase {
         case .idle:
@@ -23,8 +28,8 @@ struct DetailPanelBody: View {
                 VStack(alignment: .leading, spacing: Metrics.sectionSpacing) {
                     NoteSection(details: details, id: id)
                     TagsSection(details: details, id: id)
-                    if let ref = details.ref, ref.type == .artist || ref.type == .releaseGroup {
-                        LinksSection(ref: ref, id: id)
+                    if let links, links.isShown, links.ref == details.ref {
+                        LinksSection(links: links, id: id)
                     }
                     LinkedFromSection(details: details, id: id, kind: kind)
                     if case .track = kind, let ref = details.ref, ref.type == .recording {
@@ -35,6 +40,11 @@ struct DetailPanelBody: View {
                 .padding(.horizontal, 18)
                 .padding(.bottom, 24)
                 .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .task(id: details.ref) {
+                let links = links ?? ServiceLinks(connection: connection)
+                self.links = links
+                links.show(details.ref)
             }
         }
     }

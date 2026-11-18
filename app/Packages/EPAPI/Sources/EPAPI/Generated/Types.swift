@@ -77,10 +77,9 @@ public protocol APIProtocol: Sendable {
     /// List Artist Links
     ///
     /// The artist's links to other services, asked from MusicBrainz (cached for a day):
-    /// Wikipedia (through Wikidata), official homepage, Bandcamp, Spotify, Apple Music,
-    /// YouTube, Discogs, and MusicBrainz itself, in that order, at most one of each. Empty
-    /// for an artist without MBID. 502 if MusicBrainz cannot be asked; without Wikipedia if
-    /// only Wikidata cannot.
+    /// Wikipedia (through Wikidata), Bandcamp, Spotify and MusicBrainz itself, in that
+    /// order, at most one of each. Empty for an artist without MBID. 502 if MusicBrainz
+    /// cannot be asked; without Wikipedia if only Wikidata cannot.
     ///
     /// - Remark: HTTP `GET /artists/{id}/links`.
     /// - Remark: Generated from `#/paths//artists/{id}/links/get(list_artist_links)`.
@@ -556,10 +555,9 @@ public protocol APIProtocol: Sendable {
     ///
     /// The release group's links to other services, asked from MusicBrainz for it and
     /// its release (``release_mbid``; cached for a day): Wikipedia (through Wikidata),
-    /// official homepage, Bandcamp, Spotify, Apple Music, YouTube, Discogs, AllMusic, and
-    /// MusicBrainz itself, in that order, at most one of each. Empty for a release group
-    /// without MBID. 502 if MusicBrainz cannot be asked; without Wikipedia if only Wikidata
-    /// cannot.
+    /// Bandcamp (mostly the release's), Spotify (likewise) and MusicBrainz itself, in that
+    /// order, at most one of each. Empty for a release group without MBID. 502 if
+    /// MusicBrainz cannot be asked; without Wikipedia if only Wikidata cannot.
     ///
     /// - Remark: HTTP `GET /release-groups/{id}/links`.
     /// - Remark: Generated from `#/paths//release-groups/{id}/links/get(list_release_group_links)`.
@@ -920,10 +918,9 @@ extension APIProtocol {
     /// List Artist Links
     ///
     /// The artist's links to other services, asked from MusicBrainz (cached for a day):
-    /// Wikipedia (through Wikidata), official homepage, Bandcamp, Spotify, Apple Music,
-    /// YouTube, Discogs, and MusicBrainz itself, in that order, at most one of each. Empty
-    /// for an artist without MBID. 502 if MusicBrainz cannot be asked; without Wikipedia if
-    /// only Wikidata cannot.
+    /// Wikipedia (through Wikidata), Bandcamp, Spotify and MusicBrainz itself, in that
+    /// order, at most one of each. Empty for an artist without MBID. 502 if MusicBrainz
+    /// cannot be asked; without Wikipedia if only Wikidata cannot.
     ///
     /// - Remark: HTTP `GET /artists/{id}/links`.
     /// - Remark: Generated from `#/paths//artists/{id}/links/get(list_artist_links)`.
@@ -1905,10 +1902,9 @@ extension APIProtocol {
     ///
     /// The release group's links to other services, asked from MusicBrainz for it and
     /// its release (``release_mbid``; cached for a day): Wikipedia (through Wikidata),
-    /// official homepage, Bandcamp, Spotify, Apple Music, YouTube, Discogs, AllMusic, and
-    /// MusicBrainz itself, in that order, at most one of each. Empty for a release group
-    /// without MBID. 502 if MusicBrainz cannot be asked; without Wikipedia if only Wikidata
-    /// cannot.
+    /// Bandcamp (mostly the release's), Spotify (likewise) and MusicBrainz itself, in that
+    /// order, at most one of each. Empty for a release group without MBID. 502 if
+    /// MusicBrainz cannot be asked; without Wikipedia if only Wikidata cannot.
     ///
     /// - Remark: HTTP `GET /release-groups/{id}/links`.
     /// - Remark: Generated from `#/paths//release-groups/{id}/links/get(list_release_group_links)`.
