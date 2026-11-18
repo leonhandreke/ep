@@ -128,7 +128,7 @@ struct RadioDetailPanel: View {
                 Group {
                     switch tab {
                     case .note: NoteSection(details: details, id: id)
-                    case .tags: TagsSection(details: details, id: id, hint: nil)
+                    case .tags: TagsSection(details: details, id: id)
                     case .linkedFrom: LinkedFromSection(details: details, id: id, kind: isEpisode ? .episode : .show)
                     }
                 }

@@ -21,7 +21,7 @@ struct DetailPanelBody: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: Metrics.sectionSpacing) {
                     NoteSection(details: details, id: id)
-                    TagsSection(details: details, id: id, hint: kind.tagsHint)
+                    TagsSection(details: details, id: id)
                     LinkedFromSection(details: details, id: id, kind: kind)
                 }
                 .padding(.top, 14)
@@ -33,18 +33,9 @@ struct DetailPanelBody: View {
     }
 }
 
-/// Which panel the sections are in: the hints and headings differ (§3.7).
+/// Which panel the sections are in: the headings differ (§3.7).
 enum DetailKind {
     case artist(name: String?), album, track, show, episode
-
-    var tagsHint: LocalizedStringKey? {
-        switch self {
-        case .artist: "Click a tag to list every artist, album and track with it."
-        case .album: "Return adds the highlighted tag. Tags on an album do not copy to its tracks."
-        case .track: "Tags on a track belong to its recording, so they also show on the radio excerpt."
-        case .show, .episode: nil
-        }
-    }
 
     func radioHeading(_ count: Int) -> String {
         switch self {
@@ -133,12 +124,10 @@ private struct NoteSkeleton: View {
 
 // MARK: - Tags
 
-/// TAGS · n: chips (#name, count, remove), the "+ Add tag" field with suggestions, and a
-/// per-kind hint.
+/// TAGS · n: chips (#name, count, remove) and the "+ Add tag" field with suggestions.
 struct TagsSection: View {
     let details: EntityDetails
     let id: String
-    let hint: LocalizedStringKey?
 
     @Environment(\.showTag) private var showTag
 
@@ -154,12 +143,6 @@ struct TagsSection: View {
                 Text(error)
                     .font(Typography.secondary)
                     .foregroundStyle(Palette.danger)
-            }
-            if let hint {
-                Text(hint)
-                    .font(Typography.secondary)
-                    .foregroundStyle(Palette.text3)
-                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
