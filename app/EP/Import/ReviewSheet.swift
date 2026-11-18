@@ -361,7 +361,8 @@ private struct QuestionDetail: View {
         .accessibilityIdentifier("review.detail")
     }
 
-    /// The candidate compared: the one picked, else the best.
+    /// The candidate compared: the one picked, else the best (also while "New …" is the
+    /// pick, the default when no candidate is likely: it shows why).
     @ViewBuilder private func comparison(_ issue: Components.Schemas.Issue) -> some View {
         let pick = model.pick(for: row)
         let candidate =

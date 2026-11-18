@@ -453,6 +453,37 @@ struct ReviewModelTests {
         #expect(model.pick(for: row)?.candidateID == "r7" && row.options[2].key == "3")
     }
 
+    /// The server lists the choices most likely first: the best candidate when it is a
+    /// likely match (the radio fixture's entry 1), else "New …" (here). The first is the pick.
+    @Test func noLikelyCandidateListsAndPreselectsNewFirst() async throws {
+        let proposal =
+            #"{"media": [], "artists": [], "releases": [], "loose_tracks": [\#(F.track("t1", "Björk", "Cocoon", start: 0))], "radio": null, "issues": [\#(F.issue("uncertain_recording:t1", kind: "uncertain_recording", subject: "t1", candidates: [F.candidate("r3", "Cocoon", score: 67), F.candidate("r4", "Cocoon (live)", score: 52)], choices: ["create_new", "pick_candidate", "skip"]))]}"#
+        let model = try await model(proposal)
+        let row = try #require(model.selected)
+        #expect(
+            row.options.map(\.title) == [
+                "New recording", "Cocoon — Björk", "Cocoon (live) — Björk", "Skip — don’t import this",
+            ])
+        #expect(row.options.map(\.key) == ["N", "1", "2", "U"])
+        #expect(model.pick(for: row)?.choice == .createNew)
+        #expect(model.press("1"))
+        #expect(model.pick(for: try #require(model.selected))?.candidateID == "r3")
+        // A library row found by search lands after the candidates.
+        model.addCandidate(id: "r7", title: "Cocoon (studio)", detail: "Björk")
+        let searched = try #require(model.selected)
+        #expect(
+            searched.options.map(\.id) == [
+                "create_new:", "pick_candidate:r3", "pick_candidate:r4", "pick_candidate:r7", "skip:",
+            ])
+        #expect(model.pick(for: searched)?.candidateID == "r7" && searched.options[3].key == "3")
+
+        // A likely candidate leads: it is the pick, and says what picking it does.
+        let likely = try await self.model()
+        let first = try #require(likely.selected)
+        #expect(first.options.first?.title == "Same recording — link to “Turiya & Ramakrishna — Björk”")
+        #expect(likely.pick(for: first)?.id == first.options.first?.id)
+    }
+
     @Test func confirmSendsTheOpenQuestionsAndChangedAnswers() async throws {
         let transport = SequenceTransport([
             "/server": [(.ok, Fixtures.server)],

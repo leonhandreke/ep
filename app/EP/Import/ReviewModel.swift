@@ -214,9 +214,20 @@ final class ReviewModel {
         if let existing = rows[index].options.first(where: { $0.id == option.id }) {
             option = existing
         } else {
-            let candidates = rows[index].options.filter { $0.choice == .pickCandidate }.count
+            let options = rows[index].options
+            let candidates = options.filter { $0.choice == .pickCandidate }.count
             option.key = candidates < 9 ? String(candidates + 1) : nil
-            rows[index].options.insert(option, at: candidates)
+            // After the candidates, wherever they are (the choices come most likely first,
+            // so "New …" may lead); without any, where `pick_candidate` is among the choices.
+            let position: Int
+            if let last = options.lastIndex(where: { $0.choice == .pickCandidate }) {
+                position = last + 1
+            } else {
+                let choices = issue.choices.compactMap(\.known)
+                let rank = choices.firstIndex(of: .pickCandidate) ?? choices.count
+                position = options.filter { (choices.firstIndex(of: $0.choice) ?? choices.count) < rank }.count
+            }
+            rows[index].options.insert(option, at: position)
         }
         picks[issue.id] = option.id
     }
@@ -284,8 +295,9 @@ final class ReviewModel {
 
     // MARK: - Building rows
 
-    /// The default: the stored answer, else the best candidate, else the first choice
-    /// (retry for a failure, keep as entered for metadata not found).
+    /// The default: the stored answer, else the first option. The server lists the choices
+    /// most likely first: the best candidate when it is a likely match, else "New …";
+    /// retry for a failure, keep as entered for metadata not found.
     static func defaultOption(for issue: Issue, in options: [Option]) -> Option? {
         if let answer = issue.answer,
             let option = options.first(where: { answer.choice == $0.choice && $0.candidateID == answer.candidateId })
@@ -306,7 +318,9 @@ final class ReviewModel {
         return choice == .pickCandidate ? String(localized: "A library item you picked") : title(of: choice, for: issue)
     }
 
-    /// `radioEntry`: the issue is about a radio tracklist entry (skipping leaves it as text).
+    /// In the order of `issue.choices` (most likely first), `pick_candidate` expanded into
+    /// the candidates (best first) in its place. `radioEntry`: the issue is about a radio
+    /// tracklist entry (skipping leaves it as text).
     static func options(for issue: Issue, radioEntry: Bool = false) -> [Option] {
         var options: [Option] = []
         for choice in issue.choices.compactMap(\.known) {
@@ -315,7 +329,7 @@ final class ReviewModel {
                     options.append(
                         Option(
                             choice: .pickCandidate, candidateID: candidate.id,
-                            title: candidateTitle(candidate, first: index == 0, issue: issue),
+                            title: candidateTitle(candidate, recommended: options.isEmpty && index == 0, issue: issue),
                             detail: candidate.detail, score: candidate.score, key: index < 9 ? String(index + 1) : nil))
                 }
             } else {
@@ -328,13 +342,15 @@ final class ReviewModel {
         return options
     }
 
-    private static func candidateTitle(_ candidate: Components.Schemas.IssueCandidate, first: Bool, issue: Issue)
-        -> String
-    {
+    /// `recommended`: the candidate is the first option (a likely match): for a recording
+    /// it says what picking it does ("Same recording — link to …").
+    private static func candidateTitle(
+        _ candidate: Components.Schemas.IssueCandidate, recommended: Bool, issue: Issue
+    ) -> String {
         let name = [candidate.title, candidate.subtitle].compactMap { $0?.isEmpty == false ? $0 : nil }
             .joined(separator: " — ")
         switch issue.kind.known {
-        case .uncertainRecording where first:
+        case .uncertainRecording where recommended:
             return String(localized: "Same recording — link to “\(name)”")
         case .releaseConflict:
             return String(localized: "Add these files to “\(name)” in the library")
