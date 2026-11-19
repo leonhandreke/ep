@@ -175,8 +175,8 @@ enum Metrics {
     /// 1 pt separators everywhere.
     static let hairline: CGFloat = 1
     static let toolbarHeight: CGFloat = 52
-    static let playerBarHeight: CGFloat = 64
-    static let playerBarEpisodeHeight: CGFloat = 96
+    /// One height for every player state (a radio episode's three lines fit too).
+    static let playerBarHeight: CGFloat = 60
     static let columnHeaderHeight: CGFloat = 32
     static let panelHeaderHeight: CGFloat = 40
     static let dividerHeight: CGFloat = 7
@@ -190,6 +190,8 @@ enum Metrics {
     static let largeButtonHeight: CGFloat = 40
     static let coverSmall: CGFloat = 32
     static let cover: CGFloat = 40
+    /// The player's cover fills the bar's left corner: square, the bar's full height.
+    static let playerCover: CGFloat = playerBarHeight
     static let collapseButton: CGFloat = 24
     /// List rows sit inside this padding, with `rowPadding` inside each row.
     static let listInset: CGFloat = 6
@@ -223,8 +225,9 @@ nonisolated struct ColumnSpec: Equatable {
     static let library = ColumnSpec(fractions: [25, 30, 45], minimums: [300, 340, 460])
     /// Radio lists: 17/26/57, at least 200/280/380 (§6).
     static let radio = ColumnSpec(fractions: [17, 26, 57], minimums: [200, 280, 380])
-    /// Player bar: 1/2/1, at least 240/420/240, 16 apart (§3.8).
-    static let playerBar = ColumnSpec(fractions: [1, 2, 1], minimums: [240, 420, 240], gap: 16)
+    /// Player bar: 3/5/2, at least 280/420/180, 16 apart (§3.8): the left column holds the
+    /// cover and an episode's context line; the right only the queue and volume.
+    static let playerBar = ColumnSpec(fractions: [3, 5, 2], minimums: [280, 420, 180], gap: 16)
 
     var minimumWidth: CGFloat { minimums.reduce(0, +) + gap * CGFloat(max(minimums.count - 1, 0)) }
 }

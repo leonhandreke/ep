@@ -193,7 +193,7 @@ Board 1800×1120. Top to bottom (heights in pt):
 ├ detail panels (flex) ──┬─────────────────────┬────────────────────────────────┤
 │ ARTIST Björk        ⌄  │ ALBUM Homogenic   ⌄ │ TRACK Jóga                   ⌄ │
 │ NOTE / TAGS / LINKED   │ NOTE / TAGS / …     │ NOTE / TAGS / LINKED FROM      │
-├ player bar 64 ─────────┴─────────────────────┴────────────────────────────────┤
+├ player bar 60 ─────────┴─────────────────────┴────────────────────────────────┤
 │ [cover] Jóga            ⏮ ⏸ ⏭                   [◎ Show playing] ≡ 🔈 ───     │
 │         Björk — Homogenic  1:42 ━━━━──────── −3:23                            │
 └───────────────────────────────────────────────────────────────────────────────┘
@@ -349,15 +349,15 @@ Hints under the chips (12 pt `--text3`), one per entity kind:
   "Into Arca — Piel"), time position right (12 pt tabular `--text2`). **Estimated** positions
   are prefixed "~" and set in italic ("~1:12:40", "~0:47").
 
-### 3.8 Player bar (64 pt, `--bar`, top border)
+### 3.8 Player bar (60 pt in every state, `--bar`, top border)
 
-Grid `minmax(240px,1fr) minmax(420px,2fr) minmax(240px,1fr)`, gap 16, padding 0 16.
-- Left: cover 40×40 radius 4; title (600, link → navigates to the track) over "Björk —
+Grid `minmax(280px,3fr) minmax(420px,5fr) minmax(180px,2fr)`, gap 16, padding 0 16 0 0.
+- Left: cover 60×60, square, flush in the bar's bottom-left corner (episodes too), 12 to the text; title (600, link → navigates to the track) over "Björk —
   Homogenic" (12 pt `--text2`).
-- Centre: transport row centred, gap 14: previous (16 pt), play/pause in a 30 pt circle filled
+- Centre: transport row centred, gap 14: previous (16 pt), play/pause in a 28 pt circle filled
   `--text` with `--bg` glyph (aria-label "Pause (Space)"), next. Below, gap 4: elapsed "1:42",
   scrubber (4 pt track `--line`, radius 2, progress in `--text2` — neutral, not accent),
-  remaining "−3:23" (11 pt tabular `--text2`).
+  remaining "−3:23" (11 pt tabular `--text2`); the scrubber row is at most 640 wide.
 - Right, gap 12: **Show playing** button (height 26, 1 pt border, radius 6, target icon,
   12 pt, aria-label "Show what is playing (⌘L)", tooltip "Show playing — ⌘L"), **queue** button
   (aria-label "Queue — 8 up next"), speaker icon and volume slider (width 90).
@@ -373,25 +373,25 @@ the main window's grid; treat the main window as authoritative for proportions.
    "Up next: Unravel · 8" instead of queue/volume (**inconsistent** with board 1, which has
    queue icon + volume; the right column content is ambiguous; suggest: Show playing, Up next
    text when space allows, queue button, volume).
-2. **RADIO EPISODE — ONE LONG FILE, TRACKLIST MARKS (HOLLOW = ESTIMATED TIME)** — bar grows to
-   96 pt (items aligned to bottom, padding-bottom 12). Left: **round** 40 pt episode image;
+2. **RADIO EPISODE — ONE LONG FILE, TRACKLIST MARKS (HOLLOW = ESTIMATED TIME)** — 60 pt like
+   every state (was 96). Left: the episode image fills the corner like a cover;
    context line "Late Night Tapes · 14 Mar 2025 · 7 of 31" (11 pt `--text3`); current entry
    title "Jóga" (600 link); "Björk · also in library as a file" (the latter in `--text3`).
    Centre: transport on its own row above the scrubber. Scrubber 14 pt tall: 4 pt track,
    progress to 26 %, the **current entry's range** highlighted as an 8 pt `--accent` band at
-   35 % opacity, and **marks** for each tracklist entry: 2×12 pt, radius 1, 1 pt `--text2`
-   border; filled `--text2` = exact time, **hollow** (filled `--bar`) = estimated. Hover tooltip
+   35 % opacity, and **marks** for each tracklist entry: 2×8 pt, radius 1, `--text3`; at 50 %
+   opacity = estimated time (no border: dense tracklists stay readable). Hover tooltip
    above the scrubber (inverted: `--text` bg, `--bg` text, radius 6, 11 pt): "~58:40 · Jon
    Hassell — Dreamworld (time estimated)". Times "31:08" / "−88:52". Right: "Previous / next
    jump between entries". aria-label of scrubber: "Episode scrubber, 31 tracklist marks, 4
    estimated".
-3. **SINGLE-FILE ALBUM — RANGE INSIDE ONE FILE** — 64 pt; context line "Track 4 of 14 · one
+3. **SINGLE-FILE ALBUM — RANGE INSIDE ONE FILE** — 60 pt; context line "Track 4 of 14 · one
    file"; title "Desired Constellation"; "Björk — Medúlla"; scrubber over the whole file with
    13 solid marks (no transport drawn in this variant — presumably omitted for space; keep
    transport). Right: "Scrubber covers the whole file". Times "9:12" / "−36:31".
-4. **NOTHING PLAYING** — 64 pt, `--text3`: dashed 40 pt empty cover + "Double-click or press
+4. **NOTHING PLAYING** — 60 pt, `--text3`: the empty-cover placeholder in the corner + "Double-click or press
    Return on a track to play."
-5. **TRIED TO PLAY A LINK-ONLY TRACK** — 64 pt: link icon 18 pt, "**Alarm Call** has no audio
+5. **TRIED TO PLAY A LINK-ONLY TRACK** — 60 pt: link icon 18 pt, "**Alarm Call** has no audio
    here — only a Bandcamp link.", buttons **Open in Bandcamp** (secondary) and **Import…**
    (primary `--sel`).
 

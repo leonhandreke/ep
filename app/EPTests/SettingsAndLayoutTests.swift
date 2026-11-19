@@ -60,9 +60,9 @@ struct ColumnGridTests {
     }
 
     @Test func leavesTheGapsOutOfTheShares() {
-        // Player bar: 1fr/2fr/1fr with 16 pt gaps.
-        #expect(ColumnGrid.widths(total: 1232, spec: .playerBar) == [300, 600, 300])
-        #expect(ColumnSpec.playerBar.minimumWidth == 932)
+        // Player bar: 3fr/5fr/2fr with 16 pt gaps.
+        #expect(ColumnGrid.widths(total: 1232, spec: .playerBar) == [360, 600, 240])
+        #expect(ColumnSpec.playerBar.minimumWidth == 912)
     }
 }
 

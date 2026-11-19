@@ -1,10 +1,10 @@
 import SwiftUI
 
-/// The player bar (§3.8, board 3): 64 pt, 96 pt for a radio episode; `--bar`, top border,
-/// on the 1fr/2fr/1fr grid. Left: cover, context line, title, artist and album (each
-/// navigates). Centre: transport over the scrubber with elapsed and remaining time. Right:
-/// queue, volume. Instead of what plays it can show why a track did not play, or that
-/// nothing plays.
+/// The player bar (§3.8, board 3): 60 pt in every state; `--bar`, top border, on the
+/// 3fr/5fr/2fr grid. Left: the cover filling the bar's corner, context line, title, artist
+/// and album (each navigates). Centre: transport over the scrubber with elapsed and
+/// remaining time. Right: queue, volume. Instead of what plays it can show why a track did
+/// not play, or that nothing plays.
 struct PlayerBar: View {
     /// Shows what plays in this window's Library (title click, ⌘L).
     let showPlaying: () -> Void
@@ -12,13 +12,13 @@ struct PlayerBar: View {
     @Environment(Player.self) private var player
 
     var body: some View {
-        let isEpisode = player.current?.isEpisode == true && player.notice == nil
         Group {
             if let notice = player.notice {
                 HStack(spacing: 16) {
                     NoticeView(notice: notice)
                     PlayerControls()
                 }
+                .padding(.leading, 16)
             } else if player.current != nil {
                 ColumnGrid(spec: .playerBar) {
                     NowPlayingInfo(showPlaying: showPlaying)
@@ -26,12 +26,12 @@ struct PlayerBar: View {
                     VStack(spacing: 4) {
                         Transport()
                         ScrubberRow()
+                            .frame(maxWidth: 640)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     PlayerControls()
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
                 }
-                .padding(.bottom, isEpisode ? 12 : 0)
             } else {
                 HStack(spacing: 16) {
                     NothingPlaying()
@@ -39,8 +39,9 @@ struct PlayerBar: View {
                 }
             }
         }
-        .padding(.horizontal, 16)
-        .frame(height: isEpisode ? Metrics.playerBarEpisodeHeight : Metrics.playerBarHeight)
+        // The cover sits flush in the left corner; the other states pad themselves.
+        .padding(.trailing, 16)
+        .frame(height: Metrics.playerBarHeight)
         .frame(maxWidth: .infinity)
         .background(Palette.bar)
         .overlay(alignment: .top) { HairlineDivider() }
@@ -60,10 +61,9 @@ private struct NowPlayingInfo: View {
     var body: some View {
         let item = player.current
         let navigable = player.canShowPlaying
-        HStack(spacing: 10) {
-            CoverThumbnail(
-                path: item?.coverPath, size: Metrics.cover,
-                radius: item?.isEpisode == true ? Metrics.cover / 2 : Radius.cover)
+        HStack(spacing: 12) {
+            // Square for an episode too: a circle cannot fill the corner.
+            CoverThumbnail(path: item?.coverPath, size: Metrics.playerCover, radius: 0)
             VStack(alignment: .leading, spacing: 1) {
                 if let context = player.context {
                     Text(context)
@@ -165,7 +165,7 @@ private struct Transport: View {
                 Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
                     .font(.system(size: 12))
                     .foregroundStyle(Palette.bg)
-                    .frame(width: 30, height: 30)
+                    .frame(width: 28, height: 28)
                     .background(Palette.text, in: Circle())
                     .opacity(player.isLoading ? 0.5 : 1)
             }
@@ -192,11 +192,11 @@ private struct ScrubberRow: View {
     var body: some View {
         HStack(spacing: 8) {
             Text(LibraryFormat.duration(ms: player.elapsedMS) ?? "")
-                .frame(minWidth: 40, alignment: .trailing)
+                .frame(minWidth: 34, alignment: .trailing)
                 .accessibilityIdentifier("player.elapsed")
             Scrubber()
             Text("−\(LibraryFormat.duration(ms: player.remainingMS) ?? "")")
-                .frame(minWidth: 40, alignment: .leading)
+                .frame(minWidth: 34, alignment: .leading)
                 .accessibilityIdentifier("player.remaining")
         }
         .font(Typography.meta)
@@ -206,8 +206,8 @@ private struct ScrubberRow: View {
 }
 
 /// The scrubber: a 4 pt track with neutral progress; for long files the current entry's
-/// range as an accent band and a mark per entry, filled for an exact time and hollow
-/// for an estimated one, with a tooltip on hover.
+/// range as an accent band and a thin 2×8 pt mark per entry, faded for an estimated time,
+/// with a tooltip on hover.
 private struct Scrubber: View {
     @Environment(Player.self) private var player
     @State private var dragMS: Int?
@@ -238,10 +238,9 @@ private struct Scrubber: View {
                 }
                 ForEach(marks) { mark in
                     RoundedRectangle(cornerRadius: 1)
-                        .fill(mark.isEstimated ? Palette.bar : Palette.text2)
-                        .overlay(RoundedRectangle(cornerRadius: 1).strokeBorder(Palette.text2, lineWidth: 1))
-                        .frame(width: 4, height: 14)
-                        .offset(x: x(mark.startMS) - 2)
+                        .fill(Palette.text3.opacity(mark.isEstimated ? 0.5 : 1))
+                        .frame(width: 2, height: 8)
+                        .offset(x: x(mark.startMS) - 1)
                 }
             }
             .frame(width: width, height: Self.height)
@@ -466,11 +465,8 @@ private struct QueuePopover: View {
 /// Board 3, "nothing playing".
 private struct NothingPlaying: View {
     var body: some View {
-        HStack(spacing: 10) {
-            RoundedRectangle(cornerRadius: Radius.cover)
-                .strokeBorder(Palette.text3, style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
-                .frame(width: Metrics.cover, height: Metrics.cover)
-                .accessibilityHidden(true)
+        HStack(spacing: 12) {
+            CoverThumbnail(path: nil, size: Metrics.playerCover, radius: 0)
             Text("Double-click or press Return on a track to play.")
                 .font(Typography.secondary)
                 .foregroundStyle(Palette.text3)
