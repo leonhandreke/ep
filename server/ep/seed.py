@@ -68,6 +68,7 @@ from ep.importers.proposal import (
     SubjectType,
     UrlCover,
 )
+from ep.matching.match import LIKELY_MATCH_SCORE
 from ep.models import (
     Artist,
     ArtistCredit,
@@ -112,6 +113,15 @@ TABLES = (
     "import_job",
     "watch_dir",
 )
+
+
+def review_choices(best_score: float) -> list[Choice]:
+    """An uncertain issue's choices as the importer orders them (``issue_choices``): the
+    best candidate first if it is likely, else a new entity; skip last."""
+    first = [Choice.pick_candidate, Choice.create_new]
+    if best_score < LIKELY_MATCH_SCORE:
+        first.reverse()
+    return [*first, Choice.skip]
 
 
 class SeedError(Exception):
@@ -974,10 +984,10 @@ class Seeder:
                         title=joga.title,
                         subtitle="Björk",
                         detail="0:04",
-                        score=82,
+                        score=88,
                     )
                 ],
-                choices=[Choice.pick_candidate, Choice.create_new, Choice.skip],
+                choices=review_choices(88),
                 blocking=False,
             ),
             Issue(
@@ -1001,9 +1011,10 @@ class Seeder:
                         subtitle=artist.disambiguation,
                         score=score,
                     )
-                    for artist, score in zip(arcas, (91, 64), strict=True)
+                    # Homonyms: both have the name exactly.
+                    for artist, score in zip(arcas, (100, 100), strict=True)
                 ],
-                choices=[Choice.pick_candidate, Choice.create_new, Choice.skip],
+                choices=review_choices(100),
                 blocking=False,
             ),
             Issue(
@@ -1020,7 +1031,7 @@ class Seeder:
                         score=67,
                     )
                 ],
-                choices=[Choice.pick_candidate, Choice.create_new, Choice.skip],
+                choices=review_choices(67),
                 answer=Answer(choice=Choice.create_new),
                 blocking=False,
             ),
@@ -1112,7 +1123,7 @@ class Seeder:
                         score=score,
                     )
                 ],
-                choices=[Choice.pick_candidate, Choice.create_new, Choice.skip],
+                choices=review_choices(score),
                 blocking=False,
             )
 
