@@ -519,6 +519,9 @@ final class ReviewModel {
                 let artist = proposal?.artists.first(where: { $0.key == issue.subject.key })
             {
                 row.incoming = [(String(localized: "Name"), artist.name)]
+                if let original = artist.originalName {
+                    row.incoming.append((String(localized: "Original name"), original))
+                }
                 if !artist.disambiguation.isEmpty {
                     row.incoming.append((String(localized: "Note"), artist.disambiguation))
                 }

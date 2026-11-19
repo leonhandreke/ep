@@ -77,6 +77,8 @@ extension Components {
             public var mbid: Swift.String?
             /// - Remark: Generated from `#/components/schemas/ArtistCreate/name`.
             public var name: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ArtistCreate/original_name`.
+            public var originalName: Swift.String?
             /// - Remark: Generated from `#/components/schemas/ArtistCreate/sort_name`.
             public var sortName: Swift.String?
             /// - Remark: Generated from `#/components/schemas/ArtistCreate/type`.
@@ -87,18 +89,21 @@ extension Components {
             ///   - disambiguation:
             ///   - mbid:
             ///   - name:
+            ///   - originalName:
             ///   - sortName:
             ///   - _type:
             public init(
                 disambiguation: Swift.String? = nil,
                 mbid: Swift.String? = nil,
                 name: Swift.String,
+                originalName: Swift.String? = nil,
                 sortName: Swift.String? = nil,
                 _type: Components.Schemas.ArtistType? = nil
             ) {
                 self.disambiguation = disambiguation
                 self.mbid = mbid
                 self.name = name
+                self.originalName = originalName
                 self.sortName = sortName
                 self._type = _type
             }
@@ -106,6 +111,7 @@ extension Components {
                 case disambiguation
                 case mbid
                 case name
+                case originalName = "original_name"
                 case sortName = "sort_name"
                 case _type = "type"
             }
@@ -226,6 +232,8 @@ extension Components {
             public var mbid: Swift.String?
             /// - Remark: Generated from `#/components/schemas/ArtistDetail/name`.
             public var name: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ArtistDetail/original_name`.
+            public var originalName: Swift.String?
             /// - Remark: Generated from `#/components/schemas/ArtistDetail/radio_only`.
             public var radioOnly: Swift.Bool
             /// - Remark: Generated from `#/components/schemas/ArtistDetail/sort_name`.
@@ -245,6 +253,7 @@ extension Components {
             ///   - link: The note link to this artist, with its name as display text.
             ///   - mbid:
             ///   - name:
+            ///   - originalName:
             ///   - radioOnly:
             ///   - sortName:
             ///   - _type:
@@ -258,6 +267,7 @@ extension Components {
                 link: Swift.String,
                 mbid: Swift.String? = nil,
                 name: Swift.String,
+                originalName: Swift.String? = nil,
                 radioOnly: Swift.Bool,
                 sortName: Swift.String,
                 _type: Components.Schemas.ArtistType? = nil,
@@ -271,6 +281,7 @@ extension Components {
                 self.link = link
                 self.mbid = mbid
                 self.name = name
+                self.originalName = originalName
                 self.radioOnly = radioOnly
                 self.sortName = sortName
                 self._type = _type
@@ -285,6 +296,7 @@ extension Components {
                 case link
                 case mbid
                 case name
+                case originalName = "original_name"
                 case radioOnly = "radio_only"
                 case sortName = "sort_name"
                 case _type = "type"
@@ -332,6 +344,8 @@ extension Components {
             public var mbid: Swift.String?
             /// - Remark: Generated from `#/components/schemas/ArtistRead/name`.
             public var name: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ArtistRead/original_name`.
+            public var originalName: Swift.String?
             /// - Remark: Generated from `#/components/schemas/ArtistRead/sort_name`.
             public var sortName: Swift.String
             /// - Remark: Generated from `#/components/schemas/ArtistRead/type`.
@@ -348,6 +362,7 @@ extension Components {
             ///   - link: The note link to this artist, with its name as display text.
             ///   - mbid:
             ///   - name:
+            ///   - originalName:
             ///   - sortName:
             ///   - _type:
             ///   - updatedAt:
@@ -359,6 +374,7 @@ extension Components {
                 link: Swift.String,
                 mbid: Swift.String? = nil,
                 name: Swift.String,
+                originalName: Swift.String? = nil,
                 sortName: Swift.String,
                 _type: Components.Schemas.ArtistType? = nil,
                 updatedAt: Foundation.Date
@@ -370,6 +386,7 @@ extension Components {
                 self.link = link
                 self.mbid = mbid
                 self.name = name
+                self.originalName = originalName
                 self.sortName = sortName
                 self._type = _type
                 self.updatedAt = updatedAt
@@ -382,6 +399,7 @@ extension Components {
                 case link
                 case mbid
                 case name
+                case originalName = "original_name"
                 case sortName = "sort_name"
                 case _type = "type"
                 case updatedAt = "updated_at"
@@ -403,6 +421,8 @@ extension Components {
             public var mbid: Swift.String?
             /// - Remark: Generated from `#/components/schemas/ArtistUpdate/name`.
             public var name: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ArtistUpdate/original_name`.
+            public var originalName: Swift.String?
             /// - Remark: Generated from `#/components/schemas/ArtistUpdate/sort_name`.
             public var sortName: Swift.String?
             /// - Remark: Generated from `#/components/schemas/ArtistUpdate/type`.
@@ -413,18 +433,21 @@ extension Components {
             ///   - disambiguation:
             ///   - mbid:
             ///   - name:
+            ///   - originalName:
             ///   - sortName:
             ///   - _type:
             public init(
                 disambiguation: Swift.String? = nil,
                 mbid: Swift.String? = nil,
                 name: Swift.String? = nil,
+                originalName: Swift.String? = nil,
                 sortName: Swift.String? = nil,
                 _type: Components.Schemas.ArtistType? = nil
             ) {
                 self.disambiguation = disambiguation
                 self.mbid = mbid
                 self.name = name
+                self.originalName = originalName
                 self.sortName = sortName
                 self._type = _type
             }
@@ -432,6 +455,7 @@ extension Components {
                 case disambiguation
                 case mbid
                 case name
+                case originalName = "original_name"
                 case sortName = "sort_name"
                 case _type = "type"
             }
@@ -1428,6 +1452,8 @@ extension Components {
             public var mbid: Swift.String?
             /// - Remark: Generated from `#/components/schemas/IncomingArtist/name`.
             public var name: Swift.String
+            /// - Remark: Generated from `#/components/schemas/IncomingArtist/original_name`.
+            public var originalName: Swift.String?
             /// - Remark: Generated from `#/components/schemas/IncomingArtist/sort_name`.
             public var sortName: Swift.String?
             /// - Remark: Generated from `#/components/schemas/IncomingArtist/target`.
@@ -1441,6 +1467,7 @@ extension Components {
             ///   - key:
             ///   - mbid:
             ///   - name:
+            ///   - originalName:
             ///   - sortName:
             ///   - target:
             ///   - _type:
@@ -1449,6 +1476,7 @@ extension Components {
                 key: Swift.String,
                 mbid: Swift.String? = nil,
                 name: Swift.String,
+                originalName: Swift.String? = nil,
                 sortName: Swift.String? = nil,
                 target: Components.Schemas.Target,
                 _type: Components.Schemas.ArtistType? = nil
@@ -1457,6 +1485,7 @@ extension Components {
                 self.key = key
                 self.mbid = mbid
                 self.name = name
+                self.originalName = originalName
                 self.sortName = sortName
                 self.target = target
                 self._type = _type
@@ -1466,6 +1495,7 @@ extension Components {
                 case key
                 case mbid
                 case name
+                case originalName = "original_name"
                 case sortName = "sort_name"
                 case target
                 case _type = "type"

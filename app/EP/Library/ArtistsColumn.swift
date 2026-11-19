@@ -254,9 +254,8 @@ private struct ArtistRow: View {
             Text(artist.name)
                 .font(Typography.body)
                 .foregroundStyle(colors.primary)
-            // Two artists of one name (two "Arca"s) are told apart by their disambiguation.
-            if !artist.disambiguation.isEmpty {
-                Text(artist.disambiguation)
+            if !secondary.isEmpty {
+                Text(secondary)
                     .font(Typography.meta)
                     .foregroundStyle(colors.tertiary)
             }
@@ -272,6 +271,16 @@ private struct ArtistRow: View {
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("artists.row.\(artist.id)")
+    }
+
+    /// The name in its own script when the name is its Latin-script alias ("跡部進一" for
+    /// "Shinichi Atobe"), and the disambiguation that tells two artists of one name (two
+    /// "Arca"s) apart.
+    private var secondary: String {
+        [artist.originalName, artist.disambiguation]
+            .compactMap { $0 }
+            .filter { !$0.isEmpty }
+            .joined(separator: " · ")
     }
 }
 
