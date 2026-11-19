@@ -24,12 +24,14 @@ A new artist whose MusicBrainz name is not in Latin script ("跡部進一") is n
 Latin-script alias ("Shinichi Atobe", see ``artist_names``) and keeps the MusicBrainz
 name as ``original_name``; with a ``musicbrainz`` client given, that asks MusicBrainz
 for the artist's aliases (one request per such artist; a failure keeps the MusicBrainz
-name).
+name). A library artist with the MBID that still has its MusicBrainz name in another
+script (imported before artists were named so) is renamed alike, like a missing cover
+filled in (``fill_latin_name``); one named otherwise in EP is left alone.
 """
 
 import logging
 import uuid
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
 from pydantic import ValidationError
@@ -66,7 +68,7 @@ from ep.models import (
 )
 from ep.notes.tags import add_imported_tags
 
-log = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 _ARTIST_TYPES = {
     "Person": ArtistType.person,
@@ -134,6 +136,7 @@ def import_release(
     release_group: ReleaseGroup | None = None,
     tags: Sequence[str] = (),
     musicbrainz: MusicBrainz | None = None,
+    log: Callable[[str], None] | None = None,
 ) -> ReleaseGroup:
     """Add a release (fetched with ``MusicBrainz.get_release``) to the catalogue.
 
@@ -153,7 +156,8 @@ def import_release(
     the tags it has (``ep.notes.tags``).
 
     ``musicbrainz``: asked for the aliases of a new artist not named in Latin script
-    (see ``artist_names``).
+    (see ``artist_names``), and of a library artist of the release (not given in
+    ``artists``) still named so (``fill_latin_name``); ``log`` is told of a rename.
 
     Flushes but does not commit. Returns the release group.
     """
@@ -161,7 +165,8 @@ def import_release(
         raise ValueError("release lookup without its release group (inc=release-groups)")
     recordings = recordings or {}
     _check_prematched(session, release, recordings)
-    resolver = _ArtistResolver(session, artists or {}, musicbrainz)
+    resolver = _ArtistResolver(session, artists or {}, musicbrainz, log)
+    resolver.fill_latin_names(_release_artists(release))
     release_group = _release_group(session, resolver, release, release.release_group, release_group)
     created = release_group in session.new
     session.flush()
@@ -352,12 +357,13 @@ def import_recording(
     mb_recording: MBRecording,
     artists: Mapping[uuid.UUID, Artist | None] | None = None,
     musicbrainz: MusicBrainz | None = None,
+    log: Callable[[str], None] | None = None,
 ) -> Recording:
     """The library recording for a MusicBrainz recording (fetched with ``get_recording``):
     the row with its MBID, or a new standalone recording (no track) with its artists
-    (``artists`` and ``musicbrainz`` as for ``import_release``) and ISRCs. Flushes
-    nothing."""
-    resolver = _ArtistResolver(session, artists or {}, musicbrainz)
+    (``artists``, ``musicbrainz`` and ``log`` as for ``import_release``) and ISRCs.
+    Flushes nothing."""
+    resolver = _ArtistResolver(session, artists or {}, musicbrainz, log)
     return _recording(session, resolver, mb_recording, mb_recording.artist_credit, None)
 
 
@@ -389,6 +395,74 @@ def artist_type(mb_artist: MBArtist) -> ArtistType | None:
     return _ARTIST_TYPES.get(mb_artist.type, ArtistType.other) if mb_artist.type else None
 
 
+def _release_artists(release: MBRelease) -> list[MBArtist]:
+    """Every artist credited on the release, its release group, tracks or recordings."""
+    parts = [*release.artist_credit]
+    if release.release_group is not None:
+        parts += release.release_group.artist_credit
+    for medium in release.media:
+        for track in medium.tracks:
+            parts += [*track.artist_credit, *track.recording.artist_credit]
+    return list({part.artist.id: part.artist for part in parts}.values())
+
+
+def needs_latin_name(artist: Artist, mb_name: str) -> bool:
+    """Whether a library artist with an MBID still has the name MusicBrainz gave it
+    (``mb_name``), not in Latin script and without original name: imported before
+    artists were named by their Latin-script alias, and not renamed in EP since."""
+    return (
+        artist.mbid is not None
+        and artist.original_name is None
+        and artist.name == mb_name
+        and not is_latin(artist.name)
+    )
+
+
+def fill_latin_name(artist: Artist, names: ArtistNames) -> bool:
+    """Rename a library artist that ``needs_latin_name`` to the names ``artist_names``
+    found (the original name is the old name; the sort name only if the old one is not
+    in Latin script either). False if there is no Latin-script name. Credits keep their
+    credited names (they are never edited in place, ``ep.credits``)."""
+    if names.original_name is None or names.original_name != artist.name:
+        return False
+    artist.name, artist.original_name = names.name, names.original_name
+    if not is_latin(artist.sort_name):
+        artist.sort_name = names.sort_name
+    return True
+
+
+def fill_latin_names_of(
+    artists: Iterable[Artist],
+    musicbrainz: MusicBrainz,
+    log: Callable[[str], None],
+    looked_up: set[uuid.UUID],
+) -> None:
+    """``fill_latin_name`` for library artists known only as rows (an album imported
+    before, whose release is not looked up again): one lookup with aliases for each
+    with an MBID, no original name and a name not in Latin script; MusicBrainz's name
+    must still be theirs. A failure keeps the names (logged). ``looked_up``: the MBIDs
+    whose aliases were read already (left out), updated."""
+    for artist in artists:
+        if (
+            artist.mbid is None
+            or artist.mbid in looked_up
+            or artist.original_name is not None
+            or is_latin(artist.name)
+        ):
+            continue
+        looked_up.add(artist.mbid)
+        try:
+            mb_artist = musicbrainz.get_artist(artist.mbid)
+        except (MusicBrainzError, ValidationError) as e:
+            log(f"aliases of artist {artist.name!r} not read, name kept: {e}")
+            continue
+        old = artist.name
+        if needs_latin_name(artist, mb_artist.name) and fill_latin_name(
+            artist, artist_names(mb_artist, None)
+        ):
+            log(f"artist {old!r} renamed to {artist.name!r}")
+
+
 def credited_as(artist: Artist, credited_name: str) -> str:
     """The name to credit an artist with: its name where the credit has its original
     name (MusicBrainz credits "跡部進一", the library artist is "Shinichi Atobe")."""
@@ -417,7 +491,7 @@ def artist_names(mb_artist: MBArtist, musicbrainz: MusicBrainz | None) -> Artist
         try:
             aliases = musicbrainz.get_artist(mb_artist.id).aliases
         except (MusicBrainzError, ValidationError) as e:
-            log.warning("aliases of MusicBrainz artist %s: %s", mb_artist.id, e)
+            logger.warning("aliases of MusicBrainz artist %s: %s", mb_artist.id, e)
     if (alias := latin_alias(aliases)) is None:
         return keep
     sort_name = mb_artist.sort_name
@@ -435,10 +509,14 @@ class _ArtistResolver:
         session: Session,
         given: Mapping[uuid.UUID, Artist | None],
         musicbrainz: MusicBrainz | None = None,
+        log: Callable[[str], None] | None = None,
     ) -> None:
         self.session = session
         self.given = given
         self.musicbrainz = musicbrainz
+        self.log = log or (lambda message: logger.info("%s", message))
+        # Artists ``_fill_latin_name`` looked at (one aliases lookup each at most).
+        self.named: set[uuid.UUID] = set()
         self.resolved: dict[uuid.UUID, Artist] = {}
 
     def credit(self, parts: Sequence[MBArtistCreditPart]) -> ArtistCredit:
@@ -459,8 +537,29 @@ class _ArtistResolver:
             artist = self._match_or_create(mb_artist)
         elif artist.mbid is None:
             artist.mbid = mb_artist.id
+        elif mb_artist.id not in self.given:
+            self._fill_latin_name(artist, mb_artist)
         self.resolved[mb_artist.id] = artist
         return artist
+
+    def fill_latin_names(self, mb_artists: Iterable[MBArtist]) -> None:
+        """``fill_latin_name`` for the library artists with these MBIDs (not given: the
+        caller decides about those), whether the import credits them or not."""
+        wanted = {a.id: a for a in mb_artists if a.id not in self.given}
+        if not wanted:
+            return
+        rows = self.session.exec(select(Artist).where(col(Artist.mbid).in_(wanted)))
+        for artist in rows:
+            assert artist.mbid is not None
+            self._fill_latin_name(artist, wanted[artist.mbid])
+
+    def _fill_latin_name(self, artist: Artist, mb_artist: MBArtist) -> None:
+        if mb_artist.id in self.named or not needs_latin_name(artist, mb_artist.name):
+            return
+        self.named.add(mb_artist.id)
+        old = artist.name
+        if fill_latin_name(artist, artist_names(mb_artist, self.musicbrainz)):
+            self.log(f"artist {old!r} renamed to {artist.name!r}")
 
     def _match_or_create(self, mb_artist: MBArtist) -> Artist:
         """A confident match without MBID (which gains it; not for a given artist), else
@@ -498,5 +597,6 @@ def import_artist(
 ) -> Artist:
     """The library artist for a MusicBrainz artist: the row with its MBID, a confident
     match without MBID (which gains it), or a new artist (named as ``artist_names``
-    says). Flushes nothing."""
+    says); a library artist still named in another script by MusicBrainz is renamed
+    (``fill_latin_name``). Flushes nothing."""
     return _ArtistResolver(session, {}, musicbrainz).artist(mb_artist)

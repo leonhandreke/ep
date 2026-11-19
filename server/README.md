@@ -312,7 +312,13 @@ docker rm -f ep-harness-db && rm -rf "$D"     # tear down
   secondary line; matched, filtered and searched like the name): one `inc=aliases`
   lookup for such an artist only (import jobs and `import_release(..., musicbrainz=)`;
   a failure keeps the MusicBrainz name), and its credits take the alias where they
-  have the MusicBrainz name.
+  have the MusicBrainz name. A re-import renames a library artist that still has the
+  MusicBrainz name in another script and no original name (imported before), like a
+  missing cover filled in: `import_release`/`import_artist` for the release's artists
+  found by MBID, the import framework for the proposal's (named while matching), and
+  the folder importer for the albums imported from the folder before
+  (`fill_latin_names_of`); one renamed in EP is left alone, and existing credits keep
+  their credited names.
   `POST /musicbrainz/import` wraps the import (metadata only, no cover);
   `GET /musicbrainz/search` searches MusicBrainz.
 - `ep.matching`: `match_artist`, `match_release_group`, `match_recording` take what the

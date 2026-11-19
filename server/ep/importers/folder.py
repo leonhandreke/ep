@@ -44,6 +44,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import httpx2
+from sqlalchemy import union
 from sqlmodel import Session, col, func, select
 
 from ep import covers
@@ -59,6 +60,7 @@ from ep.importers.framework import (
     release_label,
     sha256_file,
 )
+from ep.importers.musicbrainz import fill_latin_names_of
 from ep.importers.proposal import (
     Choice,
     EmbeddedCover,
@@ -83,6 +85,8 @@ from ep.media_roots import is_within_media_roots
 from ep.metadata import web
 from ep.metadata.musicbrainz import COVER_ART_URL, MusicBrainzError, MusicBrainzNotFound
 from ep.models import (
+    Artist,
+    ArtistCreditName,
     ImportKind,
     JobStage,
     Recording,
@@ -159,10 +163,20 @@ class FolderImporter(Importer):
         return web.fetch(url, self.transport)
 
     def apply(self, ctx: JobContext, proposal: Proposal, applied: Applied) -> None:
-        """Albums imported from this folder before that have no cover get one."""
+        """Albums imported from this folder before that have no cover get one, and
+        their artists still named in another script by MusicBrainz their Latin-script
+        name (``ep.importers.musicbrainz.fill_latin_names_of``)."""
         root = Path(ctx.job.input)
         done = {release_group.id for release_group in applied.release_groups.values()}
-        for folder, (files, recordings) in _imported_albums(ctx.session, root).items():
+        albums = _imported_albums(ctx.session, root)
+        recordings = {r for _, album_recordings in albums.values() for r in album_recordings}
+        fill_latin_names_of(
+            _unnamed_artists(ctx.session, recordings),
+            ctx.musicbrainz,
+            ctx.log,
+            ctx.mb_aliases_read,
+        )
+        for folder, (files, recordings) in albums.items():
             release_group = _album_release_group(ctx.session, recordings)
             if release_group is None or release_group.cover_path or release_group.id in done:
                 continue
@@ -730,6 +744,30 @@ def _played_recordings(sources: Iterable[Source]) -> dict[tuple[str, int], uuid.
             if child.kind is SourceKind.slice and child.recording_id is not None:
                 played[(source.uri or "", child.start_ms or 0)] = child.recording_id
     return played
+
+
+def _unnamed_artists(session: Session, recordings: set[uuid.UUID]) -> list[Artist]:
+    """The artists with an MBID and no original name credited on these recordings or
+    on a release group with a track of one (``fill_latin_names_of`` checks the rest)."""
+    if not recordings:
+        return []
+    release_groups = select(Track.release_group_id).where(col(Track.recording_id).in_(recordings))
+    credits = union(
+        select(Recording.artist_credit_id).where(col(Recording.id).in_(recordings)),
+        select(ReleaseGroup.artist_credit_id).where(col(ReleaseGroup.id).in_(release_groups)),
+    )
+    credited = select(ArtistCreditName.artist_id).where(
+        col(ArtistCreditName.artist_credit_id).in_(credits)
+    )
+    return list(
+        session.exec(
+            select(Artist).where(
+                col(Artist.id).in_(credited),
+                col(Artist.mbid).is_not(None),
+                col(Artist.original_name).is_(None),
+            )
+        )
+    )
 
 
 def _album_release_group(session: Session, recordings: set[uuid.UUID]) -> ReleaseGroup | None:

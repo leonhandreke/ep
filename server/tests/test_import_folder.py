@@ -871,3 +871,52 @@ def test_musicbrainz_artist_named_by_its_latin_alias(
     log = client.get(f"/imports/{job['id']}").json()["log"]
     assert any("'跡部進一' is named 'Shinichi Atobe'" in entry["message"] for entry in log)
     assert count(session, Artist) == 3
+
+
+def test_reimport_renames_an_artist_still_named_by_musicbrainz(
+    client: TestClient,
+    session: Session,
+    music: Path,
+    job_queue: InMemoryConnector,
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A retry of a done job (everything in the library already, so no artist is
+    credited anew) renames an artist that still has its MusicBrainz name in another
+    script, with one aliases lookup, and says so in the job log; one named otherwise
+    in EP is left alone."""
+    release = mock_musicbrainz.atobe_promises()
+    original = mock_musicbrainz.fixture
+    monkeypatch.setattr(
+        mock_musicbrainz,
+        "fixture",
+        lambda name: release if name == "release_promises" else original(name),
+    )
+    promises_tagged(music / "Promises", None)
+    job = post_import(client, music / "Promises")
+    assert run_queued(session, job_queue, settings) == {uuid.UUID(job["id"]): JobState.done}
+    atobe = session.exec(
+        select(Artist).where(Artist.mbid == uuid.UUID(mock_musicbrainz.SHINICHI_ATOBE))
+    ).one()
+    atobe.name, atobe.original_name = "跡部進一", None  # as imported before
+    session.commit()
+
+    def reimport() -> list[str]:
+        """The aliases lookups of a retry."""
+        assert client.post(f"/imports/{job['id']}/retry").status_code == 200
+        mb = mock_musicbrainz.MockMusicBrainz()
+        done = {uuid.UUID(job["id"]): JobState.done}
+        assert run_queued(session, job_queue, settings, mb) == done
+        session.refresh(atobe)
+        return [r.url.path for r in mb.requests if r.url.params.get("inc") == "aliases"]
+
+    assert reimport() == [f"/ws/2/artist/{mock_musicbrainz.SHINICHI_ATOBE}"]
+    assert (atobe.name, atobe.original_name) == ("Shinichi Atobe", "跡部進一")
+    log = get_job(client, job["id"])["log"]
+    assert any(e["message"] == "artist '跡部進一' renamed to 'Shinichi Atobe'" for e in log)
+    assert count(session, Artist) == 3
+
+    atobe.name, atobe.original_name = "Atobe", None  # renamed in EP
+    session.commit()
+    assert reimport() == []  # Latin script now: nothing to look up
+    assert (atobe.name, atobe.original_name) == ("Atobe", None)

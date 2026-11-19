@@ -70,9 +70,11 @@ from ep.importers.musicbrainz import (
     artist_names,
     artist_type,
     credited_as,
+    fill_latin_name,
     import_recording,
     import_release,
     match_artist_names,
+    needs_latin_name,
     propose_recordings,
 )
 from ep.importers.proposal import (
@@ -228,6 +230,8 @@ class JobContext:
         # by normalised name (None: not found); no more lookups once one failed.
         self.mb_artists: dict[str, MBArtist | None] = {}
         self.mb_artist_lookups = True
+        # Artists whose aliases this run read (``_name_mb_artist``): not asked again.
+        self.mb_aliases_read: set[uuid.UUID] = set()
         self.in_transaction = False
         # Undo actions for files written in the apply transaction (run if it fails).
         self.rollback_actions: list[Callable[[], None]] = []
@@ -979,6 +983,7 @@ def _name_mb_artist(ctx: JobContext, artist: IncomingArtist) -> None:
     if artist.original_name is not None or is_latin(artist.name):
         return
     assert artist.mbid is not None
+    ctx.mb_aliases_read.add(artist.mbid)
     try:
         aliases = ctx.musicbrainz.get_artist(artist.mbid).aliases
     except (MusicBrainzError, ValidationError) as e:
@@ -1318,6 +1323,26 @@ class _Applier:
         self.artists[key] = artist
         return artist
 
+    def fill_latin_names(self) -> None:
+        """Library artists of the proposal's MusicBrainz artists named while matching
+        (``_name_mb_artist``) that still have the MusicBrainz name in another script
+        take the Latin-script one (``fill_latin_name``), credited by the import or not.
+        Skipped artists are left to ``import_release``, which looks them up itself."""
+        for incoming in self.proposal.artists:
+            if (
+                incoming.mbid is None
+                or incoming.original_name is None
+                or incoming.target.kind is TargetKind.skip
+                or (artist := self._artist_by_mbid(incoming.mbid)) is None
+                or not needs_latin_name(artist, incoming.original_name)
+            ):
+                continue
+            names = ArtistNames(
+                incoming.name, incoming.sort_name or incoming.name, incoming.original_name
+            )
+            if fill_latin_name(artist, names):
+                self.ctx.log(f"artist {incoming.original_name!r} renamed to {artist.name!r}")
+
     def _artist_by_mbid(self, mbid: uuid.UUID) -> Artist | None:
         return self.session.exec(select(Artist).where(Artist.mbid == mbid)).first()
 
@@ -1372,6 +1397,7 @@ class _Applier:
                         mb_recording,
                         self.mb_artists(artists),
                         musicbrainz=self.ctx.musicbrainz,
+                        log=self.ctx.log,
                     )
             case NewTarget():
                 identities = self._identities(track)
@@ -1532,6 +1558,7 @@ class _Applier:
             release_group=given,
             tags=release.tags,
             musicbrainz=self.ctx.musicbrainz,
+            log=self.ctx.log,
         )
         by_track_id = {
             mb_track.id: (medium.position or index, mb_track.position)
@@ -1707,6 +1734,7 @@ def apply_proposal(ctx: JobContext, importer: Importer, proposal: Proposal) -> s
     event.listen(ctx.session, "before_flush", count_new)
     try:
         applier = _Applier(ctx, importer, proposal)
+        applier.fill_latin_names()
         for release in proposal.releases:
             applier.release(release)
         for track in proposal.loose_tracks:

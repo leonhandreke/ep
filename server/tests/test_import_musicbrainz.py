@@ -477,3 +477,92 @@ def test_import_endpoint_names_artist_by_latin_alias(
         assert [a["name"] for a in listed] == ["Shinichi Atobe"], q
     hits = client.get("/search", params={"q": "跡部進一", "types": "artist"}).json()
     assert [hit["title"] for hit in hits] == ["Shinichi Atobe"]
+
+
+# Re-imports give library artists their Latin-script name
+
+
+def _old_style_atobe(session: Session, **fields: str) -> Artist:
+    """Shinichi Atobe as imported before artists were named by their alias."""
+    values = {"name": "跡部進一", "sort_name": "Atobe, Shinichi", **fields}
+    artist = Artist(mbid=uuid.UUID(SHINICHI_ATOBE), **values)
+    session.add(artist)
+    session.flush()
+    return artist
+
+
+def test_reimport_renames_an_artist_still_named_by_musicbrainz(session: Session) -> None:
+    """Like a missing cover filled in: the artist takes its Latin-script name, the old
+    one becomes the original name (the sort name, in Latin script, stays); told to
+    ``log``. One aliases lookup, also when the release credits him on nothing new."""
+    atobe = _old_style_atobe(session)
+    mb, messages = MockMusicBrainz(), []
+    release = MBRelease.model_validate_json(atobe_promises())
+    import_release(session, release, musicbrainz=mb, log=messages.append)
+    assert (atobe.name, atobe.sort_name, atobe.original_name) == (
+        "Shinichi Atobe",
+        "Atobe, Shinichi",
+        "跡部進一",
+    )
+    assert messages == ["artist '跡部進一' renamed to 'Shinichi Atobe'"]
+    assert _alias_lookups(mb) == [f"/ws/2/artist/{SHINICHI_ATOBE}"]
+    assert count(session, Artist) == 3
+
+
+def test_reimport_of_an_imported_album_renames_its_artist(session: Session) -> None:
+    """The release group and recordings are in the library already: their credits are
+    kept, the artist is still renamed."""
+    import_release(session, MBRelease.model_validate_json(atobe_promises()))
+    atobe = _atobe(session)
+    assert atobe.name == "跡部進一"
+    mb = MockMusicBrainz()
+    import_release(session, MBRelease.model_validate_json(atobe_promises()), musicbrainz=mb)
+    assert (atobe.name, atobe.original_name) == ("Shinichi Atobe", "跡部進一")
+    assert len(_alias_lookups(mb)) == 1
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"name": "Atobe"},  # renamed in EP
+        {"name": "跡部 進一"},  # renamed in EP, in Japanese still
+        {"original_name": "跡部進一"},  # named so already
+    ],
+)
+def test_reimport_leaves_an_artist_named_otherwise_alone(
+    session: Session, fields: dict[str, str]
+) -> None:
+    atobe = _old_style_atobe(session, **fields)
+    before = (atobe.name, atobe.sort_name, atobe.original_name)
+    mb = MockMusicBrainz()
+    import_release(session, MBRelease.model_validate_json(atobe_promises()), musicbrainz=mb)
+    assert (atobe.name, atobe.sort_name, atobe.original_name) == before
+    assert _alias_lookups(mb) == []
+
+
+def test_reimport_of_latin_named_artists_asks_for_no_aliases(session: Session) -> None:
+    import_release(session, promises())
+    mb = MockMusicBrainz()
+    import_release(session, promises(), musicbrainz=mb)
+    assert _alias_lookups(mb) == []
+    assert mb.requests == []
+
+
+def test_reimport_keeps_the_name_when_musicbrainz_fails(session: Session) -> None:
+    atobe = _old_style_atobe(session)
+    import_release(
+        session, MBRelease.model_validate_json(atobe_promises()), musicbrainz=_Unavailable()
+    )
+    assert (atobe.name, atobe.original_name) == ("跡部進一", None)
+
+
+def test_import_endpoint_renames_an_artist_in_the_library(
+    client: TestClient, session: Session, mb: MockMusicBrainz
+) -> None:
+    atobe = _old_style_atobe(session)
+    session.commit()
+    response = client.post("/musicbrainz/import", json={"type": "artist", "mbid": SHINICHI_ATOBE})
+    assert response.status_code == 200, response.text
+    assert response.json()["id"] == str(atobe.id)
+    artist = client.get(f"/artists/{atobe.id}").json()
+    assert (artist["name"], artist["original_name"]) == ("Shinichi Atobe", "跡部進一")
