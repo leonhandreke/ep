@@ -1,6 +1,7 @@
 """Folder import end to end: generated albums in temp dirs, MusicBrainz from the mock."""
 
 import hashlib
+import json
 import shutil
 import subprocess
 import uuid
@@ -29,6 +30,7 @@ from ep.models import (
     Track,
 )
 from ep.settings import Settings
+from tests import mock_musicbrainz
 from tests.fakes import png_bytes, web_transport
 from tests.helpers import make_artist, make_recording, make_release_group, post
 from tests.imports import (
@@ -791,3 +793,42 @@ def test_uncertain_artist_of_a_musicbrainz_release(
     assert run() == {uuid.UUID(job["id"]): JobState.done}
     assert session.get_one(Artist, uuid.UUID(other["id"])).mbid == pharoah.id
     assert count(session, Artist) == 4  # two Pharoahs, Floating Points, the LSO
+
+
+def test_release_credit_unused_by_the_album_creates_no_artist(
+    client: TestClient,
+    session: Session,
+    music: Path,
+    run: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A release credited otherwise than its release group (Ashra's "New Age of Earth":
+    the release group and recordings are Ash Ra Tempel, Manuel Göttsching): the album
+    takes the release group's credit, and the release's artist, credited on nothing,
+    is not created."""
+    release = json.loads(mock_musicbrainz.fixture("release_promises"))
+    release["artist-credit"] = [
+        {
+            "name": "Promises Ensemble",
+            "joinphrase": "",
+            "artist": {
+                "id": "2d262241-ad1e-4b2d-904a-c38039f0a531",
+                "name": "Promises Ensemble",
+                "sort-name": "Promises Ensemble",
+                "disambiguation": "",
+            },
+        }
+    ]
+    original = mock_musicbrainz.fixture
+    monkeypatch.setattr(
+        mock_musicbrainz,
+        "fixture",
+        lambda name: json.dumps(release).encode() if name == "release_promises" else original(name),
+    )
+    promises_tagged(music / "Promises", None)
+    job = post_import(client, music / "Promises")
+    assert run() == {uuid.UUID(job["id"]): JobState.done}
+    [release_group] = session.exec(select(ReleaseGroup)).all()
+    assert release_group.artist_credit.name == PROMISES_ARTIST
+    names = set(session.exec(select(Artist.name)).all())
+    assert names == {"Floating Points", "Pharoah Sanders", "London Symphony Orchestra"}

@@ -52,7 +52,7 @@ import shutil
 import traceback
 import uuid
 from collections import Counter
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path, PurePath
 
@@ -866,13 +866,15 @@ def _add_mb_artist(proposal: Proposal, artist: MBArtist) -> None:
 
 
 def mb_release_artists(release: MBRelease) -> list[MBArtist]:
-    """Every artist ``import_release`` credits for a release."""
-    parts = [*release.artist_credit]
-    if release.release_group is not None:
-        parts += release.release_group.artist_credit
+    """Every artist ``import_release`` may credit for a release: the release group's
+    credit (else the release's) and each recording's (else its track's). A release
+    credited otherwise than its release group (a reissue under another name) leaves its
+    own credit out."""
+    group_credit = release.release_group.artist_credit if release.release_group else []
+    parts = [*(group_credit or release.artist_credit)]
     for medium in release.media:
         for track in medium.tracks:
-            parts += [*track.artist_credit, *track.recording.artist_credit]
+            parts += track.recording.artist_credit or track.artist_credit
     return list({part.artist.id: part.artist for part in parts}.values())
 
 
@@ -1221,6 +1223,27 @@ def _match_track(
 # Applying
 
 
+class _LazyArtists(Mapping[uuid.UUID, Artist | None]):
+    """Artist MBID -> the applier's library artist, looked up (or created) on first
+    access; membership does not create anything."""
+
+    def __init__(self, applier: _Applier, keys: dict[uuid.UUID, str]) -> None:
+        self._applier = applier
+        self._keys = keys
+
+    def __getitem__(self, mbid: uuid.UUID) -> Artist | None:
+        return self._applier.artist(self._keys[mbid])
+
+    def __contains__(self, mbid: object) -> bool:
+        return mbid in self._keys
+
+    def __iter__(self) -> Iterator[uuid.UUID]:
+        return iter(self._keys)
+
+    def __len__(self) -> int:
+        return len(self._keys)
+
+
 class _Applier:
     """Writes a fully decided proposal; see ``apply_proposal``."""
 
@@ -1262,19 +1285,20 @@ class _Applier:
     def _artist_by_mbid(self, mbid: uuid.UUID) -> Artist | None:
         return self.session.exec(select(Artist).where(Artist.mbid == mbid)).first()
 
-    def mb_artists(self, artists: Iterable[MBArtist]) -> dict[uuid.UUID, Artist | None]:
+    def mb_artists(self, artists: Iterable[MBArtist]) -> Mapping[uuid.UUID, Artist | None]:
         """The decided library artists for MusicBrainz artists (``import_release``);
-        skipped ones are left to it (found or created if it needs them)."""
+        skipped ones are left to it (found or created if it needs them). Each is looked
+        up (or created) only when ``import_release`` credits it: a recording already in
+        the library keeps its credit, and its artists are not needed."""
         keys = {
             artist.key
             for artist in self.proposal.artists
             if artist.target.kind is not TargetKind.skip
         }
-        return {
-            artist.id: self.artist(mb_artist_key(artist.id))
-            for artist in artists
-            if mb_artist_key(artist.id) in keys
-        }
+        return _LazyArtists(
+            self,
+            {artist.id: key for artist in artists if (key := mb_artist_key(artist.id)) in keys},
+        )
 
     def credit(self, parts: Sequence[IncomingCreditPart]) -> ArtistCredit:
         return get_or_create_artist_credit(
