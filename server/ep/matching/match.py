@@ -316,7 +316,7 @@ def _by_external_ids[T: Base](
     return _exact(rows, MatchMethod.external_id)
 
 
-def _similarity(query: str, column: Mapped[str]) -> ColumnElement[float]:
+def _similarity(query: str, column: Mapped[str | None]) -> ColumnElement[float]:
     """Trigram similarity of a normalised query and a normalised column, 0-1, either way
     round, for ranking candidates.
 
@@ -326,7 +326,7 @@ def _similarity(query: str, column: Mapped[str]) -> ColumnElement[float]:
     return func.greatest(func.word_similarity(query, column), func.word_similarity(column, query))
 
 
-def _candidate(query: str, column: Mapped[str]) -> ColumnElement[bool]:
+def _candidate(query: str, column: Mapped[str | None]) -> ColumnElement[bool]:
     """SQL, index-backed: the query is within the normalised column's value (word
     similarity at least ``CANDIDATE_MIN_SIMILARITY``; prepare the query with
     ``trigram_queries`` first)."""
@@ -349,8 +349,8 @@ def match_artist(
     mbid: uuid.UUID | None = None,
     external_ids: ExternalIds = (),
 ) -> MatchResult[Artist]:
-    """Match an artist by MBID, external IDs, then name or sort name: equal after
-    normalisation, or within the edit budget (``name_score``)."""
+    """Match an artist by MBID, external IDs, then name, sort name or original name:
+    equal after normalisation, or within the edit budget (``name_score``)."""
     if mbid and (result := _by_mbid(session, Artist, col(Artist.mbid), mbid)):
         return result
     compatible = _mbid_compatible(col(Artist.mbid), mbid)
@@ -360,17 +360,16 @@ def match_artist(
         return MatchResult(Decision.new, [])
     # The trigram index only narrows the rows down; the edit budget decides.
     [sql_query] = trigram_queries(session, CANDIDATE_MIN_SIMILARITY, query)
-    similarity = func.greatest(
-        _similarity(sql_query, col(Artist.name_normalized)),
-        _similarity(sql_query, col(Artist.sort_name_normalized)),
+    columns = (
+        col(Artist.name_normalized),
+        col(Artist.sort_name_normalized),
+        col(Artist.original_name_normalized),
     )
+    # Postgres's greatest ignores nulls (an artist without original name).
+    similarity = func.greatest(*(_similarity(sql_query, column) for column in columns))
     artists = session.exec(
         select(Artist)
-        .where(
-            _candidate(sql_query, col(Artist.name_normalized))
-            | _candidate(sql_query, col(Artist.sort_name_normalized)),
-            compatible,
-        )
+        .where(or_(*(_candidate(sql_query, column) for column in columns)), compatible)
         .order_by(similarity.desc())
         .limit(CANDIDATE_LIMIT)
     )
@@ -379,7 +378,12 @@ def match_artist(
         for artist in artists
         if (
             score := name_score(
-                query, (normalize_artist(artist.name), normalize_artist(artist.sort_name))
+                query,
+                (
+                    normalize_artist(name)
+                    for name in (artist.name, artist.sort_name, artist.original_name)
+                    if name
+                ),
             )
         )
         is not None

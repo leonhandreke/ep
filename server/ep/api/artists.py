@@ -103,6 +103,7 @@ def _listed_artists(include_radio_only: bool, q: str | None) -> list[ColumnEleme
         where.append(
             col(Artist.name_normalized).contains(needle)
             | col(Artist.sort_name_normalized).contains(needle)
+            | col(Artist.original_name_normalized).contains(needle)
         )
     return where
 
@@ -119,10 +120,10 @@ def list_artists(
     "Bonobo feat. Rhye") are left out; their page lists the albums under
     ``/artists/{id}/appearances``. Artists only known from radio tracklists (no release
     group, only radio-only recordings, see ``ep.radio``) are left out unless
-    ``include_radio_only``. ``q`` filters (still by sort name): artists whose name or
-    sort name contains it, ignoring case, accents and punctuation (index-backed; for
-    ranked fuzzy matching use ``/search``). Where an artist or a typed name is in this
-    list: ``GET /artists/position``."""
+    ``include_radio_only``. ``q`` filters (still by sort name): artists whose name, sort
+    name or original name contains it, ignoring case, accents and punctuation
+    (index-backed; for ranked fuzzy matching use ``/search``). Where an artist or a typed
+    name is in this list: ``GET /artists/position``."""
     query = select(Artist).where(*_listed_artists(include_radio_only, q))
     artists = session.exec(page.apply(session, query).order_by(*_ARTIST_ORDER))
     return [ArtistRead.model_validate(artist) for artist in artists]

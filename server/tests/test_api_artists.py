@@ -20,6 +20,7 @@ def test_create_and_get_artist(client: TestClient) -> None:
     assert artist["disambiguation"] == ""
     assert artist["mbid"] == mbid
     assert artist["type"] == "person"
+    assert artist["original_name"] is None
 
     response = client.get(f"/artists/{artist['id']}")
     assert response.status_code == 200
@@ -34,6 +35,16 @@ def test_create_and_get_artist(client: TestClient) -> None:
         "radio_only": False,
     }
     assert artist["link"] == f"[[artist:{mbid}|Nina Simone]]"
+
+
+def test_original_name(client: TestClient) -> None:
+    """Set, changed and cleared like the other fields; a PATCH without it keeps it."""
+    artist = make_artist(client, "Shinichi Atobe", original_name="跡部進一")
+    assert artist["original_name"] == "跡部進一"
+    url = f"/artists/{artist['id']}"
+    assert client.patch(url, json={"name": "Atobe"}).json()["original_name"] == "跡部進一"
+    assert client.patch(url, json={"original_name": " "}).status_code == 422
+    assert client.patch(url, json={"original_name": None}).json()["original_name"] is None
 
 
 def test_create_artist_validation(client: TestClient) -> None:

@@ -7,11 +7,14 @@ import pytest
 
 from ep.metadata.musicbrainz import (
     USER_AGENT,
+    MBAlias,
     MusicBrainz,
     MusicBrainzError,
     MusicBrainzNotFound,
     RateLimiter,
     escape_lucene,
+    is_latin,
+    latin_alias,
     lucene_query,
     normalize_isrc,
     render_artist_credit,
@@ -24,6 +27,7 @@ from tests.mock_musicbrainz import (
     PROMISES_BANDCAMP,
     PROMISES_RELEASE,
     PROMISES_RELEASE_GROUP,
+    SHINICHI_ATOBE,
     MockMusicBrainz,
     fixture,
 )
@@ -32,6 +36,44 @@ from tests.mock_musicbrainz import (
 @pytest.fixture
 def mb() -> MockMusicBrainz:
     return MockMusicBrainz()
+
+
+def test_artist_lookup_has_aliases(mb: MockMusicBrainz) -> None:
+    artist = mb.get_artist(uuid.UUID(SHINICHI_ATOBE))
+    assert mb.requests[-1].url.params["inc"] == "aliases"
+    assert (artist.name, artist.sort_name) == ("跡部進一", "Atobe, Shinichi")
+    assert artist.aliases == [
+        MBAlias(name="Shinichi Atobe", sort_name="Atobe, Shinichi", locale="en", primary=True)
+    ]
+
+
+@pytest.mark.parametrize(
+    ("text", "latin"),
+    [
+        ("Björk", True),
+        ("Sigur Rós", True),
+        ("Ø (Mika Vainio)", True),
+        ("!!!", True),
+        ("跡部進一", False),
+        ("Эдуард Артемьев", False),
+        ("DJ 光", False),
+    ],
+)
+def test_is_latin(text: str, latin: bool) -> None:
+    assert is_latin(text) is latin
+
+
+def test_latin_alias() -> None:
+    """The primary English alias, else another primary one in Latin script; never one
+    that is not primary (a legal name, a search hint) or not in Latin script."""
+    legal = MBAlias(name="Hiroto Uyama", locale="en", primary=False)
+    japanese = MBAlias(name="宇山寛人", locale="ja", primary=True)
+    german = MBAlias(name="Uyama Hiroto", locale="de", primary=True)
+    english = MBAlias(name="Hiroto Uyama", locale="en", primary=True)
+    assert latin_alias([legal, japanese, german, english]) == english
+    assert latin_alias([legal, japanese, german]) == german
+    assert latin_alias([legal, japanese]) is None
+    assert latin_alias([]) is None
 
 
 def test_get_release_with_tracks_credits_and_isrcs(mb: MockMusicBrainz) -> None:

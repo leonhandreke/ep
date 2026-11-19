@@ -20,6 +20,8 @@ The fixtures are real responses, recorded once (minified):
 - ``url_rels_artist_floating_points``, ``url_rels_release_group_promises`` and
   ``url_rels_release_promises``: lookups with ``inc=url-rels`` (2026-11-18), answering
   every ``inc=url-rels`` lookup of these MBIDs (others: 404)
+- ``artist_shinichi_atobe``: a lookup with ``inc=aliases`` (2026-11-19) of an artist
+  named in Japanese ("跡部進一") with a primary English alias ("Shinichi Atobe")
 - ``search_recording_empty``: a recording search without hits (``recording:"salt
   echoes" AND artist:"aedis"``), answering recording searches that do not mention
   "movement"
@@ -40,6 +42,7 @@ PROMISES_BANDCAMP = "https://floatingpoints.bandcamp.com/album/promises"
 BIG_FUN_RELEASE = "a6549c4e-6b9a-4bfa-8786-15705082a136"
 NEIGHBORHOODS_RELEASE = "811e5e0f-2d45-4917-b637-ee9108d7d561"
 FLOATING_POINTS = "69d9c5ba-7bba-4cb7-ab32-8ccc48ad4f97"
+SHINICHI_ATOBE = "5d456d0f-9d7f-4fd4-8a03-66b0d01d5b0f"
 MOVEMENT_1 = "7a98380f-91e0-4ba4-8fcb-ded1dc0c8525"
 MOVEMENT_1_ISRC = "USLB12010001"
 
@@ -48,6 +51,7 @@ LOOKUPS = {
     f"/ws/2/release/{BIG_FUN_RELEASE}": "release_big_fun",
     f"/ws/2/release/{NEIGHBORHOODS_RELEASE}": "release_neighborhoods",
     f"/ws/2/artist/{FLOATING_POINTS}": "artist_floating_points",
+    f"/ws/2/artist/{SHINICHI_ATOBE}": "artist_shinichi_atobe",
     f"/ws/2/release-group/{PROMISES_RELEASE_GROUP}": "release_group_promises",
     f"/ws/2/recording/{MOVEMENT_1}": "recording_movement_1",
     f"/ws/2/isrc/{MOVEMENT_1_ISRC}": "isrc_movement_1",
@@ -62,6 +66,19 @@ NOT_FOUND = {
 
 def fixture(name: str) -> bytes:
     return (FIXTURES / f"{name}.json").read_bytes()
+
+
+def atobe_promises() -> bytes:
+    """``release_promises`` with Shinichi Atobe, by his MusicBrainz name "跡部進一" (as
+    in a release's credits: no aliases), in place of Floating Points."""
+    text = fixture("release_promises").decode()
+    for old, new in (
+        (FLOATING_POINTS, SHINICHI_ATOBE),
+        ('"name":"Floating Points"', '"name":"跡部進一"'),
+        ('"sort-name":"Floating Points"', '"sort-name":"Atobe, Shinichi"'),
+    ):
+        text = text.replace(old, new)
+    return text.encode()
 
 
 URL_RELS = {

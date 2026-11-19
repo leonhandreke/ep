@@ -306,6 +306,13 @@ docker rm -f ep-harness-db && rm -rf "$D"     # tear down
   YouTube track) to attach instead of creating duplicates: they gain the MBID and a
   track and keep their sources and external IDs (`RecordingConflict` if one has another
   MBID). `propose_recordings(session, release)` proposes that mapping with the matcher.
+  A new artist whose MusicBrainz name is not in Latin script ("跡部進一") is named by
+  its primary English alias, else another primary Latin-script alias ("Shinichi
+  Atobe"; `latin_alias`), and keeps the MusicBrainz name as `original_name` (shown as a
+  secondary line; matched, filtered and searched like the name): one `inc=aliases`
+  lookup for such an artist only (import jobs and `import_release(..., musicbrainz=)`;
+  a failure keeps the MusicBrainz name), and its credits take the alias where they
+  have the MusicBrainz name.
   `POST /musicbrainz/import` wraps the import (metadata only, no cover);
   `GET /musicbrainz/search` searches MusicBrainz.
 - `ep.matching`: `match_artist`, `match_release_group`, `match_recording` take what the

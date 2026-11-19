@@ -79,10 +79,17 @@ class _Searched(NamedTuple):
     credit: QueryableAttribute[Any] | None = None
     # Loaded for the subtitle (a radio episode's show).
     load: QueryableAttribute[Any] | None = None
+    # Another (normalised, nullable) column searched alike: an artist's original name.
+    other_target: Mapped[str | None] | None = None
 
 
 _COLUMNS: dict[EntityType, _Searched] = {
-    EntityType.artist: _Searched(Artist, col(Artist.name_normalized), col(Artist.name)),
+    EntityType.artist: _Searched(
+        Artist,
+        col(Artist.name_normalized),
+        col(Artist.name),
+        other_target=col(Artist.original_name_normalized),
+    ),
     EntityType.release_group: _Searched(
         ReleaseGroup,
         col(ReleaseGroup.title_normalized),
@@ -214,7 +221,7 @@ def _tagged(entity_type: EntityType, tag_id: uuid.UUID) -> ColumnElement[bool]:
 
 
 def _hit_and_rank(
-    query: str, target: Mapped[str]
+    query: str, target: Mapped[str | None]
 ) -> tuple[ColumnElement[bool], ColumnElement[float]]:
     # The normalised query has no LIKE wildcards ("%", "_") or escape characters left.
     starts = target.startswith(query)
@@ -242,7 +249,12 @@ def _search_type(
     visible: ColumnElement[bool] | None,
 ) -> list[SearchHit]:
     searched = _COLUMNS[entity_type]
-    hit, rank = _hit_and_rank(" ".join(words), searched.target)
+    query = " ".join(words)
+    hit, rank = _hit_and_rank(query, searched.target)
+    if searched.other_target is not None:
+        other_hit, other_rank = _hit_and_rank(query, searched.other_target)
+        # Postgres's greatest ignores nulls (no other value).
+        hit, rank = hit | other_hit, func.greatest(rank, other_rank)
     statement = (
         select(searched.model, rank).where(hit).order_by(rank.desc(), searched.display).limit(limit)
     )

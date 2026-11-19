@@ -22,8 +22,9 @@ from sqlmodel import Field, Relationship
 from ep.models.base import Base
 
 
-def normalized(source: str) -> Any:
-    """A field for a stored generated column ``ep_normalize(source)``, for matching.
+def normalized(source: str, nullable: bool = False) -> Any:
+    """A field for a stored generated column ``ep_normalize(source)``, for matching
+    (null where ``source`` is null).
 
     Never set it: the database computes it on insert and update (SQLAlchemy fetches
     it back). Stored rather than an expression index, so that index rechecks and
@@ -32,7 +33,7 @@ def normalized(source: str) -> Any:
     return Field(
         default=None,
         sa_column=sa.Column(
-            sa.Text, sa.Computed(f"ep_normalize({source})", persisted=True), nullable=False
+            sa.Text, sa.Computed(f"ep_normalize({source})", persisted=True), nullable=nullable
         ),
     )
 
@@ -82,6 +83,7 @@ class Artist(Base, table=True):
     __table_args__ = (
         trigram_index("artist", "name_normalized"),
         trigram_index("artist", "sort_name_normalized"),
+        trigram_index("artist", "original_name_normalized"),
         # The order of ``GET /artists``: the first pages read the index instead of
         # sorting every artist (and testing each for radio-only, ``ep.radio``).
         sa.Index("ix_artist_sort_name_name_id", "sort_name", "name", "id"),
@@ -92,6 +94,10 @@ class Artist(Base, table=True):
     sort_name: str
     name_normalized: str = normalized("name")
     sort_name_normalized: str = normalized("sort_name")
+    # The name in its own script when ``name`` is a Latin-script alias (MusicBrainz's
+    # "跡部進一" for "Shinichi Atobe"); matched and searched like the name.
+    original_name: str | None = None
+    original_name_normalized: str | None = normalized("original_name", nullable=True)
     disambiguation: str = ""
     type: ArtistType | None = Field(default=None, sa_type=enum_column(ArtistType))
 

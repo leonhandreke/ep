@@ -15,7 +15,7 @@ from ep.importers.musicbrainz import (
 )
 from ep.main import app
 from ep.matching import Decision, MatchMethod
-from ep.metadata.musicbrainz import MBRelease
+from ep.metadata.musicbrainz import MBArtist, MBRelease, MusicBrainzError
 from ep.models import (
     Artist,
     ArtistCredit,
@@ -38,7 +38,9 @@ from tests.mock_musicbrainz import (
     MOVEMENT_1_ISRC,
     PROMISES_RELEASE,
     PROMISES_RELEASE_GROUP,
+    SHINICHI_ATOBE,
     MockMusicBrainz,
+    atobe_promises,
     fixture,
 )
 
@@ -392,3 +394,86 @@ def test_genres_become_tags_of_a_new_release_group_only(session: Session) -> Non
     import_release(session, release, tags=["new"])
     assert "ambient" not in _tag_names(session, release_group)
     assert "new" not in _tag_names(session, release_group)
+
+
+# Artists not named in Latin script
+
+
+def _atobe(session: Session) -> Artist:
+    return session.exec(select(Artist).where(Artist.mbid == uuid.UUID(SHINICHI_ATOBE))).one()
+
+
+def _alias_lookups(mb: MockMusicBrainz) -> list[str]:
+    return [r.url.path for r in mb.requests if r.url.params.get("inc") == "aliases"]
+
+
+def test_import_release_names_an_artist_by_its_latin_alias(session: Session) -> None:
+    """MusicBrainz's "跡部進一" becomes "Shinichi Atobe" (his primary English alias), with
+    the MusicBrainz name as original name, credited by the alias: one aliases lookup,
+    for him only. Importing again finds him by MBID, asking nothing."""
+    mb = MockMusicBrainz()
+    release_group = import_release(
+        session, MBRelease.model_validate_json(atobe_promises()), musicbrainz=mb
+    )
+    atobe = _atobe(session)
+    assert (atobe.name, atobe.sort_name, atobe.original_name) == (
+        "Shinichi Atobe",
+        "Atobe, Shinichi",
+        "跡部進一",
+    )
+    assert atobe.original_name_normalized == "跡部進一"
+    assert release_group.artist_credit.name.startswith("Shinichi Atobe, Pharoah Sanders")
+    assert _alias_lookups(mb) == [f"/ws/2/artist/{SHINICHI_ATOBE}"]
+    mb.requests.clear()
+    import_release(session, MBRelease.model_validate_json(atobe_promises()), musicbrainz=mb)
+    assert count(session, Artist) == 3
+    assert mb.requests == []
+
+
+def test_artist_keeps_its_name_without_aliases(session: Session) -> None:
+    """Without a client, or when MusicBrainz cannot answer, the MusicBrainz name stays."""
+    import_release(session, MBRelease.model_validate_json(atobe_promises()))
+    assert (_atobe(session).name, _atobe(session).original_name) == ("跡部進一", None)
+
+
+class _Unavailable(MockMusicBrainz):
+    def get_artist(self, mbid: uuid.UUID) -> MBArtist:
+        raise MusicBrainzError("MusicBrainz request failed")
+
+
+def test_artist_aliases_lookup_failure_keeps_the_name(session: Session) -> None:
+    mb = _Unavailable()
+    import_release(session, MBRelease.model_validate_json(atobe_promises()), musicbrainz=mb)
+    assert (_atobe(session).name, _atobe(session).original_name) == ("跡部進一", None)
+
+
+def test_library_artist_found_by_original_name(session: Session) -> None:
+    """A library artist named "跡部進一" (from tags, no MBID) is the MusicBrainz artist
+    (matched by the original name): it gains the MBID and keeps its name."""
+    tagged = Artist(name="跡部進一", sort_name="跡部進一")
+    session.add(tagged)
+    session.flush()
+    import_release(
+        session, MBRelease.model_validate_json(atobe_promises()), musicbrainz=MockMusicBrainz()
+    )
+    assert _atobe(session) is tagged
+    assert (tagged.name, tagged.original_name) == ("跡部進一", None)
+
+
+def test_import_endpoint_names_artist_by_latin_alias(
+    client: TestClient, mb: MockMusicBrainz
+) -> None:
+    """An artist import looks the artist up with its aliases (one request); the artist
+    is found by its original name in the list filter and in search."""
+    response = client.post("/musicbrainz/import", json={"type": "artist", "mbid": SHINICHI_ATOBE})
+    assert response.status_code == 200, response.text
+    assert response.json()["title"] == "Shinichi Atobe"
+    assert [r.url.params.get("inc") for r in mb.requests] == ["aliases"]
+    artist = client.get(f"/artists/{response.json()['id']}").json()
+    assert (artist["name"], artist["original_name"]) == ("Shinichi Atobe", "跡部進一")
+    make_release_group(client, artist)  # listed: credited on a release group
+    for q in "跡部", "atobe":
+        listed = client.get("/artists", params={"q": q}).json()
+        assert [a["name"] for a in listed] == ["Shinichi Atobe"], q
+    hits = client.get("/search", params={"q": "跡部進一", "types": "artist"}).json()
+    assert [hit["title"] for hit in hits] == ["Shinichi Atobe"]

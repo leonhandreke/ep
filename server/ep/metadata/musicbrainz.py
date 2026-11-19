@@ -15,6 +15,7 @@ Usage::
 import re
 import threading
 import time
+import unicodedata
 import uuid
 from importlib.metadata import version
 from types import TracebackType
@@ -62,6 +63,25 @@ class MBModel(BaseModel):
 class MBAlias(MBModel):
     name: str
     sort_name: str = ""
+    # A language code ("en", "ja") for an alias that is the name in that language.
+    locale: str | None = None
+    # The alias is the name in its locale (at most one per locale).
+    primary: bool | None = None
+
+
+def is_latin(text: str) -> bool:
+    """Whether every letter of ``text`` is Latin ("Björk", "Sigur Rós"; not "跡部進一",
+    "Эдуард Артемьев" or "DJ 光")."""
+    return all(unicodedata.name(char, "").startswith("LATIN") for char in text if char.isalpha())
+
+
+def latin_alias(aliases: list[MBAlias]) -> MBAlias | None:
+    """The alias to show for an artist whose name is not in Latin script: the primary
+    English one ("Shinichi Atobe" for "跡部進一"), else another primary alias in Latin
+    script, else None."""
+    primary = [alias for alias in aliases if alias.primary and is_latin(alias.name)]
+    english = [alias for alias in primary if alias.locale == "en"]
+    return next(iter(english or primary), None)
 
 
 class MBArtist(MBModel):
@@ -71,7 +91,8 @@ class MBArtist(MBModel):
     disambiguation: str = ""
     # Person, Group, Orchestra, Choir, Character, Other, or unknown.
     type: str | None = None
-    # Artist searches only: other names (spellings, search hints, legal names).
+    # Artist searches and lookups (``get_artist``) only: other names (spellings, search
+    # hints, legal names, the name in other languages).
     aliases: list[MBAlias] = Field(default_factory=list)
     # Search results only: relevance 0-100.
     score: int | None = None
@@ -329,7 +350,8 @@ class MusicBrainz:
     # Lookups by MBID
 
     def get_artist(self, mbid: uuid.UUID) -> MBArtist:
-        return MBArtist.model_validate_json(self._get(f"artist/{mbid}"))
+        """An artist with its aliases."""
+        return MBArtist.model_validate_json(self._get(f"artist/{mbid}", inc="aliases"))
 
     def get_release(self, mbid: uuid.UUID) -> MBRelease:
         """A release with its release group, media, tracks, recordings, credits and ISRCs.

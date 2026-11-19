@@ -19,11 +19,20 @@ Artists and the release group work the same way: ``artists`` and ``release_group
 the library rows to use (the import framework passes what matching and the user decided),
 and they gain their MBID. Without them, a row with the MBID is used, else a confident
 match (``ep.matching``, ``auto_match``) among the rows without an MBID, else a new row.
+
+A new artist whose MusicBrainz name is not in Latin script ("跡部進一") is named by its
+Latin-script alias ("Shinichi Atobe", see ``artist_names``) and keeps the MusicBrainz
+name as ``original_name``; with a ``musicbrainz`` client given, that asks MusicBrainz
+for the artist's aliases (one request per such artist; a failure keeps the MusicBrainz
+name).
 """
 
+import logging
 import uuid
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 
+from pydantic import ValidationError
 from sqlmodel import Session, col, select
 
 from ep.credits import CreditPart, get_or_create_artist_credit
@@ -37,6 +46,10 @@ from ep.metadata.musicbrainz import (
     MBRelease,
     MBReleaseGroup,
     MBTrack,
+    MusicBrainz,
+    MusicBrainzError,
+    is_latin,
+    latin_alias,
     normalize_isrc,
     render_artist_credit,
 )
@@ -52,6 +65,8 @@ from ep.models import (
     Track,
 )
 from ep.notes.tags import add_imported_tags
+
+log = logging.getLogger(__name__)
 
 _ARTIST_TYPES = {
     "Person": ArtistType.person,
@@ -118,6 +133,7 @@ def import_release(
     artists: Mapping[uuid.UUID, Artist | None] | None = None,
     release_group: ReleaseGroup | None = None,
     tags: Sequence[str] = (),
+    musicbrainz: MusicBrainz | None = None,
 ) -> ReleaseGroup:
     """Add a release (fetched with ``MusicBrainz.get_release``) to the catalogue.
 
@@ -136,13 +152,16 @@ def import_release(
     release, and ``tags`` (e.g. Bandcamp's), as tags; one already in the library keeps
     the tags it has (``ep.notes.tags``).
 
+    ``musicbrainz``: asked for the aliases of a new artist not named in Latin script
+    (see ``artist_names``).
+
     Flushes but does not commit. Returns the release group.
     """
     if release.release_group is None:
         raise ValueError("release lookup without its release group (inc=release-groups)")
     recordings = recordings or {}
     _check_prematched(session, release, recordings)
-    resolver = _ArtistResolver(session, artists or {})
+    resolver = _ArtistResolver(session, artists or {}, musicbrainz)
     release_group = _release_group(session, resolver, release, release.release_group, release_group)
     created = release_group in session.new
     session.flush()
@@ -332,11 +351,13 @@ def import_recording(
     session: Session,
     mb_recording: MBRecording,
     artists: Mapping[uuid.UUID, Artist | None] | None = None,
+    musicbrainz: MusicBrainz | None = None,
 ) -> Recording:
     """The library recording for a MusicBrainz recording (fetched with ``get_recording``):
     the row with its MBID, or a new standalone recording (no track) with its artists
-    (``artists`` as for ``import_release``) and ISRCs. Flushes nothing."""
-    resolver = _ArtistResolver(session, artists or {})
+    (``artists`` and ``musicbrainz`` as for ``import_release``) and ISRCs. Flushes
+    nothing."""
+    resolver = _ArtistResolver(session, artists or {}, musicbrainz)
     return _recording(session, resolver, mb_recording, mb_recording.artist_credit, None)
 
 
@@ -368,20 +389,64 @@ def artist_type(mb_artist: MBArtist) -> ArtistType | None:
     return _ARTIST_TYPES.get(mb_artist.type, ArtistType.other) if mb_artist.type else None
 
 
+def credited_as(artist: Artist, credited_name: str) -> str:
+    """The name to credit an artist with: its name where the credit has its original
+    name (MusicBrainz credits "跡部進一", the library artist is "Shinichi Atobe")."""
+    return artist.name if credited_name == artist.original_name else credited_name
+
+
+@dataclass(frozen=True)
+class ArtistNames:
+    name: str
+    sort_name: str
+    # The MusicBrainz name, when ``name`` is an alias.
+    original_name: str | None = None
+
+
+def artist_names(mb_artist: MBArtist, musicbrainz: MusicBrainz | None) -> ArtistNames:
+    """The names a MusicBrainz artist gets in the library: its MusicBrainz name if that
+    is in Latin script, else its Latin-script alias (``latin_alias``: "Shinichi Atobe"
+    for "跡部進一"), with the MusicBrainz name as the original name. The aliases are the
+    artist's own (a search or lookup result) or, without them, asked from
+    ``musicbrainz`` (one request); no alias, or no answer, keeps the MusicBrainz name."""
+    keep = ArtistNames(mb_artist.name, mb_artist.sort_name)
+    if is_latin(mb_artist.name):
+        return keep
+    aliases = mb_artist.aliases
+    if not aliases and musicbrainz is not None:
+        try:
+            aliases = musicbrainz.get_artist(mb_artist.id).aliases
+        except (MusicBrainzError, ValidationError) as e:
+            log.warning("aliases of MusicBrainz artist %s: %s", mb_artist.id, e)
+    if (alias := latin_alias(aliases)) is None:
+        return keep
+    sort_name = mb_artist.sort_name
+    if not is_latin(sort_name):
+        sort_name = alias.sort_name or alias.name
+    return ArtistNames(alias.name, sort_name, mb_artist.name)
+
+
 class _ArtistResolver:
     """The library artists for the MusicBrainz artists of one import (see the module
     docstring); a library artist without MBID is attached to one MusicBrainz artist only."""
 
-    def __init__(self, session: Session, given: Mapping[uuid.UUID, Artist | None]) -> None:
+    def __init__(
+        self,
+        session: Session,
+        given: Mapping[uuid.UUID, Artist | None],
+        musicbrainz: MusicBrainz | None = None,
+    ) -> None:
         self.session = session
         self.given = given
+        self.musicbrainz = musicbrainz
         self.resolved: dict[uuid.UUID, Artist] = {}
 
     def credit(self, parts: Sequence[MBArtistCreditPart]) -> ArtistCredit:
-        return get_or_create_artist_credit(
-            self.session,
-            [CreditPart(self.artist(part.artist), part.name, part.joinphrase) for part in parts],
-        )
+        credit = []
+        for part in parts:
+            artist = self.artist(part.artist)
+            credit.append(CreditPart(artist, credited_as(artist, part.name), part.joinphrase))
+        return get_or_create_artist_credit(self.session, credit)
 
     def artist(self, mb_artist: MBArtist) -> Artist:
         if (artist := self.resolved.get(mb_artist.id)) is not None:
@@ -390,26 +455,48 @@ class _ArtistResolver:
             self.given.get(mb_artist.id)
             or self.session.exec(select(Artist).where(Artist.mbid == mb_artist.id)).first()
         )
-        if artist is None and mb_artist.id not in self.given:
-            match = match_artist(self.session, mb_artist.name, mbid=mb_artist.id).match
-            if match is not None and match not in self.resolved.values():
-                artist = match
         if artist is None:
-            artist = Artist(
-                mbid=mb_artist.id,
-                name=mb_artist.name,
-                sort_name=mb_artist.sort_name,
-                disambiguation=mb_artist.disambiguation,
-                type=artist_type(mb_artist),
-            )
-            self.session.add(artist)
+            artist = self._match_or_create(mb_artist)
         elif artist.mbid is None:
             artist.mbid = mb_artist.id
         self.resolved[mb_artist.id] = artist
         return artist
 
+    def _match_or_create(self, mb_artist: MBArtist) -> Artist:
+        """A confident match without MBID (which gains it; not for a given artist), else
+        a new artist."""
+        names = artist_names(mb_artist, self.musicbrainz)
+        if mb_artist.id not in self.given:
+            match = match_artist_names(self.session, names, mb_artist.id).match
+            if match is not None and match not in self.resolved.values():
+                match.mbid = mb_artist.id
+                return match
+        artist = Artist(
+            mbid=mb_artist.id,
+            name=names.name,
+            sort_name=names.sort_name,
+            original_name=names.original_name,
+            disambiguation=mb_artist.disambiguation,
+            type=artist_type(mb_artist),
+        )
+        self.session.add(artist)
+        return artist
 
-def import_artist(session: Session, mb_artist: MBArtist) -> Artist:
+
+def match_artist_names(
+    session: Session, names: ArtistNames, mbid: uuid.UUID | None
+) -> MatchResult[Artist]:
+    """``match_artist`` by the name, else (no candidate) by the original name."""
+    result = match_artist(session, names.name, mbid=mbid)
+    if result.decision is Decision.new and names.original_name:
+        return match_artist(session, names.original_name, mbid=mbid)
+    return result
+
+
+def import_artist(
+    session: Session, mb_artist: MBArtist, musicbrainz: MusicBrainz | None = None
+) -> Artist:
     """The library artist for a MusicBrainz artist: the row with its MBID, a confident
-    match without MBID (which gains it), or a new artist. Flushes nothing."""
-    return _ArtistResolver(session, {}).artist(mb_artist)
+    match without MBID (which gains it), or a new artist (named as ``artist_names``
+    says). Flushes nothing."""
+    return _ArtistResolver(session, {}, musicbrainz).artist(mb_artist)

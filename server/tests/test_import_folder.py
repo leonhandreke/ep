@@ -832,3 +832,42 @@ def test_release_credit_unused_by_the_album_creates_no_artist(
     assert release_group.artist_credit.name == PROMISES_ARTIST
     names = set(session.exec(select(Artist.name)).all())
     assert names == {"Floating Points", "Pharoah Sanders", "London Symphony Orchestra"}
+
+
+def test_musicbrainz_artist_named_by_its_latin_alias(
+    client: TestClient,
+    session: Session,
+    music: Path,
+    job_queue: InMemoryConnector,
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A release's artist named "跡部進一" on MusicBrainz is proposed and created as
+    "Shinichi Atobe" (his primary English alias), with the original name, and credited
+    so; the album's other artists (Latin names) are not looked up."""
+    release = mock_musicbrainz.atobe_promises()
+    original = mock_musicbrainz.fixture
+    monkeypatch.setattr(
+        mock_musicbrainz,
+        "fixture",
+        lambda name: release if name == "release_promises" else original(name),
+    )
+    promises_tagged(music / "Promises", None)
+    job = post_import(client, music / "Promises")
+    mb = mock_musicbrainz.MockMusicBrainz()
+    assert run_queued(session, job_queue, settings, mb) == {uuid.UUID(job["id"]): JobState.done}
+    aliases = [r.url.path for r in mb.requests if r.url.params.get("inc") == "aliases"]
+    assert aliases == [f"/ws/2/artist/{mock_musicbrainz.SHINICHI_ATOBE}"]
+    atobe = session.exec(
+        select(Artist).where(Artist.mbid == uuid.UUID(mock_musicbrainz.SHINICHI_ATOBE))
+    ).one()
+    assert (atobe.name, atobe.sort_name, atobe.original_name) == (
+        "Shinichi Atobe",
+        "Atobe, Shinichi",
+        "跡部進一",
+    )
+    [release_group] = session.exec(select(ReleaseGroup)).all()
+    assert release_group.artist_credit.name.startswith("Shinichi Atobe, ")
+    log = client.get(f"/imports/{job['id']}").json()["log"]
+    assert any("'跡部進一' is named 'Shinichi Atobe'" in entry["message"] for entry in log)
+    assert count(session, Artist) == 3

@@ -24,13 +24,17 @@ from sqlalchemy.orm import Mapped
 from sqlmodel import Session
 
 
-def word_similar(query: str, value: Mapped[str] | ColumnElement[str]) -> ColumnElement[bool]:
+def word_similar(
+    query: str, value: Mapped[str | None] | ColumnElement[str | None]
+) -> ColumnElement[bool]:
     """SQL ``query <% value``: the word similarity of the query (from ``trigram_queries``)
     to ``value`` is at least the threshold set there. Index-backed."""
     return literal(query).bool_op("<%")(value)
 
 
-def strict_word_similar(query: str, value: Mapped[str] | ColumnElement[str]) -> ColumnElement[bool]:
+def strict_word_similar(
+    query: str, value: Mapped[str | None] | ColumnElement[str | None]
+) -> ColumnElement[bool]:
     """SQL ``query <<% value``: the strict word similarity (whole words of ``value``) is
     at least the ``strict_threshold`` set by ``trigram_queries``. Index-backed."""
     return literal(query).bool_op("<<%")(value)

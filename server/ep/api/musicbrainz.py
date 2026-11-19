@@ -102,13 +102,15 @@ def import_from_musicbrainz(
     try:
         match body.type:
             case MusicBrainzSearchType.artist:
-                entity = import_artist(session, musicbrainz.get_artist(body.mbid))
+                entity = import_artist(session, musicbrainz.get_artist(body.mbid), musicbrainz)
             case MusicBrainzSearchType.recording:
-                entity = import_recording(session, musicbrainz.get_recording(body.mbid))
+                entity = import_recording(
+                    session, musicbrainz.get_recording(body.mbid), musicbrainz=musicbrainz
+                )
             case MusicBrainzSearchType.release:
                 release = musicbrainz.get_release(body.mbid)
                 try:
-                    entity = import_release(session, release)
+                    entity = import_release(session, release, musicbrainz=musicbrainz)
                 except ReleaseConflict as e:
                     raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from e
     except MusicBrainzNotFound as e:

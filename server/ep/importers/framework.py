@@ -65,10 +65,14 @@ from ep import covers
 from ep.credits import CreditPart, get_or_create_artist_credit
 from ep.importers.artist_lookup import find_mb_artist
 from ep.importers.musicbrainz import (
+    ArtistNames,
     add_isrcs,
+    artist_names,
     artist_type,
+    credited_as,
     import_recording,
     import_release,
+    match_artist_names,
     propose_recordings,
 )
 from ep.importers.proposal import (
@@ -104,7 +108,7 @@ from ep.importers.proposal import (
     UrlCover,
     issue_id,
 )
-from ep.matching import Decision, MatchResult, match_artist, match_recording, match_release_group
+from ep.matching import Decision, MatchResult, match_recording, match_release_group
 from ep.matching.match import likely
 from ep.matching.normalize import normalize, normalize_artist
 from ep.media_roots import is_within_media_roots
@@ -115,6 +119,7 @@ from ep.metadata.musicbrainz import (
     MBRelease,
     MusicBrainz,
     MusicBrainzError,
+    is_latin,
     render_artist_credit,
 )
 from ep.metadata.web import WebError
@@ -951,10 +956,13 @@ def _match_artists(ctx: JobContext, proposal: Proposal) -> None:
         elif artist.target.kind is TargetKind.undecided:
             if artist.mbid is None:
                 _identify_artist(ctx, proposal, artist)
+            elif artist.key == mb_artist_key(artist.mbid):
+                _name_mb_artist(ctx, artist)
             label = artist.name + (f" ({artist.disambiguation})" if artist.disambiguation else "")
+            names = ArtistNames(artist.name, artist.sort_name or artist.name, artist.original_name)
             artist.target = decide(
                 ctx,
-                match_artist(ctx.session, artist.name, mbid=artist.mbid),
+                match_artist_names(ctx.session, names, artist.mbid),
                 kind=IssueKind.uncertain_artist,
                 subject=Subject(type=SubjectType.artist, key=artist.key, label=label),
                 new=_mb_or_new(artist.mbid, label),
@@ -962,6 +970,33 @@ def _match_artists(ctx: JobContext, proposal: Proposal) -> None:
                 blocking=not used[artist.key],
             )
         ctx.advance()
+
+
+def _name_mb_artist(ctx: JobContext, artist: IncomingArtist) -> None:
+    """A MusicBrainz artist (``mb_credit``) not named in Latin script takes its
+    Latin-script alias as its name, and keeps its MusicBrainz name as the original name
+    (``artist_names``; one request, only for such artists)."""
+    if artist.original_name is not None or is_latin(artist.name):
+        return
+    assert artist.mbid is not None
+    try:
+        aliases = ctx.musicbrainz.get_artist(artist.mbid).aliases
+    except (MusicBrainzError, ValidationError) as e:
+        ctx.log(f"aliases of artist {artist.name!r} not read, name kept: {e}", LogLevel.warning)
+        return
+    mb_artist = MBArtist(
+        id=artist.mbid, name=artist.name, sort_name=artist.sort_name or "", aliases=aliases
+    )
+    names = artist_names(mb_artist, None)
+    if names.original_name is None:
+        ctx.log(f"artist {artist.name!r} has no Latin-script alias")
+        return
+    ctx.log(f"artist {names.original_name!r} is named {names.name!r}")
+    artist.name, artist.sort_name, artist.original_name = (
+        names.name,
+        names.sort_name,
+        names.original_name,
+    )
 
 
 def _identify_artist(ctx: JobContext, proposal: Proposal, artist: IncomingArtist) -> None:
@@ -1275,6 +1310,7 @@ class _Applier:
                 mbid=incoming.mbid,
                 name=incoming.name,
                 sort_name=incoming.sort_name or incoming.name,
+                original_name=incoming.original_name,
                 disambiguation=incoming.disambiguation,
                 type=incoming.type,
             )
@@ -1301,10 +1337,13 @@ class _Applier:
         )
 
     def credit(self, parts: Sequence[IncomingCreditPart]) -> ArtistCredit:
-        return get_or_create_artist_credit(
-            self.session,
-            [CreditPart(self.artist(p.artist_key), p.credited_name, p.join_phrase) for p in parts],
-        )
+        credit = []
+        for part in parts:
+            artist = self.artist(part.artist_key)
+            credit.append(
+                CreditPart(artist, credited_as(artist, part.credited_name), part.join_phrase)
+            )
+        return get_or_create_artist_credit(self.session, credit)
 
     def recording(self, track: IncomingTrack) -> Recording | None:
         target = track.target
@@ -1329,7 +1368,10 @@ class _Applier:
                     mb_recording = self.ctx.musicbrainz.get_recording(target.mbid)
                     artists = [part.artist for part in mb_recording.artist_credit]
                     recording = import_recording(
-                        self.session, mb_recording, self.mb_artists(artists)
+                        self.session,
+                        mb_recording,
+                        self.mb_artists(artists),
+                        musicbrainz=self.ctx.musicbrainz,
                     )
             case NewTarget():
                 identities = self._identities(track)
@@ -1489,6 +1531,7 @@ class _Applier:
             artists=self.mb_artists(mb_release_artists(mb_release)),
             release_group=given,
             tags=release.tags,
+            musicbrainz=self.ctx.musicbrainz,
         )
         by_track_id = {
             mb_track.id: (medium.position or index, mb_track.position)

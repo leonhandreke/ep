@@ -142,6 +142,8 @@ class ArtistCreate(BaseModel):
     name: NonEmptyStr
     # Defaults to the name.
     sort_name: NonEmptyStr | None = None
+    # The name in its own script when ``name`` is a Latin-script rendering of it.
+    original_name: NonEmptyStr | None = None
     disambiguation: str = ""
     type: ArtistType | None = None
 
@@ -152,14 +154,19 @@ class ArtistUpdate(BaseModel):
     mbid: uuid.UUID | MISSING | None = MISSING
     name: NonEmptyStr | MISSING = MISSING
     sort_name: NonEmptyStr | MISSING = MISSING
+    original_name: NonEmptyStr | MISSING | None = MISSING
     disambiguation: str | MISSING = MISSING
     type: ArtistType | MISSING | None = MISSING
 
 
 class ArtistRead(Read):
     mbid: uuid.UUID | None
+    # Latin script where MusicBrainz has it ("Shinichi Atobe").
     name: str
     sort_name: str
+    # The name in its own script when ``name`` is a Latin-script alias ("跡部進一"),
+    # for a secondary line; null otherwise.
+    original_name: str | None
     disambiguation: str
     # It has a note (``GET /notes/...``).
     has_note: bool

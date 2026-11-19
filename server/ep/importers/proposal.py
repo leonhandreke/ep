@@ -110,6 +110,9 @@ class IncomingArtist(Model):
     key: str
     name: str
     sort_name: str | None = None
+    # The name in its own script when ``name`` is a Latin-script alias of a MusicBrainz
+    # artist ("跡部進一" for "Shinichi Atobe").
+    original_name: str | None = None
     disambiguation: str = ""
     type: ArtistType | None = None
     mbid: uuid.UUID | None = None

@@ -54,7 +54,7 @@
           "artists"
         ],
         "summary": "List Artists",
-        "description": "Artists by sort name. Artists that only appear on others' albums (credited on no\nrelease group, all their recordings tracks of release groups: the featured artist of\n\"Bonobo feat. Rhye\") are left out; their page lists the albums under\n``/artists/{id}/appearances``. Artists only known from radio tracklists (no release\ngroup, only radio-only recordings, see ``ep.radio``) are left out unless\n``include_radio_only``. ``q`` filters (still by sort name): artists whose name or\nsort name contains it, ignoring case, accents and punctuation (index-backed; for\nranked fuzzy matching use ``/search``). Where an artist or a typed name is in this\nlist: ``GET /artists/position``.",
+        "description": "Artists by sort name. Artists that only appear on others' albums (credited on no\nrelease group, all their recordings tracks of release groups: the featured artist of\n\"Bonobo feat. Rhye\") are left out; their page lists the albums under\n``/artists/{id}/appearances``. Artists only known from radio tracklists (no release\ngroup, only radio-only recordings, see ``ep.radio``) are left out unless\n``include_radio_only``. ``q`` filters (still by sort name): artists whose name, sort\nname or original name contains it, ignoring case, accents and punctuation\n(index-backed; for ranked fuzzy matching use ``/search``). Where an artist or a typed\nname is in this list: ``GET /artists/position``.",
         "operationId": "list_artists",
         "parameters": [
           {
@@ -6171,6 +6171,18 @@
             ],
             "title": "Sort Name"
           },
+          "original_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Original Name"
+          },
           "disambiguation": {
             "type": "string",
             "title": "Disambiguation",
@@ -6327,6 +6339,17 @@
             "type": "string",
             "title": "Sort Name"
           },
+          "original_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Original Name"
+          },
           "disambiguation": {
             "type": "string",
             "title": "Disambiguation"
@@ -6367,6 +6390,7 @@
           "mbid",
           "name",
           "sort_name",
+          "original_name",
           "disambiguation",
           "has_note",
           "type",
@@ -6439,6 +6463,17 @@
             "type": "string",
             "title": "Sort Name"
           },
+          "original_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Original Name"
+          },
           "disambiguation": {
             "type": "string",
             "title": "Disambiguation"
@@ -6472,6 +6507,7 @@
           "mbid",
           "name",
           "sort_name",
+          "original_name",
           "disambiguation",
           "has_note",
           "type",
@@ -6511,6 +6547,18 @@
             "type": "string",
             "minLength": 1,
             "title": "Sort Name"
+          },
+          "original_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Original Name"
           },
           "disambiguation": {
             "type": "string",
@@ -7614,6 +7662,17 @@
             ],
             "title": "Sort Name"
           },
+          "original_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Original Name"
+          },
           "disambiguation": {
             "type": "string",
             "title": "Disambiguation",
@@ -7653,6 +7712,7 @@
           "key",
           "name",
           "sort_name",
+          "original_name",
           "disambiguation",
           "type",
           "mbid",
